@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Feyblet — Module</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'JetBrains Mono', 'Fira Code', monospace; background: #0a0a0a; color: #e0e0e0; padding: 16px; max-width: 900px; margin: 0 auto; }
+  a { color: #8b5cf6; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  h1 { font-size: 18px; color: #8b5cf6; margin-bottom: 4px; }
+  .meta { color: #6b7280; font-size: 12px; margin-bottom: 16px; }
+  .back { font-size: 12px; margin-bottom: 12px; display: block; }
+
+  .file-section { margin-bottom: 24px; }
+  .file-header {
+    font-size: 13px; color: #d4d4d4; background: #151515; border: 1px solid #252525;
+    border-bottom: none; border-radius: 6px 6px 0 0; padding: 8px 12px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .file-path { color: #6b7280; font-size: 11px; }
+  .file-content {
+    background: #0d0d0d; border: 1px solid #1f1f1f; border-radius: 0 0 6px 6px;
+    padding: 12px; font-size: 12px; line-height: 1.6; white-space: pre-wrap;
+    word-break: break-word; max-height: 500px; overflow-y: auto;
+  }
+
+  .status { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; margin-left: 8px; }
+  .status.active { background: #22c55e22; color: #22c55e; }
+  .status.inactive { background: #6b728022; color: #6b7280; }
+
+  .refresh-btn {
+    background: #1a1a1a; border: 1px solid #333; color: #e0e0e0; padding: 4px 12px;
+    border-radius: 4px; font-size: 11px; cursor: pointer;
+  }
+  .refresh-btn:hover { border-color: #8b5cf6; }
+</style>
+</head>
+<body>
+
+<a class="back" href="/">&larr; Dashboard</a>
+<h1 id="title">Loading...</h1>
+<div class="meta" id="meta"></div>
+
+<div id="files"></div>
+
+<script>
+const name = window.location.pathname.split('/module/')[1];
+
+function formatInterval(ms) {
+  if (ms < 1000) return ms + 'ms';
+  if (ms < 60000) return (ms/1000) + 's';
+  if (ms < 3600000) return (ms/60000) + 'm';
+  if (ms < 86400000) return (ms/3600000) + 'h';
+  return (ms/86400000).toFixed(1) + 'd';
+}
+
+function timeAgo(iso) {
+  if (!iso) return 'never';
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < 60000) return Math.round(diff/1000) + 's ago';
+  if (diff < 3600000) return Math.round(diff/60000) + 'm ago';
+  return Math.round(diff/3600000) + 'h ago';
+}
+
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function load() {
+  const res = await fetch(`/api/module/${encodeURIComponent(name)}`);
+  const data = await res.json();
+
+  document.title = `Feyblet — ${data.name}`;
+  document.getElementById('title').innerHTML = `${data.name} <span class="status ${data.active ? 'active' : 'inactive'}">${data.active ? 'active' : 'inactive'}</span>`;
+  document.getElementById('meta').textContent = `Every ${formatInterval(data.intervalMs)} | Last run: ${timeAgo(data.lastRun)}`;
+
+  const filesEl = document.getElementById('files');
+  if (data.files.length === 0) {
+    filesEl.innerHTML = '<p style="color:#6b7280">No files associated with this module.</p>';
+    return;
+  }
+
+  filesEl.innerHTML = data.files.map(f => `
+    <div class="file-section">
+      <div class="file-header">
+        <span>${f.path}</span>
+        <span class="file-path">${f.content.length} chars</span>
+      </div>
+      <div class="file-content">${esc(f.content)}</div>
+    </div>
+  `).join('');
+}
+
+load();
+
+// Auto-refresh every 30s
+setInterval(load, 30000);
+</script>
+</body>
+</html>

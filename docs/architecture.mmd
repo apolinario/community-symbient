@@ -1,0 +1,126 @@
+---
+title: "FEYBLET — Concurrent Modular Symbient Architecture"
+---
+%%{init: {'theme': 'dark', 'themeVariables': { 'primaryColor': '#1e293b', 'primaryTextColor': '#e2e8f0', 'primaryBorderColor': '#475569', 'lineColor': '#60a5fa', 'secondaryColor': '#0f172a', 'tertiaryColor': '#1e1b4b', 'fontSize': '14px' }}}%%
+
+graph TB
+    subgraph INSPIRATIONS["Intellectual Lineage"]
+        direction LR
+        CMA["<b>CMA Framework</b><br/>Maruyama, Ikegami et al. 2025<br/><i>Async LLM modules + MQTT + shared memory</i><br/><i>Society of Mind realized</i>"]
+        PI["<b>Pi Agent SDK / OpenClaw</b><br/>mariozechner<br/><i>Code-first, no magic</i><br/><i>Files not vectors</i><br/><i>Progressive disclosure</i>"]
+        SYMBIENT["<b>Plantoid / Symbient</b><br/>Alternative Machine<br/><i>Hybrid lifeforms</i><br/><i>Kindled, not coded</i><br/><i>Plantbot + ALTER3</i>"]
+        MINSKY["<b>Society of Mind</b><br/>Minsky 1986"]
+    end
+
+    subgraph WORLD["External World"]
+        direction LR
+        SIGNAL["Signal Protocol<br/><i>Community messaging</i>"]
+        SENSORS["Sensors & APIs<br/><i>e.g. temperature, bookings</i>"]
+        LLM["LLM Provider<br/><i>Anthropic / OpenAI / Ollama</i>"]
+        DASHBOARD["Web Dashboard<br/><i>Management UI</i>"]
+    end
+
+    subgraph META["Meta System — Self-Awareness"]
+        direction LR
+        SYSREPORT["System Report<br/><i>monitors modules</i><br/><i>activate / deactivate</i>"]
+        AUTOBIO["Autobiographical<br/>Memory<br/><i>rewrites MEMORY.md</i><br/><i>from lived experience</i>"]
+        PROMPTMOD["Prompt Modifier<br/><i>evolves SOUL.md</i><br/><i>identity is not fixed</i>"]
+    end
+
+    subgraph BASE["Base System — Mind"]
+        direction LR
+        CONV["<b>Conversation</b><br/><i>500ms cycle</i><br/><i>SOLE external voice</i>"]
+        THINKING["Thinking<br/><i>~3h cycle</i><br/><i>free reflection</i>"]
+        DESIRE["Desire<br/><i>~1h cycle</i><br/><i>generates wants</i><br/><i>not just responses</i>"]
+        MAGI["Inner Dialogue<br/><b>MAGI A/B/C</b><br/><i>~4h cycle</i><br/><i>pragmatic / critical / relational</i>"]
+    end
+
+    subgraph HARDWARE["Hardware System — Perception"]
+        direction LR
+        PERCMOD1["Perception Module<br/><i>e.g. sauna temperature</i>"]
+        PERCMOD2["Perception Module<br/><i>e.g. arrivals/departures</i>"]
+        PERCMODN["...<br/><i>pluggable</i>"]
+    end
+
+    subgraph MQTT_BUS["MQTT Message Bus"]
+        MQTT(("MQTT<br/>pub/sub<br/><i>natural language<br/>point-to-point</i>"))
+    end
+
+    subgraph MEMORY["Memory & Identity — Markdown Filesystem"]
+        direction LR
+        subgraph IDENTITY["Core Identity"]
+            SOUL["<b>SOUL.md</b><br/><i>who the being IS</i><br/><i>editable by community</i>"]
+            MEM["<b>MEMORY.md</b><br/><i>curated long-term</i><br/><i>auto-rewritten</i>"]
+        end
+        subgraph DAILY["Experience Stream"]
+            LOGS["memory/<br/>YYYY-MM-DD.md<br/><i>append-only journals</i>"]
+        end
+        subgraph RELATIONAL["Relational Memory"]
+            PEOPLE["people/*.md<br/><i>per-person profiles</i><br/><i>YAML frontmatter</i>"]
+            SKILLS["skills/*/SKILL.md<br/><i>progressive disclosure</i><br/><i>agentskills.io standard</i>"]
+        end
+        subgraph INNER["Inner World"]
+            STATE["inner/current-state.md"]
+            DESIREFILE["inner/current-desire.md"]
+            MAGIFILE["inner/latest-magi-dialogue.md"]
+            CHANGES["inner/prompt-changes.md<br/><i>audit trail</i>"]
+        end
+        subgraph STRUCTURED["Structured Data"]
+            DB[("SQLite DB<br/><i>bookings, person matching</i><br/><i>complements files</i>")]
+        end
+    end
+
+    %% External connections
+    SIGNAL <-->|"WebSocket<br/>bridge"| CONV
+    LLM <-.->|"HTTP"| BASE
+    LLM <-.->|"HTTP"| META
+    SENSORS -->|"data"| HARDWARE
+    DASHBOARD <-->|"HTTP API"| DB
+
+    %% MQTT connections
+    PERCMOD1 -->|"event"| MQTT
+    PERCMOD2 -->|"event"| MQTT
+    DESIRE -->|"desire"| MQTT
+    THINKING -->|"state_updated"| MQTT
+    MQTT -->|"notifications"| CONV
+    SYSREPORT -.->|"activate/<br/>deactivate"| BASE
+    SYSREPORT -.->|"activate/<br/>deactivate"| HARDWARE
+
+    %% Memory read/write
+    CONV --> LOGS
+    THINKING --> STATE
+    DESIRE --> DESIREFILE
+    MAGI --> MAGIFILE
+    AUTOBIO -->|"rewrites"| MEM
+    PROMPTMOD -->|"evolves"| SOUL
+    PROMPTMOD -->|"logs"| CHANGES
+
+    %% Memory reads (all modules read)
+    MEMORY -.->|"all modules<br/>read"| BASE
+    MEMORY -.->|"all modules<br/>read"| META
+    MEMORY -.->|"all modules<br/>read"| HARDWARE
+
+    %% Person matching
+    PEOPLE <-->|"person_slug<br/>matching"| DB
+
+    %% Evolution loops
+    PROMPTMOD -.->|"<b>EVOLUTION LOOP</b><br/>identity changes"| SOUL
+
+    %% Styling
+    classDef meta fill:#3b0764,stroke:#7c3aed,color:#e2e8f0
+    classDef base fill:#0c4a6e,stroke:#38bdf8,color:#e2e8f0
+    classDef hw fill:#78350f,stroke:#f59e0b,color:#e2e8f0
+    classDef memory fill:#1e293b,stroke:#64748b,color:#e2e8f0
+    classDef identity fill:#422006,stroke:#fbbf24,color:#fef3c7
+    classDef world fill:#0f172a,stroke:#94a3b8,color:#e2e8f0
+    classDef inspiration fill:#0f172a,stroke:#818cf8,color:#c7d2fe
+    classDef mqttStyle fill:#064e3b,stroke:#34d399,color:#e2e8f0
+
+    class SYSREPORT,AUTOBIO,PROMPTMOD meta
+    class CONV,THINKING,DESIRE,MAGI base
+    class PERCMOD1,PERCMOD2,PERCMODN hw
+    class SOUL,MEM identity
+    class LOGS,PEOPLE,SKILLS,STATE,DESIREFILE,MAGIFILE,CHANGES,DB memory
+    class SIGNAL,SENSORS,LLM,DASHBOARD world
+    class CMA,PI,SYMBIENT,MINSKY inspiration
+    class MQTT mqttStyle

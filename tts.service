@@ -1,0 +1,17 @@
+[Unit]
+Description=Qwen3-TTS — Voice synthesis API
+After=network.target
+
+[Service]
+Type=simple
+User=plantoidz
+WorkingDirectory=/home/plantoidz/Documents/Qwen3-TTS-Openai-Fastapi
+ExecStart=/home/plantoidz/Documents/Qwen3-TTS-Openai-Fastapi/.venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 1
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=qwen3-tts
+
+[Install]
+WantedBy=multi-user.target

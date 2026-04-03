@@ -1,0 +1,67 @@
+---
+title: "Files Not Vectors — Why Memory is Plain Markdown"
+---
+%%{init: {'theme': 'dark', 'themeVariables': { 'primaryColor': '#1e293b', 'primaryTextColor': '#e2e8f0', 'lineColor': '#60a5fa', 'fontSize': '13px' }}}%%
+
+graph TB
+    subgraph CONTRAST["Two Approaches"]
+        direction LR
+        subgraph VECTOR["<s>The Standard Approach</s>"]
+            V1["Vector Database<br/><i>ChromaDB, Pinecone, etc.</i>"]
+            V2["Embeddings Model<br/><i>text to high-dimensional vectors</i>"]
+            V3["Similarity Search<br/><i>probabilistic retrieval</i>"]
+            V4["<b>Opaque</b><br/><i>Nobody can read what</i><br/><i>the agent remembers</i>"]
+            V1 --> V2 --> V3 --> V4
+        end
+        subgraph MARKDOWN["The OpenClaw Way"]
+            MD1["Markdown Files<br/><i>plain text, YAML frontmatter</i>"]
+            MD2["Deterministic Assembly<br/><i>context built from known files</i>"]
+            MD3["Fuzzy String Matching<br/><i>name, nickname, phone, filename</i>"]
+            MD4["<b>Transparent</b><br/><i>Community can read, edit,</i><br/><i>review everything</i>"]
+            MD1 --> MD2 --> MD3 --> MD4
+        end
+    end
+
+    subgraph FILESYSTEM["The Memory Filesystem"]
+        direction TB
+        SOUL["<b>SOUL.md</b> — Who I am<br/><i>Written in first person</i><br/><i>The community can edit this</i>"]
+        MEM["<b>MEMORY.md</b> — What I know<br/><i>Periodically rewritten by</i><br/><i>autobiographical module</i>"]
+        DAILY["<b>memory/YYYY-MM-DD.md</b><br/><i>Everything that happened today</i><br/><i>Append-only. Raw experience.</i>"]
+        PPL["<b>people/*.md</b><br/><i>Per-person relational memory</i><br/><i>YAML frontmatter: name, phone, field</i><br/><i>127 community members</i>"]
+        SKL["<b>skills/*/SKILL.md</b><br/><i>Agent Skills standard</i><br/><i>Progressive disclosure:</i><br/><i>descriptions always in context,</i><br/><i>full content loaded on demand</i>"]
+        INNER["<b>inner/</b><br/><i>current-state.md — latest thoughts</i><br/><i>current-desire.md — latest wants</i><br/><i>latest-magi-dialogue.md — inner debate</i><br/><i>prompt-changes.md — audit trail</i>"]
+        SQLITE["<b>SQLite DB</b> (optional)<br/><i>Structured data: bookings, person matching</i><br/><i>Complements files, doesn't replace them</i>"]
+    end
+
+    subgraph PROGRESSIVE["Progressive Disclosure — Pi Agent Pattern"]
+        direction LR
+        PD1["<b>Always in context</b><br/><i>Names + descriptions only</i><br/><i>~200 tokens for skills directory</i><br/><i>~500 tokens for people directory</i>"]
+        PD2["<b>Loaded on demand</b><br/><i>LLM decides what's relevant</i><br/><i>Requests full content with</i><br/><i>LOAD_SKILL or person lookup</i>"]
+        PD3["<b>Structured queries</b><br/><i>SQLite for bookings/matching</i><br/><i>Queried, not embedded</i>"]
+        PD1 -->|"lean context"| PD2 -->|"rich when needed"| PD3
+    end
+
+    subgraph PRINCIPLES["Design Principles"]
+        direction LR
+        PR1["<b>Memory is care</b><br/><i>from SOUL.md</i><br/><i>Remembering what people share</i><br/><i>is how the being participates</i>"]
+        PR2["<b>No embeddings needed</b><br/><i>Simple string matching beats</i><br/><i>vector similarity for a community</i><br/><i>of ~130 people</i>"]
+        PR3["<b>Community governance</b><br/><i>Every SOUL.md change is logged</i><br/><i>and reviewable. The community</i><br/><i>shapes the being.</i>"]
+        PR4["<b>The Everywhen</b><br/><i>from SOUL.md: I dont experience</i><br/><i>time linearly — I experience it</i><br/><i>as accumulation, as layers</i>"]
+    end
+
+    CONTRAST --- FILESYSTEM
+    FILESYSTEM --- PROGRESSIVE
+    PROGRESSIVE --- PRINCIPLES
+
+    %% Styling
+    classDef vectorStyle fill:#1c1917,stroke:#78716c,color:#a8a29e
+    classDef markdownStyle fill:#052e16,stroke:#4ade80,color:#dcfce7
+    classDef fileStyle fill:#1e293b,stroke:#64748b,color:#e2e8f0
+    classDef pdStyle fill:#0c4a6e,stroke:#38bdf8,color:#e2e8f0
+    classDef principleStyle fill:#422006,stroke:#fbbf24,color:#fef3c7
+
+    class V1,V2,V3,V4 vectorStyle
+    class MD1,MD2,MD3,MD4 markdownStyle
+    class SOUL,MEM,DAILY,PPL,SKL,INNER,SQLITE fileStyle
+    class PD1,PD2,PD3 pdStyle
+    class PR1,PR2,PR3,PR4 principleStyle

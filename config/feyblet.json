@@ -1,0 +1,29 @@
+{
+  "name": "feyblet",
+  "workspacePath": "./workspace",
+  "signal": {
+    "account": "+15674026181",
+    "httpHost": "127.0.0.1",
+    "httpPort": 8080,
+    "dmPolicy": "open",
+    "groupPolicy": "open",
+    "allowFrom": [],
+    "groupAllowFrom": []
+  },
+  "mqtt": {
+    "brokerUrl": "localhost",
+    "port": 1883
+  },
+  "llm": {
+    "provider": "openai",
+    "model": "qwen/qwen3.5-27b",
+    "baseUrl": "http://localhost:1234"
+  },
+  "modules": {
+    "thinking": { "intervalMs": 10800000 },
+    "desire": { "intervalMs": 3600000 },
+    "magi": { "intervalMs": 14400000, "startActive": false },
+    "autobiographical": { "intervalMs": 21600000, "startActive": false },
+    "prompt-modifier": { "intervalMs": 86400000, "startActive": false }
+  }
+}

@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Feyblet Dashboard</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'JetBrains Mono', 'Fira Code', monospace; background: #0a0a0a; color: #e0e0e0; padding: 16px; }
+  h1 { font-size: 18px; color: #8b5cf6; margin-bottom: 12px; }
+  h2 { font-size: 14px; color: #6b7280; margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 1px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-bottom: 16px; }
+  a.card { text-decoration: none; color: inherit; }
+  .card {
+    background: #151515; border: 1px solid #252525; border-radius: 6px; padding: 10px 12px;
+    font-size: 12px; position: relative; overflow: hidden; cursor: pointer; transition: border-color 0.15s;
+  }
+  .card:hover { border-color: #8b5cf6; }
+  .card .name { font-weight: bold; color: #d4d4d4; font-size: 13px; }
+  .card .meta { color: #6b7280; margin-top: 4px; }
+  .card .status { position: absolute; top: 10px; right: 12px; width: 8px; height: 8px; border-radius: 50%; }
+  .card .status.active { background: #22c55e; box-shadow: 0 0 6px #22c55e55; }
+  .card .status.inactive { background: #6b7280; }
+  .card .status.recent { background: #eab308; box-shadow: 0 0 6px #eab30855; }
+  .card .desc { color: #4b5563; margin-top: 4px; font-size: 11px; }
+
+  #log-container {
+    background: #0d0d0d; border: 1px solid #1f1f1f; border-radius: 6px;
+    height: calc(100vh - 280px); min-height: 300px; overflow-y: auto; padding: 8px 12px;
+    font-size: 11.5px; line-height: 1.6;
+  }
+  .log-line { white-space: pre-wrap; word-break: break-all; }
+  .log-line .ts { color: #4b5563; }
+  .log-line .tag { font-weight: bold; }
+  .log-line .tag-signal { color: #3b82f6; }
+  .log-line .tag-radio { color: #f59e0b; }
+  .log-line .tag-radio-dj { color: #f97316; }
+  .log-line .tag-conversation { color: #8b5cf6; }
+  .log-line .tag-sauna { color: #ef4444; }
+  .log-line .tag-thinking { color: #06b6d4; }
+  .log-line .tag-desire { color: #ec4899; }
+  .log-line .tag-magi { color: #a855f7; }
+  .log-line .tag-bookings { color: #10b981; }
+  .log-line .tag-qmd-index { color: #6b7280; }
+  .log-line .tag-people-sync { color: #14b8a6; }
+  .log-line .tag-people-enrich { color: #14b8a6; }
+  .log-line .tag-orchestrator { color: #d4d4d4; }
+  .log-line .error { color: #ef4444; }
+  .log-line .tool { color: #eab308; }
+  .log-line .broadcast { color: #22c55e; }
+
+  .controls { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+  .controls label { font-size: 12px; color: #6b7280; }
+  .controls select, .controls input { background: #1a1a1a; border: 1px solid #333; color: #e0e0e0; padding: 4px 8px; border-radius: 4px; font-size: 12px; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; margin-left: 6px; }
+  .pill.connected { background: #22c55e22; color: #22c55e; }
+  .pill.disconnected { background: #ef444422; color: #ef4444; }
+  .pill.state { background: #f59e0b22; color: #f59e0b; }
+</style>
+</head>
+<body>
+
+<h1>feyblet <span id="states"></span> <span id="connection-status" class="pill disconnected">connecting...</span></h1>
+
+<h2>Modules</h2>
+<div id="modules" class="grid"></div>
+
+<h2>Live Log</h2>
+<div class="controls">
+  <label>Filter:</label>
+  <select id="filter">
+    <option value="">All</option>
+    <option value="radio">Radio</option>
+    <option value="radio-dj">DJ</option>
+    <option value="conversation">Conversation</option>
+    <option value="signal">Signal</option>
+    <option value="sauna">Sauna</option>
+    <option value="thinking">Thinking</option>
+    <option value="desire">Desire</option>
+    <option value="bookings">Bookings</option>
+    <option value="people">People</option>
+    <option value="broadcast">Broadcast</option>
+  </select>
+  <label><input type="checkbox" id="autoscroll" checked> Auto-scroll</label>
+</div>
+<div id="log-container"></div>
+
+<script>
+const logEl = document.getElementById('log-container');
+const filterEl = document.getElementById('filter');
+const scrollEl = document.getElementById('autoscroll');
+const modulesEl = document.getElementById('modules');
+const connEl = document.getElementById('connection-status');
+let allLines = [];
+
+function formatLogLine(raw) {
+  const m = raw.match(/^(\d{2}:\d{2}:\d{2})\s+\[([^\]]+)\]\s*([\s\S]*)/);
+  if (!m) return `<div class="log-line">${esc(raw)}</div>`;
+  const [, ts, tag, msg] = m;
+  const tagClass = `tag-${tag.replace(/\s+/g, '-')}`;
+  let msgClass = '';
+  if (msg.includes('ERROR') || msg.includes('error') || msg.includes('failed')) msgClass = 'error';
+  else if (msg.includes('Tool:')) msgClass = 'tool';
+  else if (msg.includes('broadcast') || msg.includes('Broadcasting')) msgClass = 'broadcast';
+  return `<div class="log-line"><span class="ts">${ts}</span> <span class="tag ${tagClass}">[${tag}]</span> <span class="${msgClass}">${esc(msg)}</span></div>`;
+}
+
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\\n/g,'\n'); }
+
+function shouldShow(line) {
+  const f = filterEl.value;
+  if (!f) return true;
+  const lower = line.toLowerCase();
+  if (f === 'broadcast') return lower.includes('broadcast') || lower.includes('radio_broadcast');
+  if (f === 'people') return lower.includes('people');
+  return lower.includes(`[${f}]`);
+}
+
+function renderLogs() {
+  const visible = allLines.filter(shouldShow);
+  logEl.innerHTML = visible.map(formatLogLine).join('');
+  if (scrollEl.checked) logEl.scrollTop = logEl.scrollHeight;
+}
+
+filterEl.addEventListener('change', renderLogs);
+
+// SSE
+function connectSSE() {
+  const es = new EventSource('/api/logs');
+  es.onopen = () => { connEl.textContent = 'live'; connEl.className = 'pill connected'; };
+  es.onmessage = (e) => {
+    const line = JSON.parse(e.data);
+    allLines.push(line);
+    if (allLines.length > 1000) allLines = allLines.slice(-800);
+    if (shouldShow(line)) {
+      logEl.insertAdjacentHTML('beforeend', formatLogLine(line));
+      if (scrollEl.checked) logEl.scrollTop = logEl.scrollHeight;
+    }
+  };
+  es.onerror = () => {
+    connEl.textContent = 'disconnected'; connEl.className = 'pill disconnected';
+    es.close();
+    setTimeout(connectSSE, 3000);
+  };
+}
+connectSSE();
+
+// Modules
+function formatInterval(ms) {
+  if (ms < 1000) return ms + 'ms';
+  if (ms < 60000) return (ms/1000) + 's';
+  if (ms < 3600000) return (ms/60000) + 'm';
+  if (ms < 86400000) return (ms/3600000) + 'h';
+  return (ms/86400000).toFixed(1) + 'd';
+}
+
+function timeAgo(iso) {
+  if (!iso) return 'never';
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < 60000) return Math.round(diff/1000) + 's ago';
+  if (diff < 3600000) return Math.round(diff/60000) + 'm ago';
+  return Math.round(diff/3600000) + 'h ago';
+}
+
+async function refreshModules() {
+  try {
+    const res = await fetch('/api/modules');
+    const mods = await res.json();
+    modulesEl.innerHTML = mods.map(m => {
+      const isRecent = m.lastRun && (Date.now() - new Date(m.lastRun).getTime() < m.intervalMs * 1.5);
+      const statusClass = !m.active ? 'inactive' : isRecent ? 'recent' : 'active';
+      return `<a href="/module/${m.name}" class="card">
+        <div class="status ${statusClass}"></div>
+        <div class="name">${m.name}</div>
+        <div class="meta">every ${formatInterval(m.intervalMs)} | ${timeAgo(m.lastRun)}</div>
+        ${m.description ? `<div class="desc">${m.description.slice(0,60)}</div>` : ''}
+      </a>`;
+    }).join('');
+  } catch {}
+}
+refreshModules();
+setInterval(refreshModules, 5000);
+
+// States
+const statesEl = document.getElementById('states');
+async function refreshStates() {
+  try {
+    const res = await fetch('/api/states');
+    const states = await res.json();
+    statesEl.innerHTML = states.map(s => `<span class="pill state">${s}</span>`).join(' ');
+  } catch {}
+}
+refreshStates();
+setInterval(refreshStates, 10000);
+</script>
+</body>
+</html>

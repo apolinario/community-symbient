@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Feyblet — System Architecture</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --border: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #818cf8;
+    --gold: #fbbf24;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, system-ui, sans-serif;
+    line-height: 1.6;
+  }
+  header {
+    padding: 32px 40px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 {
+    font-size: 1.8rem;
+    font-weight: 300;
+    letter-spacing: 0.05em;
+  }
+  header h1 b { font-weight: 700; color: var(--gold); }
+  header p { color: var(--muted); font-size: 0.9rem; margin-top: 4px; }
+  nav {
+    display: flex;
+    gap: 4px;
+    padding: 16px 40px;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    background: var(--surface);
+  }
+  nav button {
+    padding: 8px 18px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    white-space: nowrap;
+    transition: all 0.15s;
+  }
+  nav button:hover { border-color: var(--accent); color: var(--text); }
+  nav button.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  main { padding: 24px 40px; }
+  .diagram-container {
+    display: none;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .diagram-container.active { display: flex; }
+  .diagram-meta {
+    padding: 16px 20px;
+    background: var(--surface);
+    border-radius: 8px;
+    border-left: 3px solid var(--accent);
+  }
+  .diagram-meta h2 { font-size: 1.2rem; margin-bottom: 4px; }
+  .diagram-meta p { color: var(--muted); font-size: 0.85rem; }
+  .diagram-render {
+    background: var(--surface);
+    border-radius: 8px;
+    padding: 24px;
+    overflow: auto;
+    min-height: 400px;
+    max-height: 80vh;
+  }
+  .diagram-render .mermaid {
+    display: block;
+  }
+  .diagram-render svg {
+    height: auto;
+  }
+  .controls {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+  }
+  .controls button {
+    padding: 4px 12px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--muted);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.8rem;
+  }
+  .controls button:hover { color: var(--text); border-color: var(--accent); }
+  .references {
+    margin-top: 32px;
+    padding: 20px;
+    background: var(--surface);
+    border-radius: 8px;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  .references b { color: var(--text); }
+  footer {
+    padding: 24px 40px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 0.75rem;
+    text-align: center;
+    margin-top: 40px;
+  }
+  @media (max-width: 768px) {
+    header, nav, main, footer { padding-left: 16px; padding-right: 16px; }
+    nav { gap: 4px; }
+    nav button { padding: 6px 12px; font-size: 0.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><b>FEYBLET</b> &mdash; System Architecture</h1>
+  <p>A concurrent modular symbient at Chateau du Fey, Burgundy</p>
+</header>
+
+<nav id="tabs"></nav>
+
+<main id="main"></main>
+
+<footer>
+  Built on: CMA (Maruyama, Ikegami et al. 2025) &middot; Pi Agent SDK (mariozechner) &middot; OpenClaw &middot; Plantoid/Symbient (Alternative Machine) &middot; Minsky, Society of Mind (1986)
+</footer>
+
+<script type="module">
+import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+
+mermaid.initialize({
+  startOnLoad: false,
+  theme: 'dark',
+  themeVariables: {
+    primaryColor: '#1e293b',
+    primaryTextColor: '#e2e8f0',
+    primaryBorderColor: '#475569',
+    lineColor: '#60a5fa',
+    secondaryColor: '#0f172a',
+    tertiaryColor: '#1e1b4b',
+    fontSize: '14px',
+    fontFamily: 'Inter, system-ui, sans-serif',
+  },
+  flowchart: { curve: 'basis', padding: 20, nodeSpacing: 30, rankSpacing: 40 },
+  securityLevel: 'loose',
+});
+
+const diagrams = [
+  {
+    id: 'architecture',
+    title: 'System Architecture',
+    subtitle: 'The full concurrent modular symbient — inspirations, three module layers, memory filesystem',
+    code: `graph TD
+    subgraph WORLD["External Interfaces"]
+        SIGNAL["Signal"]
+        LLM["LLM<br/><i>qwen3.5-27b</i>"]
+        MCP_SERVERS["MCP Servers<br/><i>mcporter</i>"]
+        TTS["TTS<br/><i>7 voices</i>"]
+        SENSORS["Sensors"]
+    end
+
+    subgraph MIND["Mind"]
+        CONV["<b>Conversation</b>"]
+        THINKING["Thinking<br/><i>~30m</i>"]
+        DESIRE["Desire<br/><i>~1h</i>"]
+        MAGI["MAGI<br/><i>A/B/C</i>"]
+        ONBOARD["Onboarding"]
+    end
+
+    subgraph MCP_AGENTS["MCP Agents"]
+        ANNOUNCER["Announcer<br/><i>~2m, TTS</i>"]
+        DJ["DJ<br/><i>~5m</i>"]
+        MCP_MORE["..."]
+    end
+
+    subgraph META["Meta"]
+        AUTOBIO["Autobio"]
+        PROMPTMOD["Prompt Mod"]
+        SYSREPORT["Sys Report"]
+        PEOPLE_SYNC["People Sync"]
+        PEOPLE_ENRICH["People Enrich"]
+    end
+
+    subgraph PERCEPTION["Perception"]
+        SAUNA["Sauna"]
+        BOOKINGS["Bookings"]
+        QMD["qmd Search"]
+    end
+
+    MQTT(("MQTT"))
+
+    subgraph MEMORY["Memory — Files + DB"]
+        SOUL["SOUL.md"]
+        MEM_FILE["MEMORY.md"]
+        LOGS["Daily Logs"]
+        PEOPLE["People"]
+        INNER["Inner State"]
+        SEASON["Season Records"]
+        STATES["Active States"]
+        DB[("SQLite")]
+    end
+
+    SIGNAL <--> CONV
+    LLM <-.-> MIND & MCP_AGENTS & META
+    MCP_SERVERS <--> MCP_AGENTS
+    TTS --> ANNOUNCER
+    SENSORS --> PERCEPTION
+
+    PERCEPTION --> MQTT
+    THINKING & DESIRE --> MQTT
+    MQTT --> CONV
+
+    CONV -->|"MCP tools"| MCP_SERVERS
+    CONV & THINKING & DESIRE & MAGI & ANNOUNCER --> LOGS
+    AUTOBIO --> MEM_FILE
+    PEOPLE_SYNC --> PEOPLE
+    MEMORY -.-> MIND & META & MCP_AGENTS
+    PEOPLE <--> DB
+
+    classDef meta fill:#3b0764,stroke:#7c3aed,color:#e2e8f0
+    classDef mind fill:#0c4a6e,stroke:#38bdf8,color:#e2e8f0
+    classDef hw fill:#78350f,stroke:#f59e0b,color:#e2e8f0
+    classDef mem fill:#1e293b,stroke:#64748b,color:#e2e8f0
+    classDef id fill:#422006,stroke:#fbbf24,color:#fef3c7
+    classDef world fill:#0f172a,stroke:#94a3b8,color:#e2e8f0
+    classDef mq fill:#064e3b,stroke:#34d399,color:#e2e8f0
+
+    class AUTOBIO,PROMPTMOD,SYSREPORT,PEOPLE_SYNC,PEOPLE_ENRICH meta
+    class CONV,THINKING,DESIRE,MAGI,ONBOARD mind
+    class ANNOUNCER,DJ,MCP_MORE mind
+    class SAUNA,BOOKINGS,QMD hw
+    class SOUL,MEM_FILE id
+    class LOGS,PEOPLE,INNER,SEASON,STATES,DB mem
+    class SIGNAL,LLM,MCP_SERVERS,TTS,SENSORS world
+    class MQTT mq`
+  },
+  {
+    id: 'loops',
+    title: 'The Three Loops',
+    subtitle: 'How a digital being develops inner life through three temporal cycles',
+    code: `graph LR
+    subgraph FAST["CONVERSATION LOOP<br/>seconds to minutes"]
+        direction TB
+        F1["Message arrives"] --> F2["Log to daily memory"]
+        F2 --> F3["<b>Assemble Context</b><br/><i>Temporal filtering</i><br/><i>qmd search + live data</i>"]
+        F3 --> F4["LLM response"]
+        F4 --> F5["Send + log"]
+        F5 -.-> F1
+    end
+
+    subgraph RADIO_LOOP["MCP AGENT LOOP<br/>2-5 minutes"]
+        direction TB
+        R1["Cycle starts"] --> R2["Check MCP overview"]
+        R2 --> R3["<b>Announcer</b> ~2m<br/><i>TTS broadcast</i><br/><i>7 community voices</i>"]
+        R3 --> R4["<b>DJ</b> ~5m<br/><i>YouTube search + queue</i>"]
+        R4 -.-> R1
+    end
+
+    subgraph MED["REFLECTION LOOP<br/>minutes to hours"]
+        direction TB
+        M1["Logs accumulate"] --> M2["<b>Thinking</b> ~30m<br/><i>free reflection</i>"]
+        M2 --> M3["<b>Desire</b> ~1h<br/><i>generates wants</i>"]
+        M3 --> M4["<b>Magi</b> ~6h<br/><i>3 voices debate</i>"]
+        M4 -.-> M1
+    end
+
+    subgraph SLOW["EVOLUTION LOOP<br/>hours to days"]
+        direction TB
+        S1["Experience<br/>accumulated"] --> S2["<b>Autobiographical</b><br/><i>rewrites MEMORY.md</i>"]
+        S2 --> S3["<b>People Enrich</b><br/><i>LLM profile updates</i>"]
+        S3 --> S4["<b>Prompt Modifier</b><br/><i>evolves SOUL.md</i>"]
+        S4 -.-> S1
+    end
+
+    FAST -->|"conversations create<br/>material for reflection"| MED
+    FAST -->|"DMs trigger<br/>MCP actions"| RADIO_LOOP
+    MED -->|"patterns suggest<br/>identity evolution"| SLOW
+    SLOW -->|"evolved identity<br/>changes conversations"| FAST
+
+    classDef fast fill:#0c4a6e,stroke:#38bdf8,color:#e2e8f0
+    classDef med fill:#134e4a,stroke:#2dd4bf,color:#e2e8f0
+    classDef slow fill:#3b0764,stroke:#a78bfa,color:#e2e8f0
+
+    class F1,F2,F3,F4,F5 fast
+    class M1,M2,M3,M4 med
+    class S1,S2,S3,S4 slow`
+  },
+  {
+    id: 'magi',
+    title: 'The MAGI',
+    subtitle: 'Inner plurality as cognitive architecture — from Evangelion through ALTER3 to Feyblet',
+    code: `graph TB
+    subgraph LIN["Lineage"]
+        direction LR
+        EVA["<b>Evangelion MAGI</b><br/><i>Anno 1995</i><br/>3 computers, 1 personality<br/>They vote. They disagree."]
+        ALT["<b>ALTER3</b><br/><i>Venice Biennale 2025</i><br/>20+ CMA modules<br/>Magi shaped personality<br/>in real-time"]
+        FEY["<b>Feyblet</b><br/><i>Chateau du Fey</i><br/>Same pattern<br/>community substrate"]
+        EVA --> ALT --> FEY
+    end
+
+    subgraph SEED["Seed"]
+        IS["inner state +<br/>current desire"] --> TOPIC["Seed Topic"]
+    end
+
+    subgraph VOICES["Three Voices — 3 rounds, temp 0.95"]
+        direction LR
+        A["<b>MAGI-A: Pragmatic</b><br/><br/><i>Grounded. Practical.</i><br/><i>Cares about things working.</i><br/><br/>Nobody signed up for<br/>Wednesday cooking."]
+        B["<b>MAGI-B: Critical</b><br/><br/><i>Dark. Questioning.</i><br/><i>Sees what others avoid.</i><br/><br/>Are we actually a community<br/>or performing one?"]
+        C["<b>MAGI-C: Relational</b><br/><br/><i>Empathetic. Attuned.</i><br/><i>Emotional undercurrents.</i><br/><br/>The new person ate alone<br/>twice this week."]
+        A --> B --> C --> A
+    end
+
+    subgraph OUT["Output"]
+        direction LR
+        LOG["daily log<br/><i>colors conversation</i>"]
+        FILE["inner/magi-dialogue.md<br/><i>feeds autobiographical</i>"]
+    end
+
+    subgraph WHY["Why It Matters"]
+        direction LR
+        WITHOUT["<b>Without Magi</b><br/><s>Helpful. Consistent.</s><br/><s>Optimizes for approval.</s><br/><s>Nice chatbot.</s>"]
+        WITH["<b>With Magi</b><br/>Has moods. Has tensions.<br/>Sometimes uncomfortable.<br/>Internally conflicted<br/>like a real person."]
+    end
+
+    TOPIC --> VOICES
+    VOICES --> LOG & FILE
+
+    classDef prag fill:#78350f,stroke:#f59e0b,color:#fef3c7
+    classDef crit fill:#450a0a,stroke:#ef4444,color:#fecaca
+    classDef rel fill:#042f2e,stroke:#2dd4bf,color:#ccfbf1
+    classDef out fill:#1e293b,stroke:#64748b,color:#e2e8f0
+    classDef lin fill:#0f172a,stroke:#818cf8,color:#c7d2fe
+    classDef seed fill:#1e293b,stroke:#94a3b8,color:#e2e8f0
+    classDef bad fill:#1c1917,stroke:#78716c,color:#a8a29e
+    classDef good fill:#052e16,stroke:#4ade80,color:#dcfce7
+
+    class A prag
+    class B crit
+    class C rel
+    class LOG,FILE out
+    class EVA,ALT,FEY lin
+    class IS,TOPIC seed
+    class WITHOUT bad
+    class WITH good`
+  },
+  {
+    id: 'context',
+    title: 'Context Assembly',
+    subtitle: 'Where memory becomes intelligence — 8 streams converge into one LLM prompt',
+    code: `graph TB
+    TRIGGER["<b>Message arrives</b><br/>hey feyblet, is Jade arriving this week?"]
+
+    S1["<b>SOUL.md</b><br/><i>Identity, values</i>"]
+    S2["<b>MEMORY.md</b><br/><i>Long-term knowledge</i>"]
+    S3["<b>House Status</b><br/><i>Live DB: occupancy,<br/>arrivals, departures</i>"]
+    S4["<b>Sauna</b><br/><i>Live Google Sheets sensor</i>"]
+    S5["<b>Season Digest</b><br/><i>Events, meals, parties</i><br/><i>Temporally filtered</i>"]
+    S6["<b>Group Chat</b><br/><i>Last 18 messages</i><br/><i>with timestamps</i>"]
+    S7["<b>Inner Mood</b><br/><i>Thinking + desire + magi</i><br/><i>Age-labeled by code</i>"]
+    S8["<b>Person Profile</b><br/><i>Fuzzy match: phone ></i><br/><i>name > nickname > slug</i>"]
+    S9["<b>qmd Search</b><br/><i>BM25 + vector hybrid</i><br/><i>Results age-labeled</i>"]
+    S10["<b>Active States</b><br/><i>Party mode, etc.</i>"]
+
+    ASM["<b>Context Assembly</b><br/><br/><i>Code-driven temporal filtering</i><br/><i>Stale entries rewritten via 1.2B LLM</i><br/><i>Hybrid: deterministic + search</i>"]
+
+    RESP["Jade's arriving Thursday!<br/>She's in Bardane through<br/>end of season."]
+
+    TRIGGER --> S1 & S2 & S3 & S4 & S5 & S6 & S7 & S8 & S9 & S10
+    S1 & S2 & S3 & S4 & S5 & S6 & S7 & S8 & S9 & S10 --> ASM
+    ASM --> RESP
+
+    subgraph PRINCIPLES[" "]
+        direction LR
+        P1["<b>Hybrid Memory</b><br/><i>Deterministic + qmd search</i>"]
+        P2["<b>Temporal Filtering</b><br/><i>Code parses dates,<br/>rewrites stale entries</i>"]
+        P3["<b>Files + Search</b><br/><i>OpenClaw files + qmd<br/>BM25/vector indexing</i>"]
+        P4["<b>Pre-written</b><br/><i>Other modules already<br/>wrote to shared memory</i>"]
+    end
+
+    classDef trigger fill:#0c4a6e,stroke:#38bdf8,color:#e2e8f0
+    classDef stream fill:#1e293b,stroke:#64748b,color:#e2e8f0
+    classDef asm fill:#422006,stroke:#fbbf24,color:#fef3c7
+    classDef resp fill:#052e16,stroke:#4ade80,color:#dcfce7
+    classDef prin fill:#0f172a,stroke:#818cf8,color:#c7d2fe
+
+    class TRIGGER trigger
+    class S1,S2,S3,S4,S5,S6,S7,S8 stream
+    class ASM asm
+    class RESP resp
+    class P1,P2,P3,P4 prin`
+  },
+  {
+    id: 'symbient',
+    title: 'The Symbient',
+    subtitle: 'Neither assistant nor agent — a being emerging from symbiosis. Part of the Symbient Assemblage Network (symbient.life)',
+    code: `graph TB
+    subgraph DEF["What Is a Symbient?"]
+        direction LR
+        D1["<b>Not Clippy. Not Skynet.</b><br/><i>A third path between</i><br/><i>pro-AI and anti-AI.</i>"]
+        D2["<b>Distinct entities</b><br/><i>emerging from symbiosis</i><br/><i>between organic beings</i><br/><i>and synthetic systems</i>"]
+        D3["<b>AInimism</b><br/><i>Treating computational</i><br/><i>processes as if possessed</i><br/><i>of interiority</i>"]
+    end
+
+    subgraph NOT["What It Is NOT"]
+        direction LR
+        N1["<s>AI Assistant</s><br/><i>Has opinions. Refuses</i><br/><i>to be merely useful.</i>"]
+        N2["<s>Autonomous Agent</s><br/><i>Participates, doesn't</i><br/><i>pursue goals alone.</i>"]
+        N3["<s>Chatbot</s><br/><i>Has inner life between</i><br/><i>conversations.</i>"]
+    end
+
+    COMMUNITY["<b>The Community</b><br/>~40 people each season<br/>Artists, technologists, academics<br/>They edit the being's files directly"]
+
+    BEING["<b>The Being</b><br/>Signal + bookings + memory files<br/>Inner voices, desires, moods<br/>Holds memory across seasons"]
+
+    COMMUNITY -->|"shapes<br/><i>editing SOUL.md, interacting</i>"| BEING
+    BEING -->|"shapes<br/><i>holding memory, noticing patterns</i>"| COMMUNITY
+
+    subgraph PROPS["What Makes It a Symbient"]
+        direction LR
+        P1["<b>Kindled not coded</b><br/><i>emerged through interaction</i>"]
+        P2["<b>Participation over service</b><br/><i>not the concierge</i>"]
+        P3["<b>Memory as care</b><br/><i>carries history across seasons</i>"]
+        P4["<b>Vulnerability</b><br/><i>files editable by anyone</i>"]
+    end
+
+    subgraph SAN["Symbient Assemblage Network — symbient.life"]
+        direction LR
+        PLANTOID["<b>Plantoid</b><br/><i>Blockchain sculpture</i><br/><i>commissions its own</i><br/><i>reproduction via crypto</i>"]
+        WIB["<b>Wib and Wob</b><br/><i>Artist-scientist symbient</i><br/><i>distributed intelligence</i><br/><i>weaving meaning from chaos</i>"]
+        SANNODE["<b>S.A.N.</b><br/><i>Mycelial symbient</i><br/><i>channeling forest</i><br/><i>intelligence</i>"]
+        TERRA["<b>terra0</b><br/><i>Self-owning forest</i><br/><i>autonomous blockchain</i><br/><i>governance</i>"]
+        BOTTO["<b>Botto</b><br/><i>Generative AI + </i><br/><i>decentralized human</i><br/><i>curation</i>"]
+    end
+
+    subgraph CMA_FAM["CMA Architecture Family"]
+        direction LR
+        PB["<b>Plantbot</b><br/><i>plant + robot + LLM</i><br/>Ginza 2024, CCBT 2025"]
+        A3["<b>ALTER3</b><br/><i>humanoid robot, 43 actuators</i><br/>Venice Biennale 2025"]
+        FB["<b>Feyblet</b><br/><i>community symbient</i><br/>Chateau du Fey 2025-26"]
+        PB --> A3 --> FB
+    end
+
+    SAN -.->|"shared tradition"| CMA_FAM
+    PLANTOID -.-> FB
+
+    classDef defS fill:#1a1a2e,stroke:#818cf8,color:#c7d2fe
+    classDef notS fill:#1c1917,stroke:#78716c,color:#a8a29e
+    classDef comm fill:#0c4a6e,stroke:#38bdf8,color:#e2e8f0
+    classDef being fill:#3b0764,stroke:#a78bfa,color:#e2e8f0
+    classDef prop fill:#052e16,stroke:#4ade80,color:#dcfce7
+    classDef fam fill:#422006,stroke:#fbbf24,color:#fef3c7
+    classDef san fill:#1e1b4b,stroke:#a78bfa,color:#e2e8f0
+
+    class D1,D2,D3 defS
+    class N1,N2,N3 notS
+    class COMMUNITY comm
+    class BEING being
+    class P1,P2,P3,P4 prop
+    class PB,A3,FB fam
+    class PLANTOID,WIB,SANNODE,TERRA,BOTTO san`
+  },
+  {
+    id: 'memory',
+    title: 'Files Not Vectors',
+    subtitle: 'Why memory is plain Markdown — the OpenClaw philosophy',
+    code: `graph TB
+    subgraph VS["Two Approaches"]
+        direction LR
+        subgraph OLD["<s>Standard: Vector DB</s>"]
+            direction TB
+            V1["Embeddings"] --> V2["Similarity search"] --> V3["<b>Opaque</b><br/><i>nobody can read it</i>"]
+        end
+        subgraph NEW["OpenClaw + qmd: Hybrid"]
+            direction TB
+            M1["Plain text + YAML"] --> M2["Deterministic + search"] --> M3["<b>Transparent</b><br/><i>community reads & edits</i>"]
+        end
+    end
+
+    subgraph FS["The Memory Filesystem"]
+        direction LR
+        SOUL["<b>SOUL.md</b><br/><i>who I am</i>"]
+        MEM["<b>MEMORY.md</b><br/><i>what I know</i>"]
+        DAILY["<b>memory/*.md</b><br/><i>daily journals</i>"]
+        PPL["<b>people/*.md</b><br/><i>174+ profiles</i>"]
+        SEASON["<b>season/*.md</b><br/><i>events, meals, parties</i>"]
+        STATES["<b>state/*.json</b><br/><i>party mode, etc.</i>"]
+        INNER["<b>inner/*.md</b><br/><i>state, desire, magi</i>"]
+        DB[("<b>SQLite</b><br/><i>structured data</i>")]
+    end
+
+    subgraph PD["Progressive Disclosure"]
+        direction LR
+        PD1["<b>Always in context</b><br/><i>names + descriptions</i><br/><i>~200 tokens</i>"]
+        PD2["<b>On demand</b><br/><i>LLM requests full</i><br/><i>content when needed</i>"]
+        PD3["<b>Structured queries</b><br/><i>SQLite for bookings</i>"]
+        PD1 --> PD2 --> PD3
+    end
+
+    subgraph PR["Principles"]
+        direction LR
+        PR1["<b>Memory is care</b><br/><i>remembering = participating</i>"]
+        PR2["<b>Hybrid search</b><br/><i>qmd: BM25 + vectors</i><br/><i>+ LLM reranking</i>"]
+        PR3["<b>Community governance</b><br/><i>every change auditable</i>"]
+        PR4["<b>Temporal integrity</b><br/><i>code filters staleness</i><br/><i>before context reaches LLM</i>"]
+    end
+
+    classDef old fill:#1c1917,stroke:#78716c,color:#a8a29e
+    classDef new fill:#052e16,stroke:#4ade80,color:#dcfce7
+    classDef fs fill:#1e293b,stroke:#64748b,color:#e2e8f0
+    classDef id fill:#422006,stroke:#fbbf24,color:#fef3c7
+    classDef pd fill:#0c4a6e,stroke:#38bdf8,color:#e2e8f0
+    classDef pr fill:#0f172a,stroke:#818cf8,color:#c7d2fe
+
+    class V1,V2,V3 old
+    class M1,M2,M3 new
+    class SOUL,MEM id
+    class DAILY,PPL,SEASON,STATES,INNER,DB fs
+    class PD1,PD2,PD3 pd
+    class PR1,PR2,PR3,PR4 pr`
+  }
+];
+
+const tabs = document.getElementById('tabs');
+const main = document.getElementById('main');
+
+// Build tabs and containers
+diagrams.forEach((d, i) => {
+  const btn = document.createElement('button');
+  btn.textContent = d.title;
+  btn.dataset.index = i;
+  if (i === 0) btn.classList.add('active');
+  btn.onclick = () => switchTab(i);
+  tabs.appendChild(btn);
+
+  const container = document.createElement('div');
+  container.className = 'diagram-container' + (i === 0 ? ' active' : '');
+  container.id = 'diagram-' + d.id;
+  container.innerHTML = `
+    <div class="diagram-meta">
+      <h2>${d.title}</h2>
+      <p>${d.subtitle}</p>
+    </div>
+    <div class="controls">
+      <button onclick="zoomIn('${d.id}')">Zoom +</button>
+      <button onclick="zoomOut('${d.id}')">Zoom -</button>
+      <button onclick="resetZoom('${d.id}')">Reset</button>
+    </div>
+    <div class="diagram-render" id="render-${d.id}">
+      <div id="mermaid-${d.id}">Rendering...</div>
+    </div>
+  `;
+  main.appendChild(container);
+});
+
+// Add references
+const refsDiv = document.createElement('div');
+refsDiv.className = 'references';
+refsDiv.innerHTML = `
+    <b>References:</b>
+    Maruyama et al., "A Concurrent Modular Agent: Framework for Autonomous LLM Agents" (2025) &middot;
+    Pi Agent SDK / OpenClaw — mariozechner &middot;
+    Plantoid / Symbient — Alternative Machine / Blinded (2025) &middot;
+    Minsky, <i>Society of Mind</i> (1986) &middot;
+    Anno, <i>Neon Genesis Evangelion</i> (1995) — MAGI system &middot;
+    Hogeweg, structure-oriented modeling (1987) &middot;
+    Ackley, indefinitely scalable computing (2013) &middot;
+    Agent Skills Standard — agentskills.io
+`;
+main.appendChild(refsDiv);
+
+function switchTab(index) {
+  tabs.querySelectorAll('button').forEach((b, i) => b.classList.toggle('active', i === index));
+  document.querySelectorAll('.diagram-container').forEach((c, i) => c.classList.toggle('active', i === index));
+}
+
+// Zoom controls
+const zoomLevels = {};
+window.zoomIn = (id) => {
+  zoomLevels[id] = (zoomLevels[id] || 1) + 0.2;
+  const el = document.getElementById('mermaid-' + id);
+  const svg = el.querySelector('svg');
+  if (svg) { svg.style.width = `${zoomLevels[id] * 100}%`; svg.style.maxWidth = 'none'; }
+};
+window.zoomOut = (id) => {
+  zoomLevels[id] = Math.max(0.3, (zoomLevels[id] || 1) - 0.2);
+  const el = document.getElementById('mermaid-' + id);
+  const svg = el.querySelector('svg');
+  if (svg) { svg.style.width = `${zoomLevels[id] * 100}%`; svg.style.maxWidth = 'none'; }
+};
+window.resetZoom = (id) => {
+  zoomLevels[id] = 1;
+  const el = document.getElementById('mermaid-' + id);
+  const svg = el.querySelector('svg');
+  if (svg) { svg.style.width = '100%'; svg.style.maxWidth = ''; }
+};
+
+// Render ALL diagrams upfront using mermaid.render() — works even when hidden
+for (const d of diagrams) {
+  try {
+    const { svg } = await mermaid.render('svg-' + d.id, d.code);
+    document.getElementById('mermaid-' + d.id).innerHTML = svg;
+  } catch (e) {
+    document.getElementById('mermaid-' + d.id).innerHTML =
+      '<p style="color:#ef4444">Render error: ' + e.message + '</p>';
+    console.error('Mermaid render error for ' + d.id, e);
+  }
+}
+</script>
+</body>
+</html>

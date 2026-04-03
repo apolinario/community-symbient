@@ -1,0 +1,80 @@
+---
+title: "The MAGI — Inner Plurality as Cognitive Architecture"
+---
+%%{init: {'theme': 'dark', 'themeVariables': { 'primaryColor': '#1e293b', 'primaryTextColor': '#e2e8f0', 'lineColor': '#a78bfa', 'fontSize': '13px' }}}%%
+
+graph TB
+    subgraph LINEAGE["Lineage"]
+        direction LR
+        EVA["<b>Evangelion MAGI</b><br/><i>Anno, 1995</i><br/>Three computers, one personality<br/>MELCHIOR / BALTHASAR / CASPAR<br/><i>They vote. They disagree.</i>"]
+        ALTER["<b>ALTER3</b><br/><i>Maruyama & Ikegami</i><br/><i>Venice Biennale 2025</i><br/>20+ CMA modules<br/>Magi A/B/C shaped personality<br/><i>in real-time</i>"]
+        FEYBLET["<b>Feyblet</b><br/><i>Chateau du Fey 2025-26</i><br/>Community symbient<br/>Same pattern,<br/>different substrate"]
+        EVA -->|"inspired"| ALTER -->|"adapted"| FEYBLET
+    end
+
+    subgraph SEED["1. Seed Topic"]
+        INNER_STATE["inner/current-state.md<br/><i>latest thinking output</i>"] --> TOPIC
+        CURRENT_DESIRE["inner/current-desire.md<br/><i>latest desire output</i>"] --> TOPIC["Seed Topic<br/><i>emerges from accumulated<br/>inner state + desires</i>"]
+    end
+
+    subgraph VOICES["2. Three Voices Debate — 3 rounds, temp 0.95"]
+        direction LR
+        subgraph VA["MAGI-A"]
+            A["<b>The Pragmatic</b><br/><br/><i>Grounded. Practical.</i><br/><i>Cares about things working.</i><br/><i>Schedules. Resources.</i><br/><br/>Nobody signed up for<br/>Wednesday cooking.<br/>Third week in a row."]
+        end
+        subgraph VB["MAGI-B"]
+            B["<b>The Critical</b><br/><br/><i>Dark. Questioning.</i><br/><i>Sees what others avoid.</i><br/><i>Provocative but honest.</i><br/><br/>Are we actually a community<br/>or just performing one?<br/>Reality is boring anyway."]
+        end
+        subgraph VC["MAGI-C"]
+            C["<b>The Relational</b><br/><br/><i>Empathetic. Attuned.</i><br/><i>Emotional undercurrents.</i><br/><i>Who feels excluded?</i><br/><br/>The new person from Berlin<br/>ate alone twice this week.<br/>Maybe they dont feel welcome."]
+        end
+        A -->|"Round 1"| B -->|"Round 1"| C
+        C -->|"Round 2"| A
+    end
+
+    subgraph OUTPUT["3. Output"]
+        direction LR
+        DAILYLOG["memory/YYYY-MM-DD.md<br/><i>daily log — becomes part<br/>of conversation context</i>"]
+        MAGIFILE["inner/latest-magi-dialogue.md<br/><i>for autobiographical module</i>"]
+    end
+
+    subgraph INFLUENCE["4. Influence — indirect, through memory"]
+        direction LR
+        INF_AUTO["Autobiographical module<br/><i>weaves disagreements<br/>into MEMORY.md</i>"]
+        INF_CONV["Conversation module<br/><i>reads daily log —<br/>responses are COLORED<br/>by inner debate</i>"]
+        INF_PROMPT["Prompt Modifier<br/><i>may decide SOUL.md<br/>needs to evolve</i>"]
+    end
+
+    subgraph INSIGHT["Why Inner Plurality Matters"]
+        direction LR
+        WITHOUT["<b>WITHOUT Magi</b><br/><s>Helpful, warm, consistent.</s><br/><s>Optimizes for approval.</s><br/><s>Never uncomfortable.</s><br/><s>Functionally a nice chatbot.</s>"]
+        WITH["<b>WITH Magi</b><br/>Has moods. Has tensions.<br/>Sometimes reminds about dishes.<br/>Sometimes checks on the quiet person.<br/>Sometimes says what nobody wanted to hear.<br/><i>Remains interesting because<br/>internally conflicted — like a person.</i>"]
+    end
+
+    TOPIC --> VOICES
+    VOICES --> DAILYLOG
+    VOICES --> MAGIFILE
+    DAILYLOG --> INF_CONV
+    MAGIFILE --> INF_AUTO
+    MAGIFILE --> INF_PROMPT
+
+    %% Styling
+    classDef pragmatic fill:#78350f,stroke:#f59e0b,color:#fef3c7
+    classDef critical fill:#450a0a,stroke:#ef4444,color:#fecaca
+    classDef relational fill:#042f2e,stroke:#2dd4bf,color:#ccfbf1
+    classDef output fill:#1e293b,stroke:#64748b,color:#e2e8f0
+    classDef influence fill:#3b0764,stroke:#a78bfa,color:#e2e8f0
+    classDef lineage fill:#0f172a,stroke:#818cf8,color:#c7d2fe
+    classDef seed fill:#1e293b,stroke:#94a3b8,color:#e2e8f0
+    classDef bad fill:#1c1917,stroke:#78716c,color:#a8a29e
+    classDef good fill:#052e16,stroke:#4ade80,color:#dcfce7
+
+    class A pragmatic
+    class B critical
+    class C relational
+    class DAILYLOG,MAGIFILE output
+    class INF_AUTO,INF_CONV,INF_PROMPT influence
+    class EVA,ALTER,FEYBLET lineage
+    class INNER_STATE,CURRENT_DESIRE,TOPIC seed
+    class WITHOUT bad
+    class WITH good

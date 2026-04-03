@@ -1,0 +1,17 @@
+[Unit]
+Description=QMD — Quick Markdown Search daemon
+After=network.target
+
+[Service]
+Type=simple
+User=plantoidz
+WorkingDirectory=/home/plantoidz/pi/feyblet
+ExecStart=/home/plantoidz/.bun/bin/bun /home/plantoidz/pi/qmd/dist/cli/qmd.js mcp --http --port 8181
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=qmd
+
+[Install]
+WantedBy=multi-user.target

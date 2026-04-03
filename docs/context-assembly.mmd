@@ -1,0 +1,48 @@
+---
+title: "Context Assembly — Where Memory Becomes Intelligence"
+---
+%%{init: {'theme': 'dark', 'themeVariables': { 'primaryColor': '#1e293b', 'primaryTextColor': '#e2e8f0', 'lineColor': '#60a5fa', 'fontSize': '13px' }}}%%
+
+graph TB
+    TRIGGER["Message arrives<br/><b>hey feyblet, is Jade arriving this week?</b><br/><i>sender: name + phone</i>"]
+
+    subgraph STREAMS["Context Streams — assembled deterministically, not retrieved"]
+        direction LR
+        S1["<b>SOUL.md</b><br/><i>Identity. Values.</i><br/><i>Inner voices.</i><br/><i>Relationship to community.</i>"]
+        S2["<b>MEMORY.md</b><br/><i>Curated long-term knowledge.</i><br/><i>Auto-rewritten by</i><br/><i>autobiographical module.</i>"]
+        S3["<b>Today's Log</b><br/><i>All conversations.</i><br/><i>All sensor readings.</i><br/><i>All module outputs.</i>"]
+        S4["<b>House Status</b><br/><i>Who's here now.</i><br/><i>Arriving / departing.</i><br/><i>Room occupancy.</i>"]
+        S5["<b>Person Knowledge</b><br/><i>Fuzzy match chain:</i><br/><i>name > nickname > phone > filename</i><br/><i>Profile + bookings + aliases</i>"]
+        S6["<b>Community Directory</b><br/><i>All members: name + status</i><br/><i>Progressive disclosure —</i><br/><i>just metadata, not full profiles</i>"]
+        S7["<b>Available Skills</b><br/><i>Names + descriptions only.</i><br/><i>Full content loads on demand</i><br/><i>via LOAD_SKILL.</i>"]
+        S8["<b>Inner State</b><br/><i>Current mood, reflections,</i><br/><i>desires — generated hours ago</i><br/><i>by thinking + desire modules.</i>"]
+    end
+
+    ASSEMBLY["<b>System Prompt + Recent Exchanges</b><br/><br/>All streams converge into<br/>a single LLM call<br/><br/><i>Any provider: Anthropic / OpenAI / Ollama</i>"]
+
+    RESPONSE["<b>Response</b><br/><br/>Jade's arriving Thursday!<br/>She's in Bardane through end of season.<br/>She was here last year too —<br/>fashion and UX design.<br/>Want me to ping her about dinner?"]
+
+    subgraph INSIGHT["Design Principles"]
+        direction LR
+        I1["<b>Not RAG</b><br/><i>No vector similarity search.</i><br/><i>Context is ASSEMBLED —</i><br/><i>deterministically constructed</i><br/><i>from full knowledge state.</i>"]
+        I2["<b>Progressive Disclosure</b><br/><i>Pi Agent pattern: only load</i><br/><i>what's needed. Skills and</i><br/><i>people = names in context,</i><br/><i>full content on demand.</i>"]
+        I3["<b>Files Not Vectors</b><br/><i>OpenClaw: every piece of</i><br/><i>context traces to a readable</i><br/><i>Markdown file the community</i><br/><i>can inspect and edit.</i>"]
+        I4["<b>Pre-written by other modules</b><br/><i>CMA: thinking, desire, perception</i><br/><i>have already written their</i><br/><i>observations to shared memory.</i><br/><i>Conversation just reads.</i>"]
+    end
+
+    TRIGGER --> STREAMS
+    S1 & S2 & S3 & S4 & S5 & S6 & S7 & S8 --> ASSEMBLY
+    ASSEMBLY --> RESPONSE
+
+    %% Styling
+    classDef trigger fill:#0c4a6e,stroke:#38bdf8,color:#e2e8f0
+    classDef stream fill:#1e293b,stroke:#64748b,color:#e2e8f0
+    classDef assembly fill:#422006,stroke:#fbbf24,color:#fef3c7
+    classDef response fill:#052e16,stroke:#4ade80,color:#dcfce7
+    classDef insight fill:#0f172a,stroke:#818cf8,color:#c7d2fe
+
+    class TRIGGER trigger
+    class S1,S2,S3,S4,S5,S6,S7,S8 stream
+    class ASSEMBLY assembly
+    class RESPONSE response
+    class I1,I2,I3,I4 insight

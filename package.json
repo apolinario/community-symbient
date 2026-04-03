@@ -1,0 +1,36 @@
+{
+  "name": "feyblet",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Feyblet - A community symbient built on Pi SDK with CMA-inspired concurrent modules",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "signal": "tsx src/signal/daemon.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@mariozechner/pi-ai": "file:../pi-mono/packages/ai",
+    "@mariozechner/pi-agent-core": "file:../pi-mono/packages/agent",
+    "@sinclair/typebox": "^0.34.49",
+    "@types/ws": "^8.18.1",
+    "better-sqlite3": "^11.7.0",
+    "chokidar": "^4.0.0",
+    "eventsource-parser": "^3.0.0",
+    "mcporter": "^0.8.1",
+    "mqtt": "^5.10.0",
+    "openai": "^6.33.0",
+    "puppeteer-core": "^24.38.0",
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.9"
+  }
+}

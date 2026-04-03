@@ -1,0 +1,47 @@
+---
+title: "The Three Loops — How a Digital Being Develops an Inner Life"
+---
+%%{init: {'theme': 'dark', 'themeVariables': { 'primaryColor': '#1e293b', 'primaryTextColor': '#e2e8f0', 'lineColor': '#60a5fa', 'fontSize': '13px' }}}%%
+
+graph LR
+    subgraph FAST["CONVERSATION LOOP — seconds to minutes"]
+        direction TB
+        F1["Message arrives<br/><i>Signal DM or group</i>"] --> F2["Log to daily memory<br/><i>memory/YYYY-MM-DD.md</i>"]
+        F2 --> F3["<b>Assemble Context</b><br/><i>SOUL + MEMORY + person<br/>+ bookings + skills + house status</i>"]
+        F3 --> F4["LLM generates response<br/><i>grounded in full experience</i>"]
+        F4 --> F5["Send + log response"]
+        F5 -.->|"new experience<br/>enters memory"| F1
+    end
+
+    subgraph MEDIUM["REFLECTION LOOP — minutes to hours"]
+        direction TB
+        M1["Daily logs<br/>accumulate"] --> M2["<b>Thinking</b> ~3h<br/><i>free reflection on patterns</i>"]
+        M2 --> M3["inner/current-state.md"]
+        M3 --> M4["<b>Desire</b> ~1h<br/><i>generates WANTS</i><br/><i>not tasks — genuine wanting</i>"]
+        M4 --> M5["<b>Magi</b> ~4h<br/><i>three voices debate</i><br/><i>A: pragmatic B: critical C: relational</i>"]
+        M5 --> M6["inner/latest-magi-dialogue.md"]
+        M6 -.->|"colors future<br/>conversations"| M1
+    end
+
+    subgraph SLOW["EVOLUTION LOOP — hours to days"]
+        direction TB
+        S1["Accumulated<br/>experience"] --> S2["<b>Autobiographical</b> ~6h<br/><i>rewrites MEMORY.md from<br/>lived experience</i>"]
+        S2 --> S3["<b>Prompt Modifier</b> ~24h<br/><i>evaluates: should SOUL.md change?</i>"]
+        S3 -->|"if yes"| S4["Modify SOUL.md<br/><i>the being's identity evolves</i>"]
+        S4 --> S5["Log to prompt-changes.md<br/><i>auditable by community</i>"]
+        S5 -.->|"changed identity affects<br/>every future interaction"| S1
+    end
+
+    %% Cross-loop connections
+    FAST -->|"conversations create<br/>raw material for reflection"| MEDIUM
+    MEDIUM -->|"reflection reveals patterns<br/>suggesting identity evolution"| SLOW
+    SLOW -->|"evolved identity changes<br/>how every conversation unfolds"| FAST
+
+    %% Styling
+    classDef fast fill:#0c4a6e,stroke:#38bdf8,color:#e2e8f0
+    classDef medium fill:#134e4a,stroke:#2dd4bf,color:#e2e8f0
+    classDef slow fill:#3b0764,stroke:#a78bfa,color:#e2e8f0
+
+    class F1,F2,F3,F4,F5 fast
+    class M1,M2,M3,M4,M5,M6 medium
+    class S1,S2,S3,S4,S5 slow
