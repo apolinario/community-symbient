@@ -33,13 +33,22 @@ export function createSaunaModule(config: Partial<SaunaConfig> = {}) {
   let previousTemp: number | null = null;
 
   return async function sauna(ctx: ModuleContext): Promise<void> {
+
     let reading: SaunaReading;
 
-    try {
-      reading = await fetchLatestReading(cfg.spreadsheetId);
-    } catch (err) {
-      ctx.log(`Sauna fetch failed: ${err}`);
-      return;
+    // Retry with linear backoff: 1s, 2s, 3s... up to 5 attempts
+    const maxRetries = 5;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        reading = await fetchLatestReading(cfg.spreadsheetId);
+        break;
+      } catch (err) {
+        if (attempt === maxRetries) {
+          ctx.log(`Sauna fetch failed after ${maxRetries} retries: ${err}`);
+          return;
+        }
+        await new Promise((r) => setTimeout(r, (attempt + 1) * 1000));
+      }
     }
 
     const { temperatureC, timestamp } = reading;

@@ -41,6 +41,18 @@ export class Orchestrator {
     this.piApiKey = apiKey;
   }
 
+  /** Replace MCP tools in the shared tools array (called on MCP reconnect). */
+  replaceMCPTools(oldMcpTools: any[], newMcpTools: any[]): void {
+    // Remove old MCP tools
+    for (const old of oldMcpTools) {
+      const idx = this.piTools.indexOf(old);
+      if (idx >= 0) this.piTools.splice(idx, 1);
+    }
+    // Add new ones
+    this.piTools.push(...newMcpTools);
+    console.log(`[orchestrator] MCP tools refreshed: ${newMcpTools.map((t: any) => t.name).join(", ")}`);
+  }
+
   register(config: ModuleConfig, fn: ModuleFunction): void {
     if (this.running) throw new Error("Cannot register modules while running");
     this.modules.set(config.name, { config, fn, active: config.startActive });
@@ -144,11 +156,46 @@ export class Orchestrator {
       }
 
       if (mod.config.intervalMs > 0) {
-        await sleep(mod.config.intervalMs, signal);
+        // Sleep until next cycle OR an MQTT message wakes us up
+        await Promise.race([
+          sleep(mod.config.intervalMs, signal),
+          this.bus.waitForMessage(name),
+        ]);
       }
     }
 
     modLog.info("Stopped.");
+  }
+
+  /** Register and start a module while running (hot-reload) */
+  registerLive(config: ModuleConfig, fn: ModuleFunction): void {
+    if (this.modules.has(config.name)) {
+      // Update existing module's config
+      const existing = this.modules.get(config.name)!;
+      existing.config = config;
+      existing.fn = fn;
+      createLogger(config.name).info("config updated (hot-reload)");
+      return;
+    }
+
+    // New module — register and start immediately
+    const mod: RegisteredModule = { config, fn, active: config.startActive };
+    this.modules.set(config.name, mod);
+    createLogger(config.name).info("registered (hot-reload)");
+
+    if (this.running) {
+      this.runModule(config.name, mod, this.abortController.signal);
+    }
+  }
+
+  /** Unregister a module (it will stop on next cycle check) */
+  unregister(name: string): boolean {
+    const mod = this.modules.get(name);
+    if (!mod) return false;
+    mod.active = false;
+    this.modules.delete(name);
+    createLogger(name).info("unregistered");
+    return true;
   }
 }
 

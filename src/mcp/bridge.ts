@@ -19,13 +19,30 @@ export interface MCPServerConfig {
 
 let runtime: Runtime | null = null;
 const serverNames = new Set<string>();
+let _servers: MCPServerConfig[] = [];
+let _onReconnect: ((tools: AgentTool[]) => void) | null = null;
+
+/** Set a callback that fires when MCP reconnects with fresh tools. */
+export function onMCPReconnect(cb: (tools: AgentTool[]) => void) {
+  _onReconnect = cb;
+}
+
+/** Reconnect to all MCP servers — closes existing connections, re-discovers tools. */
+export async function reconnectMCP(): Promise<AgentTool[]> {
+  console.log("[mcp] Reconnecting...");
+  await closeMCP();
+  const tools = await initMCP(_servers);
+  if (_onReconnect) _onReconnect(tools);
+  return tools;
+}
 
 /** Connect to all configured MCP servers and discover their tools. */
 export async function initMCP(servers: MCPServerConfig[]): Promise<AgentTool[]> {
+  _servers = servers;
   runtime = await createRuntime({
     servers: servers.map((s) => ({
       name: s.name,
-      command: { kind: "http" as const, url: new URL(s.url.endsWith("/sse") ? s.url : `${s.url}/sse`) },
+      command: { kind: "http" as const, url: new URL(s.url) },
     })),
     clientInfo: { name: "feyblet", version: "0.1" },
   });
@@ -79,18 +96,28 @@ function mcpToolToAgentTool(serverName: string, tool: ServerToolInfo): AgentTool
     label: tool.name,
     parameters,
     execute: async (_id, params) => {
-      try {
-        if (!runtime) throw new Error("MCP not initialized");
-        const result = await runtime.callTool(serverName, tool.name, { args: params });
-        const content = (result as any)?.content;
-        if (Array.isArray(content)) {
-          const text = content.map((c: any) => c.text || "").join("\n");
-          return { content: [{ type: "text", text }], details: {} };
+      // Try once, reconnect on failure, retry once
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          if (!runtime) throw new Error("MCP not initialized");
+          const args = params && Object.keys(params).length > 0 ? params : undefined;
+          const result = await runtime.callTool(serverName, tool.name, { args });
+          const content = (result as any)?.content;
+          if (Array.isArray(content)) {
+            const text = content.map((c: any) => c.text || "").join("\n");
+            return { content: [{ type: "text", text }], details: {} };
+          }
+          return { content: [{ type: "text", text: JSON.stringify(result) }], details: {} };
+        } catch (err) {
+          if (attempt === 0) {
+            console.log(`[mcp] ${serverName}.${tool.name} failed, reconnecting...`);
+            try { await reconnectMCP(); } catch { /* reconnect failed */ }
+            continue;
+          }
+          return { content: [{ type: "text", text: `MCP error (${serverName}.${tool.name}): ${err}` }], details: {} };
         }
-        return { content: [{ type: "text", text: JSON.stringify(result) }], details: {} };
-      } catch (err) {
-        return { content: [{ type: "text", text: `MCP error (${serverName}.${tool.name}): ${err}` }], details: {} };
       }
+      return { content: [{ type: "text", text: `MCP error: unreachable` }], details: {} };
     },
   };
 }
@@ -120,7 +147,8 @@ function jsonSchemaToTypebox(prop: any): any {
 /** Direct call to an MCP tool — for local tools that need to invoke MCP internally. */
 export async function callMCPTool(serverName: string, toolName: string, args: Record<string, unknown> = {}): Promise<string> {
   if (!runtime) throw new Error("MCP not initialized");
-  const result = await runtime.callTool(serverName, toolName, { args });
+  const cleanArgs = Object.keys(args).length > 0 ? args : undefined;
+  const result = await runtime.callTool(serverName, toolName, { args: cleanArgs });
   const content = (result as any)?.content;
   if (Array.isArray(content)) {
     return content.map((c: any) => c.text || "").join("\n");

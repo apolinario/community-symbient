@@ -127,6 +127,35 @@ export class MQTTBus {
     };
   }
 
+  /**
+   * Returns a promise that resolves when ANY message arrives for this module.
+   * Used by the orchestrator to interrupt sleep and wake modules instantly.
+   * Does NOT consume the message — it stays in the queue for receive().
+   */
+  waitForMessage(moduleName: string): Promise<void> {
+    return new Promise((resolve) => {
+      if (!this.queues.has(moduleName)) {
+        this.queues.set(moduleName, []);
+      }
+      // If there's already a message waiting, resolve immediately
+      const queue = this.queues.get(moduleName)!;
+      if (queue.length > 0) {
+        resolve();
+        return;
+      }
+      // Otherwise, set up a one-shot notification
+      if (!this.waiters.has(moduleName)) {
+        this.waiters.set(moduleName, []);
+      }
+      // We push a special waiter that resolves void and puts the message back
+      this.waiters.get(moduleName)!.push((msg) => {
+        // Put the message back so receive() can get it
+        queue.push(msg);
+        resolve();
+      });
+    });
+  }
+
   async disconnect(): Promise<void> {
     return new Promise((resolve) => {
       if (this.client) {

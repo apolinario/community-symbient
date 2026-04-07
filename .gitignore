@@ -7,8 +7,17 @@ workspace/memory/
 workspace/inner/
 workspace/radio/log.md
 workspace/radio/log.md.bak
+workspace/radio/play-history.csv
+workspace/logs/
+workspace/media/
 workspace/debug/
 workspace/state/*.json
+workspace/tasks/scheduled.json
+workspace/season/events.md
+workspace/season/meals.md
+workspace/season/parties.md
+workspace/season/crispy.md
+workspace/people/
 .env
 .desloppify/
 .claude/

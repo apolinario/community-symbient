@@ -10,8 +10,10 @@
  */
 
 import http from "node:http";
+import fs from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import path from "node:path";
+const { join } = path;
 import type { Orchestrator } from "../core/orchestrator.js";
 import type { MemoryManager } from "../memory/manager.js";
 
@@ -36,18 +38,29 @@ const MODULE_FILES: Record<string, string[]> = {
 
 const PORT = Number(process.env.DASHBOARD_PORT) || 3333;
 
-// Circular log buffer for SSE streaming
+// Log persistence + SSE streaming
 const LOG_BUFFER_SIZE = 500;
-const logBuffer: string[] = [];
 const sseClients = new Set<http.ServerResponse>();
+const LOG_FILE = path.join(process.cwd(), "workspace", "logs", "dashboard.jsonl");
+
+// Ensure log directory exists
+try { fs.mkdirSync(path.dirname(LOG_FILE), { recursive: true }); } catch {}
+
+/** Read last N log lines from disk. */
+function readRecentLogs(n: number = LOG_BUFFER_SIZE): string[] {
+  try {
+    const lines = fs.readFileSync(LOG_FILE, "utf-8").split("\n").filter(Boolean);
+    return lines.slice(-n).map((l: string) => { try { return JSON.parse(l); } catch { return l; } });
+  } catch { return []; }
+}
 
 /** Call this from the logger to feed lines to the dashboard. */
 export function pushLogLine(line: string): void {
-  logBuffer.push(line);
-  if (logBuffer.length > LOG_BUFFER_SIZE) logBuffer.shift();
   for (const client of sseClients) {
     client.write(`data: ${JSON.stringify(line)}\n\n`);
   }
+  // Persist to disk (fire and forget)
+  fs.appendFile(LOG_FILE, JSON.stringify(line) + "\n", () => {});
 }
 
 /** Start the dashboard HTTP server. */
@@ -90,8 +103,8 @@ export function startDashboard(orchestrator: Orchestrator, memory?: MemoryManage
         "Connection": "keep-alive",
         "Access-Control-Allow-Origin": "*",
       });
-      // Send buffered logs first
-      for (const line of logBuffer) {
+      // Send persisted logs first
+      for (const line of readRecentLogs()) {
         res.write(`data: ${JSON.stringify(line)}\n\n`);
       }
       sseClients.add(res);

@@ -34,8 +34,20 @@ import {
   createRadioScheduleTool,
   createRadioCalendarTool,
   createCheckSaunaTool,
+  createScheduleTool,
+  createListScheduleTool,
+  createCancelScheduleTool,
+  createNudgeModuleTool,
+  createWebSearchTool,
+  createViewImageTool,
+  createLoadMoreTool,
+  createSendDMTool,
+  createSendGroupMessageTool,
+  createCreateModuleTool,
+  createDisableModuleTool,
+  createListModulesTool,
 } from "./tools/index.js";
-import { initMCP } from "./mcp/bridge.js";
+import { initMCP, onMCPReconnect } from "./mcp/bridge.js";
 
 // Module loader + special modules
 import { loadModuleConfigs } from "./modules/load-modules.js";
@@ -47,6 +59,8 @@ import { createOnboardingModule } from "./modules/hardware/onboarding.js";
 import { createQmdIndexModule } from "./modules/hardware/qmd-index.js";
 import { createPeopleSyncModule } from "./modules/hardware/people-sync.js";
 import { createPeopleEnrichModule } from "./modules/hardware/people-enrich.js";
+import { createScheduleCheckerModule } from "./modules/hardware/schedule-checker.js";
+import { createModuleSyncModule } from "./modules/hardware/module-sync.js";
 import { createMetaReport } from "./modules/meta/meta-report.js";
 import { startDashboard, pushLogLine } from "./dashboard/server.js";
 import { setLogSink } from "./core/logger.js";
@@ -62,6 +76,10 @@ async function main() {
   const apiKey = getApiKey(config.llm);
   console.log(`Model: ${model.id} via ${model.provider} at ${model.baseUrl}`);
 
+  // Tiny LLM (time parsing, temporal rewrites, image descriptions)
+  const { initTinyLLM } = await import("./core/tiny-llm.js");
+  initTinyLLM(config.llm.tinyBaseUrl || "http://localhost:1235", config.llm.tinyModel || "qwen3.5-2b");
+
   // Core systems
   const memory = new MemoryManager(config.workspacePath);
   const feyopsDb = new FeyOpsDB("./data/feyops.db");
@@ -69,10 +87,31 @@ async function main() {
   memory.setSummarizer(createLLMClient(config.llm));
   console.log("FeyOps DB connected");
 
+  // MQTT bus — created early so tools can reference it
+  const bus = new MQTTBus(
+    `mqtt://${config.mqtt.brokerUrl}:${config.mqtt.port}`,
+    config.name,
+  );
+
+  // Signal bridge — created early so tools can reference it
+  const signal = new SignalBridge(config.signal);
+
+  // Check external services
+  const WHISPER_API = process.env.WHISPER_API || "http://localhost:8001";
+  try {
+    const wr = await fetch(`${WHISPER_API}/v1/audio/transcriptions`, { signal: AbortSignal.timeout(3000) });
+    // 405 (Method Not Allowed) means the endpoint exists but needs POST — that's fine
+    console.log(`Whisper: ${wr.ok || wr.status === 405 ? "ready" : `error (${wr.status})`}`);
+  } catch {
+    console.log("Whisper: not available (voice messages won't be transcribed)");
+  }
+
   // MCP servers — tools auto-discovered at startup
-  const RADIO_MCP = process.env.RADIO_MCP_URL || "http://192.168.10.97:8001";
-  const mcpTools = await initMCP([
+  const RADIO_MCP = process.env.RADIO_MCP_URL || "http://192.168.10.97:8001/sse";
+  const PHONEBOOTH_MCP = process.env.PHONEBOOTH_MCP_URL || "http://192.168.10.97:3001/mcp";
+  let mcpTools = await initMCP([
     { name: "radio", url: RADIO_MCP },
+    { name: "phonebooth", url: PHONEBOOTH_MCP },
   ]);
 
   // Local tools + MCP tools
@@ -85,18 +124,29 @@ async function main() {
     createRadioScheduleTool(),
     createRadioCalendarTool(),
     createCheckSaunaTool(memory),
+    createScheduleTool(config.workspacePath),
+    createListScheduleTool(config.workspacePath),
+    createCancelScheduleTool(config.workspacePath),
+    createNudgeModuleTool(bus, "feyblet"),
+    createWebSearchTool(),
+    createViewImageTool(),
+    createLoadMoreTool(),
+    createSendDMTool(signal, memory),
+    createSendGroupMessageTool(signal),
+    createCreateModuleTool(config.workspacePath),
+    createDisableModuleTool(config.workspacePath),
+    createListModulesTool(config.workspacePath),
     ...mcpTools,
   ];
   console.log(`${tools.length} tools (${mcpTools.length} from MCP): ${tools.map(t => t.name).join(", ")}`);
-
-  const bus = new MQTTBus(
-    `mqtt://${config.mqtt.brokerUrl}:${config.mqtt.port}`,
-    config.name,
-  );
   const orchestrator = new Orchestrator(config, memory, bus);
   orchestrator.setPiContext(model, tools, apiKey);
 
-  const signal = new SignalBridge(config.signal);
+  // Auto-swap MCP tools on reconnect
+  onMCPReconnect((newTools) => {
+    orchestrator.replaceMCPTools(mcpTools, newTools);
+    mcpTools = newTools;
+  });
 
   // --- Hardware modules (code-driven, not markdown) ---
 
@@ -128,6 +178,16 @@ async function main() {
   orchestrator.register(
     { name: "people-enrich", intervalMs: 2 * 24 * 60 * 60_000, startActive: true, description: "LLM-based profile enrichment from chat activity" },
     createPeopleEnrichModule(memory),
+  );
+
+  orchestrator.register(
+    { name: "schedule-checker", intervalMs: 60_000, startActive: true, description: "Checks for due scheduled items, wakes executive" },
+    createScheduleCheckerModule(),
+  );
+
+  orchestrator.register(
+    { name: "module-sync", intervalMs: 30_000, startActive: true, description: "Hot-reload markdown modules" },
+    createModuleSyncModule(orchestrator, config.workspacePath),
   );
 
   // meta-report disabled — quiet hours concept doesn't apply at the château

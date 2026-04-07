@@ -6,8 +6,7 @@
  * Falls back to simple prefix if the tiny model is unavailable.
  */
 
-const REWRITE_MODEL = "liquid/lfm2.5-1.2b";
-const LM_STUDIO_URL = process.env.LLM_BASE_URL || "http://localhost:1234";
+import { tinyComplete } from "./tiny-llm.js";
 
 const SYSTEM_PROMPT = `Rewrite into past tense. Keep the (datetime) prefix. Output ONLY the rewritten line.
 
@@ -41,27 +40,13 @@ async function rewriteSingle(entry: StaleEntry): Promise<string> {
   const prefixed = `(${entry.relativeAge}, ${entry.datetime}) ${cleanText}`;
 
   try {
-    const res = await fetch(`${LM_STUDIO_URL}/v1/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: REWRITE_MODEL,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: prefixed },
-        ],
-        temperature: 0.1,
-        max_tokens: 100,
-      }),
-      signal: AbortSignal.timeout(3000),
+    const rewritten = await tinyComplete({
+      system: SYSTEM_PROMPT,
+      messages: [{ role: "user", content: prefixed }],
+      maxTokens: 100,
+      timeoutMs: 3000,
     });
-
-    if (!res.ok) return fallback(entry);
-
-    const data = await res.json() as any;
-    const rewritten = data.choices?.[0]?.message?.content?.trim();
     if (!rewritten || rewritten.length < 10) return fallback(entry);
-
     return rewritten;
   } catch {
     return fallback(entry);

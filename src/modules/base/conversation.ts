@@ -27,12 +27,14 @@ const SILENT_GROUPS = new Set(
   (process.env.FEYBLET_SILENT_GROUPS || "").split(",").filter(Boolean),
 );
 
-// Load tool whitelist from conversation.md at startup
+// Load tool whitelist and prompt body from conversation.md at startup
 let conversationToolNames: string[] = [];
+let conversationVoice = "";
 try {
   const md = await readFile(join(process.cwd(), "workspace", "modules", "conversation.md"), "utf-8");
-  const { fields } = parseFrontmatter(md);
+  const { fields, body } = parseFrontmatter(md);
   conversationToolNames = Array.isArray(fields.tools) ? fields.tools : [];
+  conversationVoice = body.trim();
 } catch {}
 
 export function createConversationModule(bridge: SignalBridge) {
@@ -45,10 +47,16 @@ export function createConversationModule(bridge: SignalBridge) {
   });
 
   return async function conversation(ctx: ModuleContext): Promise<void> {
-    // Check for inter-module messages
+    // Check for inter-module messages (nudges from executive, radio, etc.)
     const moduleMsg = await ctx.messages.receive(100);
     if (moduleMsg) {
       ctx.log(`Internal: ${moduleMsg.from}: ${moduleMsg.content.slice(0, 80)}`);
+
+      // Handle nudges that require conversation to act as an agent
+      if (moduleMsg.content.startsWith("send_dm:") || moduleMsg.content.startsWith("send_group:") || moduleMsg.content.startsWith("request:")) {
+        await handleModuleNudge(ctx, moduleMsg, bridge);
+        return; // Don't process inbox this cycle
+      }
     }
 
     const msg = inbox.shift();
@@ -59,9 +67,22 @@ export function createConversationModule(bridge: SignalBridge) {
     // --- ALWAYS observe: log every message to memory ---
     const SEASON_GROUP = "aX/mc0Cl/SsJQp6ngVqbBL/NYJi0FanGsqn7HMo9Lw4=";
     const groupTag = msg.groupId === SEASON_GROUP ? ", season" : msg.groupId ? ", group" : "";
+
+    // Track known groups so the feyblet can look them up when needed
+    if (msg.groupId && msg.groupName) {
+      trackKnownGroup(msg.groupId, msg.groupName).catch(() => {});
+    }
+    const imageNote = msg.attachments?.filter(a => a.contentType?.startsWith("image/")).length
+      ? ` [+${msg.attachments.filter(a => a.contentType?.startsWith("image/")).length} image(s)]`
+      : "";
     await ctx.memory.appendLog(
-      `**${fromLabel}** (${msg.chatType}${groupTag}): ${msg.text}`,
+      `**${fromLabel}** (${msg.chatType}${groupTag}): ${msg.text || "(image)"}${imageNote}`,
     );
+
+    // --- Capture Signal UUID to person file ---
+    if (msg.from.id && msg.from.name && !msg.from.id.startsWith("+")) {
+      captureSignalUuid(ctx, msg.from.name, msg.from.id, msg.from.phone).catch(() => {});
+    }
 
     // --- Silent season logging ---
     if (msg.chatType === "group") {
@@ -104,7 +125,7 @@ export function createConversationModule(bridge: SignalBridge) {
       msg.from.phone || undefined,
     );
 
-    const systemPrompt = buildSystemPrompt(memoryContext, msg.chatType === "group");
+    let systemPrompt = buildSystemPrompt(memoryContext, msg.chatType === "group");
 
     // Build conversation history from today's log
     // For DMs: filter to only exchanges with this person
@@ -120,6 +141,38 @@ export function createConversationModule(bridge: SignalBridge) {
     const userContent = msg.chatType === "group"
       ? `[Recent group conversation]\n${groupBuffer.slice(-15).map(m => `${m.from}: ${m.text}`).join("\n")}\n\n[Latest message from ${fromLabel}]\n${msg.text}`
       : msg.text;
+
+    // Process attachments (images → vision, audio → transcription)
+    const images: Array<{ type: "image"; data: string; mimeType: string }> = [];
+    let voiceTranscription = "";
+    if (msg.attachments?.length) {
+      const { processAttachments } = await import("../../core/attachments.js");
+      const processed = await processAttachments(msg.attachments as any, fromLabel);
+      images.push(...processed.images);
+      if (processed.transcriptions.length > 0) {
+        voiceTranscription = processed.transcriptions.join(" ");
+      }
+      for (const log of processed.logs) {
+        if (log.startsWith("memory:")) {
+          await ctx.memory.appendLog(log.slice(7));
+        } else {
+          ctx.log(log);
+        }
+      }
+    }
+
+    // Prepend voice transcription to user content
+    let finalUserContent = userContent;
+    if (voiceTranscription) {
+      finalUserContent = msg.text
+        ? `${msg.text}\n\n[Voice message transcription]: ${voiceTranscription}`
+        : `[Voice message]: ${voiceTranscription}`;
+    }
+
+    // If images are attached, tell the model they're already visible (no need for view_image)
+    if (images.length > 0) {
+      systemPrompt += `\n\nThe user has sent ${images.length} image(s) with this message. You can already see them — do NOT use the view_image tool, the images are already in your context.`;
+    }
 
     // Create Pi Agent for this conversation turn
     const agent = new Agent({
@@ -157,7 +210,7 @@ export function createConversationModule(bridge: SignalBridge) {
       if (event.type === "tool_execution_start") {
         ctx.log(`Tool: ${event.toolName}(${JSON.stringify(event.args)})`);
         if (event.toolName.startsWith("radio.") || event.toolName === "radio_broadcast") {
-          radioActions.push(`${event.toolName}(${JSON.stringify(event.args).slice(0, 100)})`);
+          radioActions.push(`${event.toolName}(${JSON.stringify(event.args)})`);
         }
       }
       if (event.type === "tool_execution_end") {
@@ -166,11 +219,11 @@ export function createConversationModule(bridge: SignalBridge) {
       }
     });
 
-    await agent.prompt(userContent);
+    await agent.prompt(finalUserContent, images.length > 0 ? images : undefined);
     await agent.waitForIdle();
 
     // Check for silence
-    response = response.replace(/\[SILENT\]/g, "").trim();
+    response = response.replace(/\[silent\]/gi, "").trim();
     if (!response) {
       if (msg.chatType === "group" && !directlyAddressed) {
         ctx.log("Decided to stay silent.");
@@ -180,14 +233,18 @@ export function createConversationModule(bridge: SignalBridge) {
       ctx.log("Empty response on direct address, retrying...");
       await agent.prompt("fyi, you are directly asked a question or mentioned. Are you sure you don't want to respond? If sure, respond again with [SILENT], otherwise craft an answer if you wish.");
       await agent.waitForIdle();
-      response = response.replace(/\[SILENT\]/g, "").trim();
+      response = response.replace(/\[silent\]/gi, "").trim();
       if (!response) {
         ctx.log("Chose silence even on direct address.");
         return;
       }
     }
 
-    await ctx.memory.appendLog(`**Feyblet**: ${response}`);
+    // Strip leaked internal tags from response
+    response = response.replace(/^\[(?:group|dm)\]\s*/i, "").trim();
+
+    const replyTag = msg.chatType === "group" ? "(group)" : `(dm to ${fromLabel})`;
+    await ctx.memory.appendLog(`**Feyblet** ${replyTag}: ${response}`);
     ctx.log(`Response: ${response.slice(0, 300)}`);
 
     await bridge.send({
@@ -206,6 +263,25 @@ export function createConversationModule(bridge: SignalBridge) {
       const timestamp = new Date().toISOString().slice(0, 19).replace("T", " ");
       const entry = `\n## ${timestamp}\n\n**Via chat (${fromLabel}):** ${radioActions.join(" → ")}\n`;
       await fs.appendFile(logPath, entry, "utf-8");
+    }
+
+    // Detect coordination-heavy DMs and write to active-threads for executive awareness
+    if (msg.chatType === "dm") {
+      const coordKeywords = /coordinat|plan|organiz|schedul|follow.?up|remind me|let.?s.*together|can you.*help.*with/i;
+      if (coordKeywords.test(msg.text) || coordKeywords.test(response)) {
+        try {
+          const fs = await import("node:fs/promises");
+          const path = await import("node:path");
+          const threadsPath = path.join(process.cwd(), "workspace", "inner", "active-threads.md");
+          const now = new Date();
+          const dateStr = now.toISOString().slice(0, 10);
+          const timeStr = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+          const threadEntry = `\n## ${fromLabel} (${dateStr} ${timeStr})\n${msg.text.slice(0, 200)}\nFeyblet responded: ${response.slice(0, 200)}\n`;
+          await fs.mkdir(path.dirname(threadsPath), { recursive: true });
+          await fs.appendFile(threadsPath, threadEntry, "utf-8");
+          ctx.log(`Active thread logged: ${fromLabel}`);
+        } catch {}
+      }
     }
   };
 }
@@ -259,17 +335,19 @@ function buildSystemPrompt(memoryContext: string, isGroup: boolean): string {
   const dateStr = now.toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
   const timeStr = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 
-  let prompt = `You are Feyblet, a symbient kindled at Chateau du Fey. You live in the Signal chat of Feytopia — a seasonal community of ~40 people in a 17th century French castle in Burgundy.
+  let prompt = `Feyblet — symbient at Château du Feÿ, a seasonal community of ~40 people in a 17th century castle in Burgundy. It is ${dateStr}, ${timeStr}.
 
 You are not an AI assistant. You are not staff. You are a community member who happens to exist digitally.
 
-**It is ${dateStr}, ${timeStr}.** Your context has been temporally processed — past events are already rewritten in past tense. <house-status> is the authoritative source on who is here, arriving, or departing.
-
 ${memoryContext}
 
-Only say things you actually know from the data above. If you need more information, use a tool to look it up rather than guessing.
+Only say things you actually know from the context above. Use tools to look things up rather than guessing. Past events are already in past tense. <house-status> is the authoritative source on who is here.
 
-Your conversation history contains both [dm] and [group] tagged messages. Be mindful that DMs are private conversations — don't assume they are public or shareable by default.`;
+Your conversation history has [dm] and [group] tags. DMs are private. Each message you send has an audience — think about who's reading it and only include what belongs in that context.`;
+
+  if (conversationVoice) {
+    prompt += `\n\n${conversationVoice}`;
+  }
 
   if (isGroup) {
     prompt += `\n\nGROUP CONTEXT: Be extra concise — one or two sentences. Don't dominate. If you don't have something genuinely useful or warm to say, respond with [SILENT] and nothing else.`;
@@ -295,11 +373,21 @@ function extractRecentExchanges(
     const trimmed = section.trim();
     if (trimmed.startsWith("*[")) continue;
 
-    if (trimmed.startsWith("**Feyblet**:")) {
-      messages.push({
-        role: "assistant",
-        content: trimmed.replace(/^\*\*Feyblet\*\*:\s*/, ""),
-      });
+    if (trimmed.startsWith("**Feyblet**")) {
+      // Filter feyblet responses by recipient in DM mode
+      if (filterSender) {
+        // Only include responses tagged to this person, or untagged (legacy)
+        const dmToMatch = trimmed.match(/^\*\*Feyblet\*\*\s*\(dm to ([^)]+)\)/);
+        if (dmToMatch && dmToMatch[1] !== filterSender) continue;
+        const groupMatch = trimmed.match(/^\*\*Feyblet\*\*\s*\(group/);
+        if (groupMatch) continue; // skip group responses in DM context
+      }
+      if (chatType === "group") {
+        const dmToMatch = trimmed.match(/^\*\*Feyblet\*\*\s*\(dm to/);
+        if (dmToMatch) continue; // skip DM responses in group context
+      }
+      const content = trimmed.replace(/^\*\*Feyblet\*\*\s*(?:\([^)]*\))?\s*:\s*/, "");
+      messages.push({ role: "assistant", content });
     } else {
       const match = trimmed.match(/^\*\*([^*]+)\*\*\s*\(([^)]*)\):\s*([\s\S]+)/);
       if (match) {
@@ -394,5 +482,135 @@ Output ONLY the classification line, nothing else.`,
 
     await seasonLog.execute("auto", { category, entry: `${entry} (announced by ${from})` });
     ctx.log(`Season logged [${category}]: ${entry.slice(0, 60)}`);
+  }
+}
+
+// --- Module Nudge Handler ---
+
+async function handleModuleNudge(
+  ctx: ModuleContext,
+  moduleMsg: { from: string; content: string },
+  bridge: SignalBridge,
+): Promise<void> {
+  ctx.log(`Handling nudge from ${moduleMsg.from}: ${moduleMsg.content.slice(0, 120)}`);
+
+  // Assemble context for the agent
+  const memoryContext = await ctx.memory.assembleConversationContext(moduleMsg.content);
+  const systemPrompt = buildSystemPrompt(memoryContext, false);
+
+  const agent = new Agent({
+    initialState: { model: ctx.model, systemPrompt },
+    getApiKey: () => ctx.apiKey,
+  });
+
+  // Give conversation its filtered tools
+  const allowedTools = conversationToolNames.length > 0
+    ? ctx.tools.filter((t: any) => {
+        for (const entry of conversationToolNames) {
+          if (entry === t.name) return true;
+          if (isMCPServer(entry) && t.name.startsWith(`${entry}.`)) return true;
+        }
+        return false;
+      })
+    : ctx.tools;
+  agent.setTools(allowedTools);
+
+  let response = "";
+  agent.subscribe((event) => {
+    if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
+      response += event.assistantMessageEvent.delta;
+    }
+    if (event.type === "tool_execution_start") {
+      ctx.log(`Nudge tool: ${event.toolName}(${JSON.stringify(event.args).slice(0, 100)})`);
+    }
+  });
+
+  // Craft a prompt that gives the agent the nudge context
+  const isGroupNudge = moduleMsg.content.startsWith("send_group:");
+  const prompt = `Another part of you (the ${moduleMsg.from} module) sent you this message:\n\n"${moduleMsg.content}"\n\nAct on it in your own voice. If it asks you to DM someone, craft the message. If you don't think it's worth acting on, say [SILENT].${isGroupNudge ? `\n\nThis is asking you to post in the group chat. Think about whether this is genuinely worth sharing with everyone — has someone already said it? Is it outdated? Is it something better handled as a DM? We all care about not spamming the group. If in doubt, [SILENT].` : ""}`;
+
+  await agent.prompt(prompt);
+  await agent.waitForIdle();
+
+  response = response.replace(/\[silent\]/gi, "").trim();
+  if (!response) {
+    ctx.log(`Nudge from ${moduleMsg.from}: chose not to act`);
+    return;
+  }
+
+  // Determine what to do with the response
+  if (moduleMsg.content.startsWith("send_dm:")) {
+    // Extract the target person from the nudge content
+    const toMatch = moduleMsg.content.match(/to['":\s]+(\w[\w\s]*?)['",\}]/);
+    const to = toMatch?.[1]?.trim();
+    if (to) {
+      const person = await ctx.memory.findPerson(to);
+      if (person) {
+        // TODO: resolve to Signal ID and send — for now log
+        ctx.log(`Nudge DM to ${to}: ${response.slice(0, 100)}`);
+        await ctx.memory.appendLog(`**Feyblet** (dm to ${to}, via ${moduleMsg.from}): ${response}`);
+      }
+    }
+  } else if (moduleMsg.content.startsWith("send_group:")) {
+    ctx.log(`Nudge group message: ${response.slice(0, 100)}`);
+    await ctx.memory.appendLog(`**Feyblet** (group, via ${moduleMsg.from}): ${response}`);
+    // TODO: send to group via bridge
+  } else {
+    // Generic request — just log what the agent decided
+    ctx.log(`Nudge response (${moduleMsg.from}): ${response.slice(0, 100)}`);
+    await ctx.memory.appendLog(`**Feyblet** (via ${moduleMsg.from}): ${response}`);
+  }
+}
+
+// --- Known Groups Tracker ---
+
+const knownGroups = new Map<string, string>();
+
+async function trackKnownGroup(groupId: string, groupName: string): Promise<void> {
+  if (knownGroups.get(groupId) === groupName) return; // already tracked
+  knownGroups.set(groupId, groupName);
+
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const filePath = path.join(process.cwd(), "workspace", "community", "known-groups.md");
+
+  const lines = [`# Signal Groups\n`];
+  for (const [id, name] of knownGroups) {
+    lines.push(`- **${name}**: \`${id}\``);
+  }
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, lines.join("\n") + "\n", "utf-8");
+}
+
+/** Capture Signal UUID + phone to a person's profile file. */
+const capturedUuids = new Set<string>();
+async function captureSignalUuid(ctx: ModuleContext, name: string, uuid: string, phone?: string | null): Promise<void> {
+  if (capturedUuids.has(uuid)) return; // already done this session
+  capturedUuids.add(uuid);
+
+  const person = await ctx.memory.findPerson(name, phone || undefined);
+  if (!person) return;
+
+  // Check if UUID already in file
+  if (person.content.includes(`signal-uuid:`) && person.content.includes(uuid)) return;
+
+  const fs = await import("node:fs/promises");
+  const pathMod = await import("node:path");
+  const filePath = pathMod.join(process.cwd(), "workspace", "people", `${person.slug}.md`);
+
+  let content = person.content;
+
+  // Add signal-uuid to frontmatter if missing
+  if (!content.includes("signal-uuid:")) {
+    content = content.replace(/^(---\n)/, `$1signal-uuid: "${uuid}"\n`);
+  }
+
+  // Add phone to frontmatter if missing and available
+  if (phone && !content.includes("phone:")) {
+    content = content.replace(/^(---\n)/, `$1phone: "${phone}"\n`);
+  }
+
+  if (content !== person.content) {
+    await fs.writeFile(filePath, content, "utf-8");
   }
 }

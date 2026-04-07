@@ -180,6 +180,8 @@ export interface FeybletConfig {
   llm: {
     provider: "anthropic" | "openai" | "ollama";
     model: string;
+    tinyModel?: string;
+    tinyBaseUrl?: string;
     apiKey?: string;
     baseUrl?: string;
   };

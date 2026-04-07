@@ -27,7 +27,7 @@ export function createQmdIndexModule() {
       // Vector embed only every 5 min — GPU intensive
       const now = Date.now();
       if (needsEmbed && (now - lastEmbedTime) >= EMBED_INTERVAL) {
-        const { stdout: embedOut } = await execAsync(`${BUN} ${QMD_CLI} embed`, { timeout: 60000 });
+        const { stdout: embedOut } = await execAsync(`CUDA_VISIBLE_DEVICES=0 ${BUN} ${QMD_CLI} embed`, { timeout: 60000 });
         lastEmbedTime = now;
         const match = embedOut.match(/Embedded (\d+) chunks/);
         if (match) {

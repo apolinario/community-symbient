@@ -225,6 +225,7 @@ export class SignalBridge {
       timestamp: new Date(source.timestamp),
       chatType: dataMsg.groupInfo ? "group" : "dm",
       groupId: dataMsg.groupInfo?.groupId,
+      groupName: dataMsg.groupInfo?.groupName,
       mentions: dataMsg.mentions,
       quotedAuthorUuid: dataMsg.quote?.authorUuid,
       attachments: dataMsg.attachments?.map((a: SignalAttachment) => ({
@@ -255,7 +256,7 @@ interface SignalEnvelope {
     timestamp: number;
     dataMessage?: {
       message?: string;
-      groupInfo?: { groupId: string };
+      groupInfo?: { groupId: string; groupName?: string };
       attachments?: SignalAttachment[];
       mentions?: Array<{ start: number; length: number; uuid: string }>;
     };

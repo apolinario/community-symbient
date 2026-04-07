@@ -16,6 +16,75 @@ import type { ModuleContext } from "../core/types.js";
 import { Agent } from "@mariozechner/pi-agent-core";
 import { completeText } from "../core/llm.js";
 import { isMCPServer } from "../mcp/bridge.js";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { join, dirname } from "node:path";
+
+const PLAY_HISTORY_PATH = join(process.cwd(), "workspace", "radio", "play-history.csv");
+
+async function trackPlay(args: any, result: string): Promise<void> {
+  // Skip if result is an error
+  if (result.includes("MCP error") || result.includes("Error")) return;
+
+  const url = args?.url || "";
+  // Try to extract title from the result (now_playing or title field)
+  const titleMatch = result.match(/"(?:now_playing|title)":\s*"([^"]+)"/);
+  const title = titleMatch?.[1] || url || "";
+
+  // Skip if we have no meaningful data
+  if (!title && !url) return;
+
+  await mkdir(dirname(PLAY_HISTORY_PATH), { recursive: true });
+
+  // Read existing CSV, find existing row for this title, increment count
+  let csv = "";
+  try { csv = await readFile(PLAY_HISTORY_PATH, "utf-8"); } catch {}
+  if (!csv) csv = "title,count,last_played\n";
+
+  const lines = csv.split("\n");
+  const header = lines[0];
+  const rows = lines.slice(1).filter(Boolean);
+
+  const safeTitle = title.replace(/"/g, '""');
+  const now = new Date().toISOString();
+  let found = false;
+
+  const updated = rows.map((row) => {
+    const match = row.match(/^"([^"]*(?:""[^"]*)*)",(\d+),/);
+    if (match && match[1] === safeTitle) {
+      found = true;
+      return `"${safeTitle}",${parseInt(match[2]) + 1},"${now}"`;
+    }
+    return row;
+  });
+
+  if (!found) {
+    updated.push(`"${safeTitle}",1,"${now}"`);
+  }
+
+  await writeFile(PLAY_HISTORY_PATH, header + "\n" + updated.join("\n") + "\n", "utf-8");
+}
+
+async function getTopPlayed(count: number): Promise<string[]> {
+  try {
+    const csv = await readFile(PLAY_HISTORY_PATH, "utf-8");
+    const lines = csv.split("\n").slice(1).filter(Boolean);
+
+    const entries: Array<[string, number]> = [];
+    for (const line of lines) {
+      const match = line.match(/^"([^"]*(?:""[^"]*)*)",(\d+),/);
+      if (match) {
+        entries.push([match[1].replace(/""/g, '"'), parseInt(match[2])]);
+      }
+    }
+
+    return entries
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, count)
+      .map(([title, n]) => `${title} (${n}x)`);
+  } catch {
+    return [];
+  }
+}
 
 export interface ModuleSpec {
   name: string;
@@ -34,6 +103,17 @@ export interface ModuleSpec {
 export function createAgentModule(spec: ModuleSpec) {
   return async function agentModule(ctx: ModuleContext): Promise<void> {
     ctx.log(`Starting ${spec.name} cycle`);
+
+    // Check for pending MQTT nudges from other modules
+    const nudges: string[] = [];
+    let nudgeMsg = await ctx.messages.receive(50);
+    while (nudgeMsg) {
+      nudges.push(`[from ${nudgeMsg.from}] ${nudgeMsg.content}`);
+      ctx.log(`Nudge received from ${nudgeMsg.from}: ${nudgeMsg.content.slice(0, 100)}`);
+      // Log to daily memory so nudges are searchable and visible to all modules
+      await ctx.memory.appendLog(`*[Nudge ${nudgeMsg.from} → ${spec.name}]* ${nudgeMsg.content}`);
+      nudgeMsg = await ctx.messages.receive(50);
+    }
 
     // Assemble context — use conversation context (which filters inner monologue)
     // so inner modules don't feed on each other's outputs
@@ -105,6 +185,11 @@ export function createAgentModule(spec: ModuleSpec) {
       if (event.type === "tool_execution_end") {
         const resultText = event.result?.content?.map((c: any) => c.text || "").join("") || JSON.stringify(event.result);
         ctx.log(`Result: ${event.toolName} → ${resultText}`);
+
+        // Track played songs
+        if (event.toolName === "radio.play_music" && !event.isError) {
+          trackPlay(event.args, resultText).catch(() => {});
+        }
       }
       if (event.type === "agent_end") {
         ctx.log(`Agent ended, messages: ${event.messages.length}`);
@@ -123,9 +208,9 @@ export function createAgentModule(spec: ModuleSpec) {
     const seedTime = `${now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} on ${now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}`;
     const seedParts = [];
 
-    if (spec.name === "radio" || spec.name === "radio-dj") {
+    if (spec.name === "radio") {
       seedParts.push(`THE CURRENT TIME IS ${seedTime}. Use this as your reference — any times in previous broadcasts or context are from earlier and may be stale. Calculate all "upcoming" and "past" relative to this time.`);
-      // Include recent broadcast messages so the agent knows what it already said
+      // Include recent broadcast messages so the announcer knows what it already said
       try {
         const fs = await import("node:fs/promises");
         const path = await import("node:path");
@@ -153,9 +238,88 @@ export function createAgentModule(spec: ModuleSpec) {
         }
       } catch {}
       seedParts.push("Run your radio cycle now. Check the overview, then broadcast using the radio_broadcast tool if you have something to say. Don't just think about it — call the tool.");
+    } else if (spec.name === "radio-dj") {
+      seedParts.push(`THE CURRENT TIME IS ${seedTime}.`);
+      // Include music requests from community
+      try {
+        const fs = await import("node:fs/promises");
+        const path = await import("node:path");
+        const radioLog = await fs.readFile(path.join(process.cwd(), "workspace", "radio", "log.md"), "utf-8");
+        const requests: string[] = [];
+        const sections = radioLog.split("\n## ");
+        for (const section of sections.slice(-10)) {
+          const timeMatch = section.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2})/);
+          if (!timeMatch) continue;
+          const chatMatch = section.match(/\*\*Via chat \(([^)]+)\):\*\*\s*([\s\S]*?)(?=\n\*\*|\n##|$)/);
+          if (chatMatch && (chatMatch[2].includes("play_music") || chatMatch[2].includes("radio.search") || chatMatch[2].includes("play_request"))) {
+            requests.push(`[${timeMatch[1]}] ${chatMatch[1]} requested: ${chatMatch[2].trim()}`);
+          }
+        }
+        if (requests.length > 0) {
+          seedParts.push(`<music-requests>\n${requests.slice(-3).join("\n")}\n</music-requests>`);
+        }
+      } catch {}
+
+      // Show most played songs so DJ avoids repetition
+      const topPlayed = await getTopPlayed(10);
+      if (topPlayed.length > 0) {
+        seedParts.push(`<most-played>\nThese songs have been played the most — avoid repeating them:\n${topPlayed.join("\n")}\n</most-played>`);
+      }
+    } else if (spec.name === "executive") {
+      seedParts.push(`THE CURRENT TIME IS ${seedTime}.`);
+
+      // Inject scheduled items that are due or upcoming
+      try {
+        const fs = await import("node:fs/promises");
+        const path = await import("node:path");
+        const schedulePath = path.join(process.cwd(), "workspace", "tasks", "scheduled.json");
+        const schedule = JSON.parse(await fs.readFile(schedulePath, "utf-8"));
+        const now = Date.now();
+
+        const due = schedule.filter((s: any) => !s.done && s.when <= now);
+        const upcoming = schedule.filter((s: any) => !s.done && s.when > now && s.when < now + 24 * 3600000);
+
+        if (due.length > 0) {
+          const items = due.map((s: any) => `- ${s.prompt}${s.context ? ` (context: ${s.context})` : ""}`).join("\n");
+          seedParts.push(`<due-now>\nMessages from your past self that are due NOW:\n${items}\n</due-now>`);
+        }
+        if (upcoming.length > 0) {
+          const items = upcoming.map((s: any) => {
+            const when = new Date(s.when).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+            return `- [${when}] ${s.prompt}`;
+          }).join("\n");
+          seedParts.push(`<upcoming>\nScheduled for later today:\n${items}\n</upcoming>`);
+        }
+        if (due.length === 0 && upcoming.length === 0) {
+          seedParts.push("No scheduled items due or upcoming.");
+        }
+      } catch {
+        seedParts.push("No schedule file found.");
+      }
+
+      // Include active threads for coordination awareness
+      try {
+        const fs = await import("node:fs/promises");
+        const path = await import("node:path");
+        const threads = await fs.readFile(path.join(process.cwd(), "workspace", "inner", "active-threads.md"), "utf-8");
+        if (threads.trim()) {
+          seedParts.push(`<active-threads>\n${threads.trim()}\n</active-threads>`);
+        }
+      } catch {}
+
+      // Check for any MQTT nudges that woke us up
+      const pending = ctx.messages.pending();
+      if (pending > 0) {
+        seedParts.push(`You were woken up by ${pending} message(s) from other modules. Check them with your first action.`);
+      }
     } else {
       seedParts.push(`Time: ${seedTime}`);
       seedParts.push("Go.");
+    }
+
+    // Inject any MQTT nudges from other modules
+    if (nudges.length > 0) {
+      seedParts.push(`<module-nudges>\nMessages from other parts of you:\n${nudges.join("\n")}\n</module-nudges>`);
     }
 
     const promptText = seedParts.join("\n\n") || "Begin.";

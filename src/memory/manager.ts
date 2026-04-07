@@ -95,13 +95,18 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
    * filename, first name, FeyOps nicknames, or phone number).
    * Returns their slug (filename without .md) and full profile content.
    */
-  async findPerson(name: string, phone?: string): Promise<{ slug: string; content: string } | null> {
+  async findPerson(name: string, phone?: string, signalUuid?: string): Promise<{ slug: string; content: string } | null> {
     const people = await this.discoverPeople();
     const lower = name.toLowerCase();
 
     let match: PersonMeta | undefined;
 
-    // Try phone number match FIRST — most reliable identifier
+    // Try Signal UUID match FIRST — most reliable identifier
+    if (!match && signalUuid) {
+      match = people.find((p) => p.fields["signal-uuid"]?.replace(/"/g, "") === signalUuid);
+    }
+
+    // Try phone number match — very reliable
     if (!match && phone) {
       const cleanPhone = phone.replace(/\s+/g, "");
       match = people.find((p) => {
@@ -617,6 +622,12 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
       }
     }
 
+    // Recent DMs — brief summary so the model knows what conversations are happening
+    const recentDMs = await this.getRecentDMSummary(10);
+    if (recentDMs) {
+      parts.push(`<recent-dms>\nRecent DMs with other people — not part of this conversation, just for your awareness. Don't mix these into your current reply unless directly relevant. Use search if you need the full context of any thread.\n${recentDMs}\n</recent-dms>`);
+    }
+
     // Active states — global modes that affect all modules
     const activeStates = await this.getActiveStates();
     for (const state of activeStates) {
@@ -627,6 +638,49 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     }
 
     return parts.join("\n\n");
+  }
+
+  /** Get a brief summary of recent DM activity from today's log. */
+  private async getRecentDMSummary(maxEntries: number): Promise<string | null> {
+    const todayLog = await this.readTodayLog();
+    if (!todayLog) return null;
+
+    // Extract DM entries: "**Name** (dm): first few words..." and "**Feyblet** (dm to Name): ..."
+    const dmPattern = /^\*\*([^*]+)\*\*\s*\(dm(?:\s+to\s+([^)]+))?\):\s*(.+)/gm;
+    const entries: Array<{ time: string; from: string; to: string; snippet: string }> = [];
+    const sections = todayLog.split(/^## (\d{2}:\d{2}:\d{2})/m);
+
+    let currentTime = "";
+    for (const section of sections) {
+      const timeMatch = section.match(/^(\d{2}:\d{2}:\d{2})$/);
+      if (timeMatch) { currentTime = timeMatch[1]; continue; }
+
+      let m;
+      dmPattern.lastIndex = 0;
+      while ((m = dmPattern.exec(section)) !== null) {
+        const name = m[1];
+        const toName = m[2] || "";
+        const snippet = m[3].replace(/\n/g, " ");
+        if (name === "Feyblet") {
+          entries.push({ time: currentTime, from: "feyblet", to: toName, snippet });
+        } else {
+          entries.push({ time: currentTime, from: name, to: "feyblet", snippet });
+        }
+      }
+    }
+
+    if (entries.length === 0) return null;
+
+    // Only show incoming DMs, not feyblet's own responses (avoids anchoring on past failures)
+    return entries
+      .filter(e => e.from !== "feyblet")
+      .slice(-maxEntries)
+      .map(e => {
+        const person = e.from === "feyblet" ? e.to : e.from;
+        const direction = e.from === "feyblet" ? "→" : "←";
+        return `[${e.time}] ${person} ${direction} ${e.snippet}`;
+      })
+      .join("\n");
   }
 
   /** Query the qmd search daemon. Returns [] on any failure. */
@@ -1028,7 +1082,7 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
       const todayISO = now.toISOString().slice(0, 10);
       const combined = (parties || "") + "\n" + (events || "");
       const todayLines = combined.split("\n").filter((l) => l.includes(todayISO));
-      const partyKeywords = /party|rave|cave.*sing|sonic sphere|celebration|birthday.*tonight|dance|disco/i;
+      const partyKeywords = /party|rave|cave.*sing|sonic sphere|celebration|birthday.*tonight|\bdance\b|\bdisco\b/i;
       eventParty = todayLines.some((l) => partyKeywords.test(l));
     } catch {}
 
