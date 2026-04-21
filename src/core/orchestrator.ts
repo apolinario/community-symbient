@@ -126,10 +126,26 @@ export class Orchestrator {
       signal,
     };
 
-    modLog.info(`Started (interval: ${mod.config.intervalMs}ms, active: ${mod.active})`);
+    modLog.info(`Started (interval: ${mod.config.intervalMs}ms, active: ${mod.active}${mod.config.follows ? `, follows: ${mod.config.follows}` : ""})`);
+
+    // Follow-up modules: wait for MQTT trigger instead of timer
+    if (mod.config.follows) {
+      while (!signal.aborted) {
+        await this.bus.waitForMessage(name);
+        if (signal.aborted) break;
+        if (!mod.active) continue;
+        try {
+          mod.lastRun = new Date();
+          await mod.fn(ctx);
+        } catch (err) {
+          modLog.error(`Error: ${err}`);
+        }
+      }
+      return;
+    }
 
     // High-frequency modules (<=60s) and bookings run immediately; others wait their interval first
-    const runImmediately = mod.config.intervalMs <= 60_000 || name === "bookings" || name === "radio" || name === "radio-dj";
+    const runImmediately = mod.config.intervalMs <= 60_000 || name === "bookings" || name === "radio" || name === "radio-dj" || name === "autobiographical";
     let firstRun = true;
 
     while (!signal.aborted) {
@@ -153,6 +169,14 @@ export class Orchestrator {
       } catch (err) {
         if (signal.aborted) break;
         modLog.error(`Error: ${err}`);
+      }
+
+      // Notify follow-up modules via MQTT
+      for (const [followName, followMod] of this.modules) {
+        if (followMod.config.follows === name && followMod.active) {
+          modLog.info(`Triggering follow-up: ${followName}`);
+          this.bus.clientFor(name).send(followName, `triggered_by:${name}`).catch(() => {});
+        }
       }
 
       if (mod.config.intervalMs > 0) {

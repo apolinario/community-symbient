@@ -39,14 +39,14 @@ import {
   createCancelScheduleTool,
   createNudgeModuleTool,
   createWebSearchTool,
-  createViewImageTool,
-  createLoadMoreTool,
+  createChatHistoryTool,
   createSendDMTool,
   createSendGroupMessageTool,
   createCreateModuleTool,
   createDisableModuleTool,
   createListModulesTool,
 } from "./tools/index.js";
+import { createSandboxedPiTools } from "./tools/pi-tools.js";
 import { initMCP, onMCPReconnect } from "./mcp/bridge.js";
 
 // Module loader + special modules
@@ -58,7 +58,7 @@ import { createBookingsModule } from "./modules/hardware/bookings.js";
 import { createOnboardingModule } from "./modules/hardware/onboarding.js";
 import { createQmdIndexModule } from "./modules/hardware/qmd-index.js";
 import { createPeopleSyncModule } from "./modules/hardware/people-sync.js";
-import { createPeopleEnrichModule } from "./modules/hardware/people-enrich.js";
+// people-enrich is now a markdown agent module (workspace/modules/people-enrich.md)
 import { createScheduleCheckerModule } from "./modules/hardware/schedule-checker.js";
 import { createModuleSyncModule } from "./modules/hardware/module-sync.js";
 import { createMetaReport } from "./modules/meta/meta-report.js";
@@ -78,7 +78,7 @@ async function main() {
 
   // Tiny LLM (time parsing, temporal rewrites, image descriptions)
   const { initTinyLLM } = await import("./core/tiny-llm.js");
-  initTinyLLM(config.llm.tinyBaseUrl || "http://localhost:1235", config.llm.tinyModel || "qwen3.5-2b");
+  initTinyLLM(config.llm.tinyBaseUrl || "http://localhost:1235", config.llm.tinyModel || "LFM2.5-VL-1.6B-Q8_0");
 
   // Core systems
   const memory = new MemoryManager(config.workspacePath);
@@ -107,14 +107,18 @@ async function main() {
   }
 
   // MCP servers — tools auto-discovered at startup
-  const RADIO_MCP = process.env.RADIO_MCP_URL || "http://192.168.10.97:8001/sse";
+  const RADIO_MCP = process.env.RADIO_MCP_URL || "http://192.168.10.97:8001/mcp";
   const PHONEBOOTH_MCP = process.env.PHONEBOOTH_MCP_URL || "http://192.168.10.97:3001/mcp";
   let mcpTools = await initMCP([
     { name: "radio", url: RADIO_MCP },
     { name: "phonebooth", url: PHONEBOOTH_MCP },
   ]);
 
-  // Local tools + MCP tools
+  // Pi file tools (sandboxed to workspace, write-restricted)
+  const piTools = createSandboxedPiTools(config.workspacePath);
+  console.log(`Pi tools: ${piTools.map(t => t.name).join(", ")}`);
+
+  // Local tools + Pi tools + MCP tools
   const tools: AgentTool[] = [
     createLookupPersonTool(feyopsDb, memory),
     createSearchMemoryTool(),
@@ -129,13 +133,13 @@ async function main() {
     createCancelScheduleTool(config.workspacePath),
     createNudgeModuleTool(bus, "feyblet"),
     createWebSearchTool(),
-    createViewImageTool(),
-    createLoadMoreTool(),
+    createChatHistoryTool(memory),
     createSendDMTool(signal, memory),
-    createSendGroupMessageTool(signal),
+    createSendGroupMessageTool(signal, memory),
     createCreateModuleTool(config.workspacePath),
     createDisableModuleTool(config.workspacePath),
     createListModulesTool(config.workspacePath),
+    ...piTools,
     ...mcpTools,
   ];
   console.log(`${tools.length} tools (${mcpTools.length} from MCP): ${tools.map(t => t.name).join(", ")}`);
@@ -175,10 +179,6 @@ async function main() {
     createPeopleSyncModule(feyopsDb, memory),
   );
 
-  orchestrator.register(
-    { name: "people-enrich", intervalMs: 2 * 24 * 60 * 60_000, startActive: true, description: "LLM-based profile enrichment from chat activity" },
-    createPeopleEnrichModule(memory),
-  );
 
   orchestrator.register(
     { name: "schedule-checker", intervalMs: 60_000, startActive: true, description: "Checks for due scheduled items, wakes executive" },

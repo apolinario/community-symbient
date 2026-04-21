@@ -19,6 +19,7 @@ import { join, dirname } from "node:path";
 import type { MemoryReader, MemoryWriter, SearchResult } from "../core/types.js";
 import type { FeyOpsDB, BookingRow, PersonNickname } from "../feyops/db.js";
 import { slugify } from "../core/slugify.js";
+import { annotateContextLines } from "./time-annotate.js";
 
 type LLMSummarizer = {
   complete(opts: { system: string; messages: Array<{ role: "user"; content: string }>; temperature?: number; maxTokens?: number }): Promise<string>;
@@ -672,15 +673,16 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     if (entries.length === 0) return null;
 
     // Only show incoming DMs, not feyblet's own responses (avoids anchoring on past failures)
-    return entries
+    const dmLines = entries
       .filter(e => e.from !== "feyblet")
       .slice(-maxEntries)
       .map(e => {
         const person = e.from === "feyblet" ? e.to : e.from;
         const direction = e.from === "feyblet" ? "→" : "←";
-        return `[${e.time}] ${person} ${direction} ${e.snippet}`;
-      })
-      .join("\n");
+        return `[${e.time.slice(0, 5)}] ${person} ${direction} ${e.snippet}`;
+      });
+    const annotated = await annotateContextLines(dmLines);
+    return annotated.join("\n");
   }
 
   /** Query the qmd search daemon. Returns [] on any failure. */
@@ -692,7 +694,11 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
       const res = await fetch("http://localhost:8181/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ searches, collections: ["feyblet"], limit }),
+        body: JSON.stringify({
+          searches: searches.map(s => ({ ...s, query: s.query.replace(/\n/g, " ").trim() })),
+          collections: ["feyblet"],
+          limit,
+        }),
         signal: AbortSignal.timeout(3000),
       });
       if (!res.ok) return [];
@@ -841,7 +847,9 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     }
 
     if (broadcasts.length === 0) return null;
-    return broadcasts.slice(-count).join("\n");
+    const recent = broadcasts.slice(-count);
+    const annotated = await annotateContextLines(recent);
+    return annotated.join("\n");
   }
 
   /**
@@ -871,7 +879,9 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     }
 
     if (groupMessages.length === 0) return null;
-    return groupMessages.slice(-count).join("\n");
+    const recent = groupMessages.slice(-count);
+    const annotated = await annotateContextLines(recent);
+    return annotated.join("\n");
   }
 
   /**

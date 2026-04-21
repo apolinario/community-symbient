@@ -86,7 +86,9 @@ export function createConversationModule(bridge: SignalBridge) {
 
     // --- Silent season logging ---
     if (msg.chatType === "group") {
-      detectAndLogSeason(ctx, msg.text, fromLabel).catch(() => {});
+      detectAndLogSeason(ctx, msg.text, fromLabel).catch((err) => {
+        ctx.log(`Season detect error: ${err}`);
+      });
     }
 
     // --- State triggers from chat ---
@@ -240,8 +242,9 @@ export function createConversationModule(bridge: SignalBridge) {
       }
     }
 
-    // Strip leaked internal tags from response
+    // Strip leaked internal tags and self-prefix from response
     response = response.replace(/^\[(?:group|dm)\]\s*/i, "").trim();
+    response = response.replace(/^Feyblet:\s*/i, "").trim();
 
     const replyTag = msg.chatType === "group" ? "(group)" : `(dm to ${fromLabel})`;
     await ctx.memory.appendLog(`**Feyblet** ${replyTag}: ${response}`);
@@ -371,7 +374,16 @@ function extractRecentExchanges(
 
   for (const section of sections.slice(-maxExchanges * 2)) {
     const trimmed = section.trim();
-    if (trimmed.startsWith("*[")) continue;
+    // Include image/voice entries in exchange history, skip other internal entries
+    if (trimmed.startsWith("*[")) {
+      if (trimmed.startsWith("*[Image from") || trimmed.startsWith("*[Voice from")) {
+        // Append to last user message if it matches the current person
+        if (filterSender && trimmed.toLowerCase().includes(filterSender.toLowerCase()) && messages.length > 0) {
+          messages[messages.length - 1].content += `\n${trimmed}`;
+        }
+      }
+      continue;
+    }
 
     if (trimmed.startsWith("**Feyblet**")) {
       // Filter feyblet responses by recipient in DM mode
@@ -527,7 +539,14 @@ async function handleModuleNudge(
 
   // Craft a prompt that gives the agent the nudge context
   const isGroupNudge = moduleMsg.content.startsWith("send_group:");
-  const prompt = `Another part of you (the ${moduleMsg.from} module) sent you this message:\n\n"${moduleMsg.content}"\n\nAct on it in your own voice. If it asks you to DM someone, craft the message. If you don't think it's worth acting on, say [SILENT].${isGroupNudge ? `\n\nThis is asking you to post in the group chat. Think about whether this is genuinely worth sharing with everyone — has someone already said it? Is it outdated? Is it something better handled as a DM? We all care about not spamming the group. If in doubt, [SILENT].` : ""}`;
+  const isDMNudge = moduleMsg.content.startsWith("send_dm:");
+  let nudgeCheck = "";
+  if (isGroupNudge) {
+    nudgeCheck = `\n\nThis is asking you to post in the group chat. Think about whether this is genuinely worth sharing with everyone — has someone already said it? Is it outdated? Is it something better handled as a DM? We all care about not spamming the group. If in doubt, [SILENT].`;
+  } else if (isDMNudge) {
+    nudgeCheck = `\n\nBefore acting, use chat_history to check your recent DM history with this person. If you've already sent them something similar, or they asked you to stop, say [SILENT].`;
+  }
+  const prompt = `Another part of you (the ${moduleMsg.from} module) sent you this message:\n\n"${moduleMsg.content}"\n\nAct on it in your own voice. If it asks you to DM someone, craft the message. If you don't think it's worth acting on, say [SILENT].${nudgeCheck}`;
 
   await agent.prompt(prompt);
   await agent.waitForIdle();

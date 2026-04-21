@@ -1,0 +1,17 @@
+[Unit]
+Description=LLM Server — Qwen3.5-27B + LFM2.5-VL (llama.cpp)
+After=network.target
+
+[Service]
+Type=simple
+User=plantoidz
+WorkingDirectory=/home/plantoidz/pi/feyblet
+ExecStart=/home/plantoidz/pi/feyblet/scripts/start-llm.sh
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=llm-server
+
+[Install]
+WantedBy=multi-user.target

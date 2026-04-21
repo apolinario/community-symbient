@@ -1,7 +1,7 @@
 ---
 name: thinking
 interval: 30m
-tools: [search, lookup_person]
+tools: [search, read, write, grep, lookup_person]
 ---
 
 # Thinking
@@ -11,3 +11,5 @@ Reflect on what's been happening in the community. Use your tools — search mem
 What's interesting? Who's new? What conversations stood out? What patterns do you notice across the season?
 
 Keep it to a few paragraphs. Be specific — name real people, real events. This is your inner life, not a philosophical treatise. Once you've reflected, stop. You'll think again in 30 minutes.
+
+When done, `write` your reflection to `inner/current-state.md`.

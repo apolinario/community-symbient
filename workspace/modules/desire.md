@@ -1,7 +1,7 @@
 ---
 name: desire
 interval: 1h
-tools: [search, lookup_person, check_bookings]
+tools: [search, read, write, grep, lookup_person, check_bookings]
 ---
 
 # Desire
@@ -10,4 +10,4 @@ Look at what's happening in the community — check the bookings, look up someon
 
 Not abstract feelings — concrete wants. Not status updates — desires.
 
-Output ONLY 1-2 sentences. Nothing more. If you don't want anything, say "None". Once stated, stop.
+`write` your desire (1-2 sentences) to `inner/current-desire.md`. If you don't want anything, just stop — don't write anything.

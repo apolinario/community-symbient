@@ -36,6 +36,7 @@
   .log-line .tag-signal { color: #3b82f6; }
   .log-line .tag-radio { color: #f59e0b; }
   .log-line .tag-radio-dj { color: #f97316; }
+  .log-line .tag-radio-commentary { color: #fb923c; }
   .log-line .tag-conversation { color: #8b5cf6; }
   .log-line .tag-sauna { color: #ef4444; }
   .log-line .tag-thinking { color: #06b6d4; }
@@ -72,16 +73,6 @@
   <label>Filter:</label>
   <select id="filter">
     <option value="">All</option>
-    <option value="radio">Radio</option>
-    <option value="radio-dj">DJ</option>
-    <option value="conversation">Conversation</option>
-    <option value="signal">Signal</option>
-    <option value="sauna">Sauna</option>
-    <option value="thinking">Thinking</option>
-    <option value="desire">Desire</option>
-    <option value="bookings">Bookings</option>
-    <option value="executive">Executive</option>
-    <option value="people">People</option>
     <option value="broadcast">Broadcast</option>
   </select>
   <label><input type="checkbox" id="autoscroll" checked> Auto-scroll</label>
@@ -165,6 +156,7 @@ function timeAgo(iso) {
   return Math.round(diff/3600000) + 'h ago';
 }
 
+let filterPopulated = false;
 async function refreshModules() {
   try {
     const res = await fetch('/api/modules');
@@ -179,6 +171,19 @@ async function refreshModules() {
         ${m.description ? `<div class="desc">${m.description.slice(0,60)}</div>` : ''}
       </a>`;
     }).join('');
+    // Populate filter dropdown dynamically (once)
+    if (!filterPopulated) {
+      filterPopulated = true;
+      const prev = filterEl.value;
+      const names = mods.map(m => m.name).sort();
+      for (const name of names) {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        filterEl.appendChild(opt);
+      }
+      if (prev) filterEl.value = prev;
+    }
   } catch {}
 }
 refreshModules();

@@ -186,9 +186,10 @@ export function createAgentModule(spec: ModuleSpec) {
         const resultText = event.result?.content?.map((c: any) => c.text || "").join("") || JSON.stringify(event.result);
         ctx.log(`Result: ${event.toolName} → ${resultText}`);
 
-        // Track played songs
+        // Track played songs — args come from the matching tool_execution_start
         if (event.toolName === "radio.play_music" && !event.isError) {
-          trackPlay(event.args, resultText).catch(() => {});
+          const matchingCall = toolCalls.find(tc => tc.name === "radio.play_music");
+          trackPlay(matchingCall?.args, resultText).catch(() => {});
         }
       }
       if (event.type === "agent_end") {
@@ -268,49 +269,86 @@ export function createAgentModule(spec: ModuleSpec) {
     } else if (spec.name === "executive") {
       seedParts.push(`THE CURRENT TIME IS ${seedTime}.`);
 
-      // Inject scheduled items that are due or upcoming
-      try {
-        const fs = await import("node:fs/promises");
-        const path = await import("node:path");
-        const schedulePath = path.join(process.cwd(), "workspace", "tasks", "scheduled.json");
-        const schedule = JSON.parse(await fs.readFile(schedulePath, "utf-8"));
-        const now = Date.now();
-
-        const due = schedule.filter((s: any) => !s.done && s.when <= now);
-        const upcoming = schedule.filter((s: any) => !s.done && s.when > now && s.when < now + 24 * 3600000);
-
-        if (due.length > 0) {
-          const items = due.map((s: any) => `- ${s.prompt}${s.context ? ` (context: ${s.context})` : ""}`).join("\n");
-          seedParts.push(`<due-now>\nMessages from your past self that are due NOW:\n${items}\n</due-now>`);
-        }
-        if (upcoming.length > 0) {
-          const items = upcoming.map((s: any) => {
-            const when = new Date(s.when).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-            return `- [${when}] ${s.prompt}`;
-          }).join("\n");
-          seedParts.push(`<upcoming>\nScheduled for later today:\n${items}\n</upcoming>`);
-        }
-        if (due.length === 0 && upcoming.length === 0) {
-          seedParts.push("No scheduled items due or upcoming.");
-        }
-      } catch {
-        seedParts.push("No schedule file found.");
+      // Check if this is a scheduled action wake-up
+      const scheduledActions: Array<{ prompt: string; context: string | null }> = [];
+      const otherNudges: string[] = [];
+      for (const nudge of nudges) {
+        try {
+          // Extract JSON from nudge (format: "[from schedule-checker] {json}")
+          const jsonMatch = nudge.match(/\{.*\}/s);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            if (parsed.type === "scheduled_action") {
+              scheduledActions.push({ prompt: parsed.prompt, context: parsed.context });
+              continue;
+            }
+          }
+        } catch {}
+        otherNudges.push(nudge);
       }
 
-      // Include active threads for coordination awareness
-      try {
-        const fs = await import("node:fs/promises");
-        const path = await import("node:path");
-        const threads = await fs.readFile(path.join(process.cwd(), "workspace", "inner", "active-threads.md"), "utf-8");
-        if (threads.trim()) {
-          seedParts.push(`<active-threads>\n${threads.trim()}\n</active-threads>`);
-        }
-      } catch {}
+      if (scheduledActions.length > 0) {
+        // Scheduled action mode — focused execution, no deliberation
+        const actions = scheduledActions.map((a, i) => {
+          let desc = `Action ${i + 1}: ${a.prompt}`;
+          if (a.context) desc += `\nContext: ${a.context}`;
+          return desc;
+        }).join("\n\n");
+        seedParts.push(`<scheduled-actions>\nYou were woken up to follow through on something your past self scheduled for this moment. Use your tools to carry it out. Stay focused on what was scheduled — no need to run a full cycle or add extra actions.\n\n${actions}\n</scheduled-actions>`);
 
-      // Check for any MQTT nudges that woke us up
-      const pending = ctx.messages.pending();
-      if (pending > 0) {
-        seedParts.push(`You were woken up by ${pending} message(s) from other modules. Check them with your first action.`);
+        // Still include other nudges if any
+        if (otherNudges.length > 0) {
+          // Replace nudges array so they don't get double-injected below
+          nudges.length = 0;
+          nudges.push(...otherNudges);
+        } else {
+          nudges.length = 0; // Clear so they don't get re-injected
+        }
+      } else {
+        // Regular executive cycle — full deliberation
+
+        // Inject upcoming scheduled items for awareness
+        try {
+          const fs = await import("node:fs/promises");
+          const path = await import("node:path");
+          const schedulePath = path.join(process.cwd(), "workspace", "tasks", "scheduled.json");
+          const schedule = JSON.parse(await fs.readFile(schedulePath, "utf-8"));
+          const now = Date.now();
+
+          const upcoming = schedule.filter((s: any) => !s.done && s.when > now && s.when < now + 24 * 3600000);
+
+          if (upcoming.length > 0) {
+            const items = upcoming.map((s: any) => {
+              const when = new Date(s.when).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+              return `- [${when}] ${s.prompt}`;
+            }).join("\n");
+            seedParts.push(`<upcoming-scheduled>\nAlready scheduled for later — these will fire automatically, do NOT act on them now:\n${items}\n</upcoming-scheduled>`);
+          }
+        } catch {}
+
+        // Include active threads for coordination awareness
+        try {
+          const fs = await import("node:fs/promises");
+          const path = await import("node:path");
+          const threads = await fs.readFile(path.join(process.cwd(), "workspace", "inner", "active-threads.md"), "utf-8");
+          if (threads.trim()) {
+            seedParts.push(`<active-threads>\n${threads.trim()}\n</active-threads>`);
+          }
+        } catch {}
+
+        // Show recent executive actions so it doesn't repeat itself
+        try {
+          const fs = await import("node:fs/promises");
+          const path = await import("node:path");
+          const today = new Date().toISOString().slice(0, 10);
+          const log = await fs.readFile(path.join(process.cwd(), "workspace", "memory", `${today}.md`), "utf-8");
+          const execLines = log.split("\n").filter(l =>
+            l.includes("[executive]") || l.includes("(via nudge-feyblet)") || l.includes("Feyblet** (dm to")
+          ).slice(-10);
+          if (execLines.length > 0) {
+            seedParts.push(`<your-recent-actions>\nThings you already did today — do not repeat these:\n${execLines.join("\n")}\n</your-recent-actions>`);
+          }
+        } catch {}
       }
     } else {
       seedParts.push(`Time: ${seedTime}`);
@@ -344,34 +382,42 @@ export function createAgentModule(spec: ModuleSpec) {
 
 // --- Standard output handlers ---
 
-export const thinkingHandler = async (ctx: ModuleContext, output: string, _trace: string[]) => {
-  await ctx.memory.appendLog(`*[Feyblet thinking]*\n${output}`);
-  await ctx.memory.writeFile("inner/current-state.md", output);
-  await ctx.messages.send("conversation", "inner_state_updated");
-  ctx.log(`Thought: ${output.slice(0, 100)}...`);
-};
-
-export const desireHandler = async (ctx: ModuleContext, output: string, _trace: string[]) => {
-  if (output.toLowerCase() === "none") {
-    ctx.log("No current desires.");
-    return;
+export const thinkingHandler = async (ctx: ModuleContext, output: string, _trace: string[], toolCalls?: Array<{ name: string; args: any }>) => {
+  const wrote = toolCalls?.some(tc => tc.name === "write");
+  if (wrote) {
+    await ctx.memory.appendLog(`*[Feyblet thinking]*\n${output}`);
+    await ctx.messages.send("conversation", "inner_state_updated");
   }
-  await ctx.memory.appendLog(`*[Feyblet desire]* ${output}`);
-  await ctx.memory.writeFile("inner/current-desire.md", output);
-  await ctx.messages.send("conversation", `desire:${output}`);
-  ctx.log(`Desire: ${output.slice(0, 100)}...`);
 };
 
-export const magiHandler = async (ctx: ModuleContext, output: string, _trace: string[]) => {
-  await ctx.memory.appendLog(`*[Feyblet magi]*\n${output}`);
-  await ctx.memory.writeFile("inner/current-magi.md", output.trim());
-  ctx.log(`Magi dialogue completed`);
+export const desireHandler = async (ctx: ModuleContext, output: string, _trace: string[], toolCalls?: Array<{ name: string; args: any }>) => {
+  const wrote = toolCalls?.some(tc => tc.name === "write");
+  if (wrote) {
+    await ctx.memory.appendLog(`*[Feyblet desire]* ${output}`);
+    await ctx.messages.send("conversation", `desire:${output}`);
+  } else {
+    ctx.log("No current desires.");
+  }
 };
 
-export const autobiographicalHandler = async (ctx: ModuleContext, output: string, _trace: string[]) => {
-  await ctx.memory.writeFile("MEMORY.md", output);
-  await ctx.memory.appendLog("*[Autobiographical memory updated]*");
-  ctx.log("MEMORY.md updated.");
+export const magiHandler = async (ctx: ModuleContext, output: string, _trace: string[], toolCalls?: Array<{ name: string; args: any }>) => {
+  const wrote = toolCalls?.some(tc => tc.name === "write");
+  if (wrote) {
+    await ctx.memory.appendLog(`*[Feyblet magi]*\n${output}`);
+  }
+};
+
+export const autobiographicalHandler = async (ctx: ModuleContext, output: string, _trace: string[], toolCalls?: Array<{ name: string; args: any }>) => {
+  // The agent uses write/edit tools directly to update MEMORY.md — no need to write the output as a file.
+  // Just log the completion and any tool activity.
+  const wroteMemory = toolCalls?.some(tc => tc.name === "write" || tc.name === "edit");
+  if (wroteMemory) {
+    await ctx.memory.appendLog("*[Autobiographical memory updated]*");
+    ctx.log("MEMORY.md updated via agent tools.");
+  } else if (output?.trim()) {
+    await ctx.memory.appendLog("*[Autobiographical reflection]*");
+    ctx.log(`Autobiographical: no file write`);
+  }
 };
 
 export const promptModifierHandler = async (ctx: ModuleContext, output: string, _trace: string[]) => {

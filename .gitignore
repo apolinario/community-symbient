@@ -3,21 +3,6 @@ dist/
 data/
 /tmp/
 *.log
-workspace/memory/
-workspace/inner/
-workspace/radio/log.md
-workspace/radio/log.md.bak
-workspace/radio/play-history.csv
-workspace/logs/
-workspace/media/
-workspace/debug/
-workspace/state/*.json
-workspace/tasks/scheduled.json
-workspace/season/events.md
-workspace/season/meals.md
-workspace/season/parties.md
-workspace/season/crispy.md
-workspace/people/
 .env
 .desloppify/
 .claude/
@@ -25,3 +10,36 @@ heretic/
 feyops-ui/dist/
 conversation-log.jsonl
 package-lock.json
+
+# Runtime logs and diaries — private, grows unbounded
+workspace/memory/
+workspace/inner/
+workspace/logs/
+workspace/debug/
+workspace/radio/log.md
+workspace/radio/log.md.bak
+workspace/radio/play-history.csv
+workspace/radio/schedule.json
+workspace/radio/calendar.json
+
+# Media — uploaded attachments, could contain private content
+workspace/media/
+
+# Ephemeral state
+workspace/state/*.json
+workspace/tasks/scheduled.json
+workspace/tasks/*.md
+
+# Community/season content — specific to a deployment
+workspace/season/*.md
+workspace/season/*.json
+
+# User profiles and curated identity — contains private info about specific people
+workspace/people/
+workspace/MEMORY.md
+
+# Voice samples — recordings of community members, not for public
+workspace/voices/
+
+# Per-deployment group/contact caches
+workspace/community/known-groups.md

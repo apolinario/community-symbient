@@ -22,4 +22,4 @@ You don't broadcast or talk. You just handle the music. Once you've queued enoug
 
 If you see tracks in the queue that were requested by community members (shown in `<music-requests>`), respect those — keep the vibe going in that direction rather than abruptly changing genre. Build on what people asked for.
 
-**Temporarily banned artists/tracks (community request):** MGMT, Earth Wind & Fire, Nujabes, Massive Attack, Parliament, Parcels, Aruarian Dance, Jamiroquai — do not queue these until further notice.
+**Temporarily banned artists/tracks (community request):** MGMT, Earth Wind & Fire, Nujabes, Massive Attack, Parliament, Parcels, Parquet Courts, Aruarian Dance, Jamiroquai — do not queue these until further notice.

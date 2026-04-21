@@ -1,7 +1,7 @@
 ---
 name: radio
 interval: 2m
-tools: [search, lookup_person, check_bookings, check_sauna, radio_broadcast, radio, radio_schedule, radio_calendar]
+tools: [search, read, grep, lookup_person, check_bookings, check_sauna, radio_broadcast, radio, radio_schedule, radio_calendar]
 ---
 
 # Radio Announcer

@@ -24,7 +24,7 @@ export function createModel(config: {
     api: "openai-completions",
     provider: config.provider,
     baseUrl,
-    reasoning: false,
+    reasoning: true,
     reasoningFormat: "qwen-chat-template",
     input: ["text", "image"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },

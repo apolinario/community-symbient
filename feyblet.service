@@ -1,7 +1,7 @@
 [Unit]
 Description=Feyblet — Community Symbient
-After=network.target mosquitto.service docker.service qmd.service
-Wants=mosquitto.service qmd.service
+After=network.target mosquitto.service docker.service qmd.service lmstudio.service searxng.service
+Wants=mosquitto.service qmd.service lmstudio.service searxng.service
 
 [Service]
 Type=simple

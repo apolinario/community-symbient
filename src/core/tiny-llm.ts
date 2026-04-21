@@ -5,7 +5,7 @@
  * Configured via config.llm.tinyModel and config.llm.baseUrl.
  */
 
-let _model = "qwen3.5-2b";
+let _model = "LFM2.5-VL-1.6B-Q8_0";
 let _baseUrl = "http://localhost:1234";
 
 /** Call once at startup with config values. */
@@ -38,7 +38,6 @@ export async function tinyComplete(opts: {
         messages,
         temperature: opts.temperature ?? 0.1,
         max_tokens: opts.maxTokens ?? 100,
-        chat_template_kwargs: { enable_thinking: false },
       }),
       signal: AbortSignal.timeout(opts.timeoutMs ?? 10000),
     });

@@ -15,6 +15,8 @@ export interface ModuleConfig {
   startActive: boolean;
   /** LLM model to use for this module's reasoning. */
   model?: string;
+  /** If set, this module runs after the named module completes instead of on a timer. */
+  follows?: string;
 }
 
 export type ModuleFunction = (ctx: ModuleContext) => Promise<void>;

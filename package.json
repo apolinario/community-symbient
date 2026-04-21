@@ -13,12 +13,15 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@mariozechner/pi-ai": "file:../pi-mono/packages/ai",
     "@mariozechner/pi-agent-core": "file:../pi-mono/packages/agent",
+    "@mariozechner/pi-ai": "file:../pi-mono/packages/ai",
+    "@mariozechner/pi-coding-agent": "file:../pi-mono/packages/coding-agent",
+    "glob": "^11.0.0",
     "@sinclair/typebox": "^0.34.49",
     "@types/ws": "^8.18.1",
     "better-sqlite3": "^11.7.0",
     "chokidar": "^4.0.0",
+    "croner": "^10.0.1",
     "eventsource-parser": "^3.0.0",
     "mcporter": "^0.8.1",
     "mqtt": "^5.10.0",

@@ -95,10 +95,12 @@ export function createModuleSyncModule(orchestrator: Orchestrator, workspacePath
           c.log(`${name}: ${output.slice(0, 100)}...`);
         };
 
+        const follows = fields.follows as string | undefined;
         const config = {
           name,
           intervalMs: interval,
           startActive,
+          follows,
           description: body.split("\n")[0],
         };
 

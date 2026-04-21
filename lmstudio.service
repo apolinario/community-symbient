@@ -1,0 +1,18 @@
+[Unit]
+Description=LM Studio — Local LLM Server (qwen3.5-27b + lfm2.5-1.2b)
+After=network.target
+
+[Service]
+Type=simple
+User=plantoidz
+WorkingDirectory=/home/plantoidz/pi/feyblet
+ExecStart=/home/plantoidz/pi/feyblet/scripts/start-llm.sh
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lmstudio
+Environment=DISPLAY=:99
+
+[Install]
+WantedBy=multi-user.target

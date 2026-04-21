@@ -19,22 +19,25 @@ import type { MemoryManager } from "../memory/manager.js";
 
 const WORKSPACE = join(process.cwd(), "workspace");
 
-// Map modules to their related files
-const MODULE_FILES: Record<string, string[]> = {
-  thinking: ["modules/thinking.md", "inner/current-state.md"],
-  desire: ["modules/desire.md", "inner/current-desire.md"],
-  magi: ["modules/magi.md", "inner/current-magi.md"],
-  radio: ["modules/radio.md", "radio/log.md"],
-  "radio-dj": ["modules/radio-dj.md", "radio/log.md"],
-  conversation: ["modules/conversation.md"],
-  autobiographical: ["modules/autobiographical.md", "MEMORY.md"],
-  sauna: [],
-  bookings: [],
-  "qmd-index": [],
-  "people-sync": [],
-  "people-enrich": [],
+// Extra files to show for specific modules (beyond the auto-discovered module md)
+const MODULE_EXTRA_FILES: Record<string, string[]> = {
+  thinking: ["inner/current-state.md"],
+  desire: ["inner/current-desire.md"],
+  magi: ["inner/current-magi.md"],
+  radio: ["radio/log.md"],
+  "radio-dj": ["radio/log.md"],
+  "radio-commentary": ["radio/log.md"],
+  autobiographical: ["MEMORY.md"],
   "radio-calendar": ["radio/calendar.json"],
 };
+
+/** Get related files for a module — auto-discovers the module md + extras */
+function getModuleFiles(name: string): string[] {
+  const files: string[] = [`modules/${name}.md`];
+  const extras = MODULE_EXTRA_FILES[name];
+  if (extras) files.push(...extras);
+  return files;
+}
 
 const PORT = Number(process.env.DASHBOARD_PORT) || 3333;
 
@@ -119,7 +122,7 @@ export function startDashboard(orchestrator: Orchestrator, memory?: MemoryManage
       res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
 
       const files: Array<{ path: string; content: string }> = [];
-      const relPaths = MODULE_FILES[name] || [`modules/${name}.md`];
+      const relPaths = getModuleFiles(name);
 
       // Always include the debug context if it exists
       relPaths.push(`debug/${name}-context.md`);

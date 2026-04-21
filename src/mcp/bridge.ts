@@ -51,14 +51,23 @@ export async function initMCP(servers: MCPServerConfig[]): Promise<AgentTool[]> 
 
   for (const server of servers) {
     serverNames.add(server.name);
-    try {
-      const mcpTools = await runtime.listTools(server.name, { includeSchema: true });
-      for (const tool of mcpTools) {
-        allTools.push(mcpToolToAgentTool(server.name, tool));
+    // Retry up to 3 times with 5s delay for remote servers that may be slow to start
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const mcpTools = await runtime.listTools(server.name, { includeSchema: true });
+        for (const tool of mcpTools) {
+          allTools.push(mcpToolToAgentTool(server.name, tool));
+        }
+        console.log(`MCP [${server.name}]: ${mcpTools.length} tools discovered`);
+        break;
+      } catch (err) {
+        if (attempt < 2) {
+          console.log(`MCP [${server.name}]: attempt ${attempt + 1} failed, retrying in 5s...`);
+          await new Promise(r => setTimeout(r, 5000));
+        } else {
+          console.error(`MCP [${server.name}]: failed to connect after 3 attempts — ${err}`);
+        }
       }
-      console.log(`MCP [${server.name}]: ${mcpTools.length} tools discovered`);
-    } catch (err) {
-      console.error(`MCP [${server.name}]: failed to connect — ${err}`);
     }
   }
 

@@ -60,7 +60,6 @@ const radioHandler = async (ctx: any, output: string, toolTrace: string[], toolC
   }
 
   await fs.appendFile(logPath, `\n${lines.join("\n")}\n`, "utf-8");
-  ctx.log(`Radio: ${(output || "no output").slice(0, 100)}`);
 };
 
 const OUTPUT_HANDLERS: Record<string, typeof thinkingHandler> = {
@@ -131,6 +130,7 @@ export async function loadModuleConfigs(workspacePath: string): Promise<ParsedMo
     const interval = typeof fields.interval === "string" ? parseInterval(fields.interval) : (fields.interval || 60000);
     const toolNames: string[] = Array.isArray(fields.tools) ? fields.tools : [];
     const startActive = fields.startActive !== false; // default true
+    const follows = fields.follows as string | undefined;
 
     // Skip conversation — it has special handling (Signal bridge)
     if (name === "conversation") continue;
@@ -140,11 +140,10 @@ export async function loadModuleConfigs(workspacePath: string): Promise<ParsedMo
       // Default handler: just log to daily memory
       const defaultHandler = async (ctx: any, output: string, _trace: string[]) => {
         await ctx.memory.appendLog(`*[${name}]* ${output}`);
-        ctx.log(`${name}: ${output.slice(0, 100)}...`);
       };
 
       modules.push({
-        config: { name, intervalMs: interval, startActive, description: body.split("\n")[0] },
+        config: { name, intervalMs: interval, startActive, follows, description: body.split("\n")[0] },
         fn: createAgentModule({ name, prompt: body, toolNames, outputHandler: defaultHandler }),
       });
       continue;
