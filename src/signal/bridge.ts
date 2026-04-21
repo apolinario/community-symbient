@@ -13,15 +13,23 @@ import type {
   OutboundMessage,
   SignalSender,
 } from "../core/types.js";
+import type { ChatAdapter, ChatMessageHandler } from "../adapters/chat/types.js";
 import { createLogger } from "../core/logger.js";
 import { recordEvent } from "../core/event-log.js";
 import WebSocket from "ws";
 
-type MessageHandler = (msg: InboundMessage) => Promise<void>;
+type MessageHandler = ChatMessageHandler;
 
 const log = createLogger("signal");
 
-export class SignalBridge {
+/**
+ * Signal chat adapter — the built-in `ChatAdapter` implementation for
+ * bbernhard/signal-cli-rest-api. Other chat transports (Matrix, Discord,
+ * CLI, WebUI) can be added in workspace/extensions/adapters/ and selected
+ * via config.yaml without touching this file.
+ */
+export class SignalBridge implements ChatAdapter {
+  readonly name = "signal";
   private ws: WebSocket | null = null;
   private handlers: MessageHandler[] = [];
   private baseUrl: string;

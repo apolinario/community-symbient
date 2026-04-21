@@ -50,3 +50,11 @@ export type { Event, QueryFilter } from "./event-log.js";
 
 // Module context type (for handler/provider signatures)
 export type { ModuleContext } from "./types.js";
+
+// Adapter interfaces — deployments implement these to plug in custom chat
+// transports, sensors, directories, and output channels (via workspace/
+// extensions/adapters/*.js and workspace/extensions/sensors/*.js).
+export type { ChatAdapter, ChatAdapterFactory, ChatMessageHandler } from "../adapters/chat/types.js";
+export type { Sensor, SensorFactory } from "../adapters/sensor/types.js";
+export type { Directory, DirectoryFactory, Member, Booking } from "../adapters/directory/types.js";
+export type { OutputChannel, OutputChannelFactory, BroadcastRequest } from "../adapters/output/types.js";

@@ -11,10 +11,10 @@
 
 import type { ModuleContext } from "../../core/types.js";
 import type { FeyOpsDB, BookingRow } from "../../feyops/db.js";
-import type { SignalBridge } from "../../signal/bridge.js";
+import type { ChatAdapter } from "../../adapters/chat/types.js";
 import { formatDate, addDays } from "../../core/date-utils.js";
 
-export function createOnboardingModule(db: FeyOpsDB, bridge: SignalBridge) {
+export function createOnboardingModule(db: FeyOpsDB, bridge: ChatAdapter) {
   let lastRunDate: string | null = null;
 
   return async function onboarding(ctx: ModuleContext): Promise<void> {

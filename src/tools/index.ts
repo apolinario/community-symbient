@@ -380,9 +380,9 @@ export function createWebSearchTool(): AgentTool {
 
 // --- Signal Messaging Tools ---
 
-import type { SignalBridge } from "../signal/bridge.js";
+import type { ChatAdapter } from "../adapters/chat/types.js";
 
-export function createSendDMTool(bridge: SignalBridge, memory: MemoryManager): AgentTool {
+export function createSendDMTool(bridge: ChatAdapter, memory: MemoryManager): AgentTool {
   return {
     name: "send_dm",
     description: "Send a direct message to someone on Signal, optionally with an image attachment. Look up the person first to find their Signal ID.",
@@ -432,7 +432,7 @@ export function createSendDMTool(bridge: SignalBridge, memory: MemoryManager): A
   };
 }
 
-export function createSendGroupMessageTool(bridge: SignalBridge, memory: MemoryManager): AgentTool {
+export function createSendGroupMessageTool(bridge: ChatAdapter, memory: MemoryManager): AgentTool {
   // Known groups cache — populated from workspace/community/known-groups.md
   const knownGroups = new Map<string, string>(); // name → id
   let loaded = false;

@@ -113,11 +113,12 @@ export function createWatchEvaluatorModule() {
 
     let shouldFire = false;
     if (trigger === "crossing_up") {
-      // Fire on transition false→true. The first observation counts as a
-      // transition only if the condition is true (so a freshly-registered
-      // watch for "temp >= 82" against an already-hot sauna will NOT fire —
-      // we don't alert Aaron about state that predates his request).
-      shouldFire = currentlyMatches && prev === false;
+      // Fire when condition is true and wasn't recently confirmed true. First
+      // observation (prev undefined) counts — e.g. "notify when sauna hits 82"
+      // registered while already hot should alert immediately, and then stay
+      // silent until the sauna cools and re-heats. `prev !== true` instead of
+      // `prev === false` is what makes the initial fire work.
+      shouldFire = currentlyMatches && prev !== true;
     } else if (trigger === "crossing_down") {
       shouldFire = !currentlyMatches && prev === true;
     }

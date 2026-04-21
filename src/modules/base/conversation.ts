@@ -11,7 +11,7 @@
 
 import type { ModuleContext } from "../../core/types.js";
 import type { InboundMessage } from "../../core/types.js";
-import type { SignalBridge } from "../../signal/bridge.js";
+import type { ChatAdapter } from "../../adapters/chat/types.js";
 import { Agent } from "@mariozechner/pi-agent-core";
 import { completeText } from "../../core/llm.js";
 import { isMCPServer } from "../../mcp/bridge.js";
@@ -45,7 +45,7 @@ try {
   conversationSections = sections;
 } catch {}
 
-export function createConversationModule(bridge: SignalBridge) {
+export function createConversationModule(bridge: ChatAdapter) {
   const inbox: InboundMessage[] = [];
   const groupBuffer: Array<{ from: string; text: string; timestamp: Date }> = [];
   const MAX_GROUP_BUFFER = 30;
@@ -127,7 +127,7 @@ export function createConversationModule(bridge: SignalBridge) {
 
     // --- Respond using Pi Agent ---
     ctx.log(`${msg.chatType} from ${fromLabel}: ${msg.text.slice(0, 80)}`);
-    await bridge.sendTyping(msg.from.phone || msg.from.id, msg.groupId);
+    await bridge.sendTyping?.(msg.from.phone || msg.from.id, msg.groupId);
 
     const memoryContext = await ctx.memory.assembleConversationContext(
       msg.text,
@@ -499,7 +499,7 @@ Output ONLY the classification line, nothing else.`,
 async function handleModuleNudge(
   ctx: ModuleContext,
   moduleMsg: { from: string; content: string },
-  bridge: SignalBridge,
+  bridge: ChatAdapter,
 ): Promise<void> {
   ctx.log(`Handling nudge from ${moduleMsg.from}: ${moduleMsg.content.slice(0, 120)}`);
 
