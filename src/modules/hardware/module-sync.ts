@@ -106,11 +106,15 @@ export function createModuleSyncModule(orchestrator: Orchestrator, workspacePath
           description: body.split("\n")[0],
         };
 
+        // Declarative context blocks from frontmatter.
+        const contextDecl = Array.isArray(fields.context) ? fields.context : undefined;
+
         const fn = createAgentModule({
           name,
           prompt: body,
           template,
           sections,
+          contextDecl,
           toolNames,
           outputHandler: handler,
         });

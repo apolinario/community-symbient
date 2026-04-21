@@ -14,6 +14,7 @@
  */
 
 import type { ModuleContext } from "../../core/types.js";
+import { recordEvent } from "../../core/event-log.js";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Cron } from "croner";
@@ -122,6 +123,12 @@ export function createScheduleCheckerModule() {
         context: item.context || null,
       });
       await ctx.messages.send("executive", payload);
+      recordEvent({
+        type: "scheduled_fired",
+        id: item.id,
+        prompt: item.prompt,
+        cron: item.cron ?? null,
+      });
     }
     ctx.log(`${due.length} scheduled item(s) due, waking executive`);
   };

@@ -26,6 +26,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { registerHelper, type HelperFn } from "./prompt-vars.js";
 import { registerModuleHandler, type ModuleHandler } from "./handler-registry.js";
+import { registerProvider, type ContextProvider } from "./context-providers.js";
 
 const CANDIDATE_EXTENSIONS = [".js", ".mjs", ".ts"];
 
@@ -107,23 +108,52 @@ export async function loadWorkspaceHandlers(workspacePath: string): Promise<stri
 }
 
 /**
+ * Load `workspace/extensions/providers.{js,mjs,ts}` if present and register
+ * each exported ContextProvider under the key it was exported as. No-op if
+ * the file is missing.
+ *
+ * Deployments use this to add custom `source: my-thing` context provider
+ * blocks to their modules' frontmatter — e.g. a weather-forecast provider,
+ * a custom sensor-history provider, etc. The `events` provider always
+ * works for any event type a deployment emits via `recordEvent()`, so
+ * most custom context just needs a custom event type, not a new provider.
+ */
+export async function loadWorkspaceProviders(workspacePath: string): Promise<string[]> {
+  const basePath = join(workspacePath, "extensions", "providers");
+  const exports = await importIfExists(basePath);
+  if (!exports) return [];
+
+  const registered: string[] = [];
+  for (const [name, provider] of Object.entries(exports)) {
+    if (!provider || typeof (provider as ContextProvider).execute !== "function") {
+      console.error(`[extension-loader] Skipping '${name}' in providers — missing execute()`);
+      continue;
+    }
+    registerProvider(name, provider as ContextProvider);
+    registered.push(name);
+  }
+  return registered;
+}
+
+/**
  * Load all deployment-provided extensions. Called once at startup from
  * `src/index.ts`. Returns a summary for logging.
  *
- * Future phases extend this to load providers, actions, adapters, sensors
- * from the same directory structure (`workspace/extensions/providers.js`,
- * `workspace/extensions/actions.js`, `workspace/extensions/adapters/*.js`,
- * `workspace/extensions/sensors/*.js`).
+ * Future phases extend this to load actions, adapters, sensors from the
+ * same directory structure (`workspace/extensions/actions.js`,
+ * `workspace/extensions/adapters/*.js`, `workspace/extensions/sensors/*.js`).
  */
 export async function loadAllExtensions(workspacePath: string): Promise<{
   helpers: string[];
   handlers: string[];
+  providers: string[];
 }> {
-  const [helpers, handlers] = await Promise.all([
+  const [helpers, handlers, providers] = await Promise.all([
     loadWorkspaceHelpers(workspacePath),
     loadWorkspaceHandlers(workspacePath),
+    loadWorkspaceProviders(workspacePath),
   ]);
-  return { helpers, handlers };
+  return { helpers, handlers, providers };
 }
 
 // Re-export the directory scanner for later phases that need it.

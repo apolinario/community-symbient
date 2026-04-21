@@ -11,6 +11,7 @@
  */
 
 import type { ModuleContext } from "../../core/types.js";
+import { recordEvent } from "../../core/event-log.js";
 
 const SPREADSHEET_ID = "1nQioINK2QYU3MymE5u04F5K0GBASeOIC96TA4UtiQL4";
 
@@ -52,6 +53,19 @@ export function createSaunaModule(config: Partial<SaunaConfig> = {}) {
     }
 
     const { temperatureC, timestamp } = reading;
+
+    // Always record the raw reading as a structured event — the watch evaluator
+    // and context providers may want it even when we suppress the narrative log.
+    const trend = previousTemp !== null
+      ? (temperatureC > previousTemp + 2 ? "rising"
+        : temperatureC < previousTemp - 2 ? "cooling" : "steady")
+      : null;
+    recordEvent({
+      type: "sauna_reading",
+      temp: temperatureC,
+      trend,
+      sensorTimestamp: timestamp.getTime(),
+    });
 
     // Only report on meaningful changes
     if (!shouldReport(temperatureC, lastReportedTemp, lastReportedTime)) return;

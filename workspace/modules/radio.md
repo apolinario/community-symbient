@@ -2,6 +2,21 @@
 name: radio
 interval: 2m
 tools: [search, read, grep, lookup_person, check_bookings, check_sauna, radio_broadcast, radio, radio_schedule, radio_calendar]
+context:
+  - source: current-time
+    tag: current-time
+  - source: events
+    type: broadcast
+    count: 2
+    tag: recent-broadcasts
+    note: "same topics are ok, but increase variety, find different angles, talk about other/more stuff in your context or that you can find with tool calls"
+    format: "[{ts:YYYY-MM-DD HH:mm}] {message}"
+  - source: events
+    type: tool_call
+    where: { module: conversation, tool: radio_broadcast }
+    count: 3
+    tag: community-requests
+    format: "[{ts:YYYY-MM-DD HH:mm}] via chat: {args.message}"
 ---
 
 **It is {{currentDateTime}}.** Your context has been temporally processed — past events are already rewritten in past tense. <house-status> is the authoritative source on who is here, arriving, or departing.

@@ -2,6 +2,19 @@
 name: radio-dj
 interval: 5m
 tools: [radio.radio_overview, radio.search, radio.play_music, radio.player_settings]
+context:
+  - source: current-time
+    tag: current-time
+  - source: events
+    type: tool_call
+    where: { module: conversation, tool: radio.play_music }
+    count: 3
+    tag: music-requests
+    format: "[{ts:YYYY-MM-DD HH:mm}] community requested: {args.url}"
+  - source: most-played-songs
+    count: 10
+    tag: most-played
+    note: "These songs have been played the most — avoid repeating them"
 ---
 
 **It is {{currentDateTime}}.** Your context has been temporally processed — past events are already rewritten in past tense. <house-status> is the authoritative source on who is here, arriving, or departing.

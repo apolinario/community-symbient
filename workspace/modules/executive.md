@@ -3,6 +3,22 @@ name: executive
 interval: 1h
 startActive: true
 tools: [search, read, grep, find, web_search, lookup_person, check_bookings, check_sauna, schedule, list_schedule, cancel_scheduled, nudge_module, create_module, disable_module, list_modules, phonebooth]
+context:
+  - source: current-time
+    tag: current-time
+  - source: upcoming-scheduled
+    window_hours: 24
+    tag: upcoming-scheduled
+    note: "Already scheduled for later — these will fire automatically, do NOT act on them now"
+  - source: active-threads
+    tag: active-threads
+  - source: events
+    type: tool_call
+    where: { module: executive }
+    count: 10
+    tag: your-recent-actions
+    note: "Things you already did today — do not repeat these"
+    format: "[{ts:HH:mm}] {tool}({args})"
 ---
 
 **It is {{currentDateTime}}.** Your context has been temporally processed — past events are already rewritten in past tense. <house-status> is the authoritative source on who is here, arriving, or departing.

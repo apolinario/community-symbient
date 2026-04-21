@@ -52,6 +52,7 @@ import { initMCP, onMCPReconnect } from "./mcp/bridge.js";
 // Module loader + special modules
 import { loadModuleConfigs } from "./modules/load-modules.js";
 import { loadAllExtensions } from "./core/extension-loader.js";
+import { setEventLogWorkspace } from "./core/event-log.js";
 import { createConversationModule } from "./modules/base/conversation.js";
 import { createRadioModule } from "./modules/hardware/radio.js";
 import { createSaunaModule } from "./modules/hardware/sauna.js";
@@ -209,7 +210,11 @@ async function main() {
     createRadioModule(feyopsDb),
   );
 
-  // --- Workspace extensions (custom helpers + handlers) ---
+  // --- Event log ---
+
+  setEventLogWorkspace(config.workspacePath);
+
+  // --- Workspace extensions (custom helpers, handlers, providers) ---
 
   const extensions = await loadAllExtensions(config.workspacePath);
   if (extensions.helpers.length > 0) {
@@ -217,6 +222,9 @@ async function main() {
   }
   if (extensions.handlers.length > 0) {
     console.log(`Workspace handlers: ${extensions.handlers.join(", ")}`);
+  }
+  if (extensions.providers.length > 0) {
+    console.log(`Workspace providers: ${extensions.providers.join(", ")}`);
   }
 
   // --- Agent modules (loaded from workspace/modules/*.md) ---

@@ -13,6 +13,7 @@
 
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { load as yamlLoad } from "js-yaml";
 import type { ModuleConfig, ModuleFunction } from "../core/types.js";
 import { createAgentModule } from "./agent-module.js";
 import { getModuleHandler, defaultModuleHandler } from "../core/handler-registry.js";
@@ -40,23 +41,7 @@ function parseInterval(s: string): number {
 export function parseFrontmatter(content: string): { fields: Record<string, any>; body: string } {
   const match = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
   if (!match) return { fields: {}, body: content };
-
-  const fields: Record<string, any> = {};
-  for (const line of match[1].split("\n")) {
-    const kv = line.match(/^(\w[\w-]*):\s*(.+)$/);
-    if (kv) {
-      let val: any = kv[2].trim();
-      // Parse arrays: [a, b, c]
-      if (val.startsWith("[") && val.endsWith("]")) {
-        val = val.slice(1, -1).split(",").map((s: string) => s.trim());
-      }
-      // Parse booleans
-      if (val === "true") val = true;
-      if (val === "false") val = false;
-      fields[kv[1]] = val;
-    }
-  }
-
+  const fields = (yamlLoad(match[1]) as Record<string, any>) ?? {};
   return { fields, body: match[2].trim() };
 }
 
@@ -93,6 +78,9 @@ export async function loadModuleConfigs(workspacePath: string): Promise<ParsedMo
     // Handler: workspace-registered first, else default (log-to-memory).
     const handler = getModuleHandler(name) ?? defaultModuleHandler;
 
+    // Declarative context blocks from frontmatter (`context:` array of provider declarations).
+    const contextDecl = Array.isArray(fields.context) ? fields.context : undefined;
+
     modules.push({
       config: { name, intervalMs: interval, startActive, follows, description: template.split("\n")[0] },
       fn: createAgentModule({
@@ -100,6 +88,7 @@ export async function loadModuleConfigs(workspacePath: string): Promise<ParsedMo
         prompt: body,
         template,
         sections,
+        contextDecl,
         toolNames,
         outputHandler: handler,
       }),

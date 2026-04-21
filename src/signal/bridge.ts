@@ -14,6 +14,7 @@ import type {
   SignalSender,
 } from "../core/types.js";
 import { createLogger } from "../core/logger.js";
+import { recordEvent } from "../core/event-log.js";
 import WebSocket from "ws";
 
 type MessageHandler = (msg: InboundMessage) => Promise<void>;
@@ -235,6 +236,18 @@ export class SignalBridge {
         size: a.size || 0,
       })),
     };
+
+    recordEvent({
+      type: "chat_message",
+      direction: "in",
+      chat: msg.chatType,
+      from: sender.name || sender.id,
+      fromId: sender.id,
+      text,
+      groupId: msg.groupId,
+      groupName: msg.groupName,
+      hasAttachments: (msg.attachments?.length ?? 0) > 0,
+    });
 
     for (const handler of this.handlers) {
       try {

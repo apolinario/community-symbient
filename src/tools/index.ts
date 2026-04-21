@@ -14,6 +14,7 @@ import { callMCPTool } from "../mcp/bridge.js";
 import type { MQTTBus } from "../core/mqtt-bus.js";
 
 import { createLogger } from "../core/logger.js";
+import { recordEvent } from "../core/event-log.js";
 
 const QMD_URL = process.env.QMD_URL || "http://localhost:8181";
 const TTS_API = process.env.TTS_API_URL || "http://localhost:8000";
@@ -850,6 +851,12 @@ export function createRadioBroadcastTool(): AgentTool {
 
         // Clean up
         setTimeout(() => fs.unlink(tmpPath).catch(() => {}), 60000);
+
+        recordEvent({
+          type: "broadcast",
+          message: params.message,
+          voice: params.voice,
+        });
 
         return { content: [{ type: "text", text: `Broadcasting: "${params.message.slice(0, 80)}..."` }], details: {} };
       } catch (err) {

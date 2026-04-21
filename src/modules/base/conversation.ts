@@ -18,6 +18,7 @@ import { isMCPServer } from "../../mcp/bridge.js";
 import { parseFrontmatter } from "../load-modules.js";
 import { parseSections, render } from "../../core/prompt-template.js";
 import { standardVars } from "../../core/prompt-vars.js";
+import { recordEvent } from "../../core/event-log.js";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -259,6 +260,16 @@ export function createConversationModule(bridge: SignalBridge) {
 
     await bridge.send({
       to: msg.from.phone || msg.from.id,
+      text: response,
+      groupId: msg.groupId,
+    });
+
+    recordEvent({
+      type: "chat_message",
+      direction: "out",
+      chat: msg.chatType,
+      from: "feyblet",
+      to: fromLabel,
       text: response,
       groupId: msg.groupId,
     });
