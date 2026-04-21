@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createBookingsModule } from "./bookings.js";
-import { FeyOpsDB } from "./db.js";
+import { FeyOpsDB } from "../feyops/db.js";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";

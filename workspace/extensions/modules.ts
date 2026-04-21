@@ -2,17 +2,15 @@
  * Feÿ deployment wiring.
  *
  * The framework calls this default export at startup with the full deps
- * object. Two responsibilities:
+ * object. Responsibilities:
  *
- *   1. Side-effect setup for this deployment — attach the memory
- *      enricher that produces <house-status>, <sauna>, <season-today>,
- *      <current-meal>, <recent-broadcasts> during context assembly.
- *
- *   2. Register Feÿ-specific code-driven modules (bookings, people-sync,
- *      onboarding, sauna, radio-calendar) with the built-in module
- *      registry. After registration, they appear in listBuiltInModules()
- *      and run like framework modules — but their code lives here in
- *      the deployment, not in src/.
+ *   1. Attach the memory enricher (per-person blocks).
+ *   2. Configure context providers (house-status, sauna, etc.) with the
+ *      FeyOps DB so they can look up booking data.
+ *   3. Register deployment-specific code-driven modules — conversation,
+ *      sauna, bookings, people-sync, onboarding, radio-calendar — with
+ *      the built-in module registry. After registration they appear in
+ *      listBuiltInModules() and run like framework modules.
  *
  * Another community writes their own `modules.ts` with their own wiring.
  */
@@ -24,11 +22,12 @@ import { registerBuiltInModule } from "../../src/core/module-factories.js";
 import type { FeyOpsDB } from "../services/feyops/db.js";
 import { createFeyEnricher } from "../services/feyops/enricher.js";
 import { configureFeyProviders } from "./providers.js";
-import { createSaunaModule } from "../services/feyops/sauna.js";
-import { createBookingsModule } from "../services/feyops/bookings.js";
-import { createPeopleSyncModule } from "../services/feyops/people-sync.js";
-import { createOnboardingModule } from "../services/feyops/onboarding.js";
-import { createRadioModule } from "../services/feyops/radio-calendar.js";
+import { createConversationModule } from "../services/conversation/index.js";
+import { createSaunaModule } from "../services/sauna/index.js";
+import { createBookingsModule } from "../services/bookings/index.js";
+import { createPeopleSyncModule } from "../services/people-sync/index.js";
+import { createOnboardingModule } from "../services/onboarding/index.js";
+import { createRadioModule } from "../services/radio/index.js";
 
 export interface WorkspaceModulesDeps {
   memory: MemoryManager;
@@ -39,30 +38,29 @@ export interface WorkspaceModulesDeps {
 }
 
 export default function feySetup(deps: WorkspaceModulesDeps): unknown[] {
-  // The feyops directory adapter returns a concrete FeyOpsDB; deployment
-  // code is allowed to know that shape and cast.
   const feyopsDb = deps.directory as unknown as FeyOpsDB | undefined;
 
-  // --- Memory enricher (only per-person blocks — booking context + nicknames) ---
+  // --- Memory enricher + context providers that need FeyOps data ---
   if (feyopsDb) {
     deps.memory.setEnricher(createFeyEnricher({
       feyopsDb,
       workspacePath: deps.workspacePath,
     }));
-    // Wire the deployment providers so house-status/sauna/etc. can look up
-    // the FeyOps DB when invoked from a module's seed-prompt assembly.
     configureFeyProviders({ feyopsDb });
   }
 
-  // --- Deployment-specific modules ---
-  // Register each against the shared built-in registry. `requires` ensures
-  // they're skipped if the deployment wasn't configured with the right deps
-  // (though in a Feÿ install all deps are present).
+  // --- Register deployment-specific modules ---
+
+  registerBuiltInModule("conversation", {
+    config: { name: "conversation", intervalMs: 500, startActive: true },
+    factory: (d) => createConversationModule(d.chatAdapter!),
+    requires: ["chatAdapter"],
+    note: "Feÿ chat handler: group triage, direct-address retry, attachment processing, inter-module nudges",
+  });
 
   registerBuiltInModule("sauna", {
     config: { name: "sauna", intervalMs: 60_000, startActive: true },
     factory: () => createSaunaModule(),
-    note: "Google Sheets temperature sensor (Feÿ)",
   });
 
   registerBuiltInModule("bookings", {
@@ -86,7 +84,6 @@ export default function feySetup(deps: WorkspaceModulesDeps): unknown[] {
   registerBuiltInModule("radio-calendar", {
     config: { name: "radio-calendar", intervalMs: 5 * 60_000, startActive: true, description: "Process scheduled radio calendar items" },
     factory: () => createRadioModule(),
-    note: "Reads workspace/radio/calendar.json",
   });
 
   return [];

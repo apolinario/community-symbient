@@ -21,7 +21,6 @@ import { createQmdIndexModule } from "../sense/qmd-index.js";
 import { createScheduleCheckerModule } from "../sense/schedule-checker.js";
 import { createWatchEvaluatorModule } from "../sense/watch-evaluator.js";
 import { createModuleSyncModule } from "./module-sync.js";
-import { createConversationModule } from "../modules/base/conversation.js";
 
 // Built-in chat adapter factories self-register on import. A deployment
 // that doesn't use Signal still pays the import cost but the factory
@@ -47,12 +46,5 @@ export function registerBuiltIns(): void {
   registerBuiltInModule("module-sync", {
     config: { name: "module-sync", intervalMs: 30_000, startActive: true, description: "Hot-reload markdown modules" },
     factory: (deps) => createModuleSyncModule(deps.orchestrator, deps.workspacePath),
-  });
-
-  registerBuiltInModule("conversation", {
-    config: { name: "conversation", intervalMs: 500, startActive: true },
-    factory: (deps) => createConversationModule(deps.chatAdapter!),
-    requires: ["chatAdapter"],
-    note: "Reactive chat handler; requires a ChatAdapter",
   });
 }

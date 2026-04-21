@@ -7,7 +7,7 @@
  */
 
 import type { ModuleContext } from "../../../src/core/types.js";
-import type { FeyOpsDB, BookingRow } from "./db.js";
+import type { FeyOpsDB, BookingRow } from "../feyops/db.js";
 import { formatDate, addDays } from "../../../src/core/date-utils.js";
 
 export function createBookingsModule(db?: FeyOpsDB) {

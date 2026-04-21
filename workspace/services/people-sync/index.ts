@@ -12,7 +12,7 @@
  */
 
 import type { ModuleContext } from "../../../src/core/types.js";
-import type { FeyOpsDB, BookingRow } from "./db.js";
+import type { FeyOpsDB, BookingRow } from "../feyops/db.js";
 import type { MemoryManager } from "../../../src/memory/manager.js";
 import { slugify } from "../../../src/core/slugify.js";
 import { readFile, writeFile } from "node:fs/promises";

@@ -9,16 +9,16 @@
  * whether to engage. DMs always get a response.
  */
 
-import type { ModuleContext } from "../../core/types.js";
-import type { InboundMessage } from "../../core/types.js";
-import type { ChatAdapter } from "../../adapters/chat/types.js";
+import type { ModuleContext } from "../../../src/core/types.js";
+import type { InboundMessage } from "../../../src/core/types.js";
+import type { ChatAdapter } from "../../../src/adapters/chat/types.js";
 import { Agent } from "@mariozechner/pi-agent-core";
-import { completeText } from "../../core/llm.js";
-import { isMCPServer } from "../../mcp/bridge.js";
-import { parseFrontmatter } from "../load-modules.js";
-import { parseSections, render } from "../../core/prompt-template.js";
-import { standardVars } from "../../core/prompt-vars.js";
-import { recordEvent } from "../../core/event-log.js";
+import { completeText } from "../../../src/core/llm.js";
+import { isMCPServer } from "../../../src/mcp/bridge.js";
+import { parseFrontmatter } from "../../../src/modules/load-modules.js";
+import { parseSections, render } from "../../../src/core/prompt-template.js";
+import { standardVars } from "../../../src/core/prompt-vars.js";
+import { recordEvent } from "../../../src/core/event-log.js";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
