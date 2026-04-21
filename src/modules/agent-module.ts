@@ -18,6 +18,8 @@ import { completeText } from "../core/llm.js";
 import { isMCPServer } from "../mcp/bridge.js";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
+import { render } from "../core/prompt-template.js";
+import { standardVars } from "../core/prompt-vars.js";
 
 const PLAY_HISTORY_PATH = join(process.cwd(), "workspace", "radio", "play-history.csv");
 
@@ -88,7 +90,12 @@ async function getTopPlayed(count: number): Promise<string[]> {
 
 export interface ModuleSpec {
   name: string;
+  /** Raw markdown body (including any `## section` subsections). Used only as a fallback/legacy path. */
   prompt: string;
+  /** Markdown body with `## section` subsections stripped. Rendered as Handlebars if it contains `{{...}}`. */
+  template: string;
+  /** Named sub-prompts extracted from `## section` H2 headings in the md body. Empty object if none. */
+  sections: Record<string, string>;
   toolNames: string[];
   outputHandler: (ctx: ModuleContext, output: string, toolTrace: string[], toolCalls?: Array<{ name: string; args: any }>) => Promise<void>;
 }
@@ -138,11 +145,13 @@ export function createAgentModule(spec: ModuleSpec) {
       return false;
     });
 
-    // Build system prompt: date + SOUL/MEMORY context + module-specific goal
+    // Build system prompt: render the module's Handlebars template with standard vars.
+    // The md file is responsible for whatever preamble, memory context, and instructions
+    // the module needs. Core provides the values (currentDateTime, memoryContext, etc.)
+    // via the helper registry in src/core/prompt-vars.ts.
+    const vars = await standardVars(ctx, { sections: spec.sections, memoryContext });
+    const systemPrompt = render(spec.template, vars);
     const now = new Date();
-    const dateStr = now.toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
-    const timeStr = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-    const systemPrompt = `**It is ${dateStr}, ${timeStr}.** Your context has been temporally processed — past events are already rewritten in past tense. <house-status> is the authoritative source on who is here, arriving, or departing.\n\n${memoryContext}\n\n${spec.prompt}`;
 
     // Create Pi Agent
     const agent = new Agent({
@@ -380,54 +389,3 @@ export function createAgentModule(spec: ModuleSpec) {
   };
 }
 
-// --- Standard output handlers ---
-
-export const thinkingHandler = async (ctx: ModuleContext, output: string, _trace: string[], toolCalls?: Array<{ name: string; args: any }>) => {
-  const wrote = toolCalls?.some(tc => tc.name === "write");
-  if (wrote) {
-    await ctx.memory.appendLog(`*[Feyblet thinking]*\n${output}`);
-    await ctx.messages.send("conversation", "inner_state_updated");
-  }
-};
-
-export const desireHandler = async (ctx: ModuleContext, output: string, _trace: string[], toolCalls?: Array<{ name: string; args: any }>) => {
-  const wrote = toolCalls?.some(tc => tc.name === "write");
-  if (wrote) {
-    await ctx.memory.appendLog(`*[Feyblet desire]* ${output}`);
-    await ctx.messages.send("conversation", `desire:${output}`);
-  } else {
-    ctx.log("No current desires.");
-  }
-};
-
-export const magiHandler = async (ctx: ModuleContext, output: string, _trace: string[], toolCalls?: Array<{ name: string; args: any }>) => {
-  const wrote = toolCalls?.some(tc => tc.name === "write");
-  if (wrote) {
-    await ctx.memory.appendLog(`*[Feyblet magi]*\n${output}`);
-  }
-};
-
-export const autobiographicalHandler = async (ctx: ModuleContext, output: string, _trace: string[], toolCalls?: Array<{ name: string; args: any }>) => {
-  // The agent uses write/edit tools directly to update MEMORY.md — no need to write the output as a file.
-  // Just log the completion and any tool activity.
-  const wroteMemory = toolCalls?.some(tc => tc.name === "write" || tc.name === "edit");
-  if (wroteMemory) {
-    await ctx.memory.appendLog("*[Autobiographical memory updated]*");
-    ctx.log("MEMORY.md updated via agent tools.");
-  } else if (output?.trim()) {
-    await ctx.memory.appendLog("*[Autobiographical reflection]*");
-    ctx.log(`Autobiographical: no file write`);
-  }
-};
-
-export const promptModifierHandler = async (ctx: ModuleContext, output: string, _trace: string[]) => {
-  if (output.includes("NO_CHANGES") || output.trim() === "NO_CHANGES") {
-    ctx.log("No changes to SOUL.md needed.");
-    return;
-  }
-  await ctx.memory.writeFile("SOUL.md", output);
-  await ctx.memory.appendFile("inner/prompt-changes.md",
-    `\n## ${new Date().toISOString()}\n\nSOUL.md modified by prompt-modifier.\n`);
-  await ctx.memory.appendLog("*[SOUL.md modified by prompt-modifier]*");
-  ctx.log("SOUL.md updated.");
-};

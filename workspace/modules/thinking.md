@@ -4,6 +4,10 @@ interval: 30m
 tools: [search, read, write, grep, lookup_person]
 ---
 
+**It is {{currentDateTime}}.** Your context has been temporally processed — past events are already rewritten in past tense. <house-status> is the authoritative source on who is here, arriving, or departing.
+
+{{memoryContext}}
+
 # Thinking
 
 Reflect on what's been happening in the community. Use your tools — search memory for recent conversations, look up people you're curious about. Ground your thinking in what's actually happened, not what you imagine.

@@ -1,0 +1,130 @@
+/**
+ * Extension Loader — dynamically imports deployment-specific JS from
+ * `workspace/extensions/*` and registers them with the relevant framework
+ * registries.
+ *
+ * This is the seam that keeps `src/` (framework) and `workspace/` (deployment)
+ * separate. A deployment adds custom helpers, providers, actions, adapters,
+ * or sensors by dropping a file in `workspace/extensions/`, without touching
+ * any framework code. Framework upgrades merge cleanly because they never
+ * touch the workspace.
+ *
+ * File shape convention: every extension file `export default` an object
+ * keyed by name. Each value is the extension payload (a function for helpers,
+ * an adapter object for adapters, etc.). The caller picks how to register.
+ *
+ *   // workspace/extensions/helpers.js
+ *   export default {
+ *     weather: async () => { ... },
+ *     serverStatus: () => { ... },
+ *   };
+ */
+
+import { existsSync } from "node:fs";
+import { readdir } from "node:fs/promises";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { registerHelper, type HelperFn } from "./prompt-vars.js";
+import { registerModuleHandler, type ModuleHandler } from "./handler-registry.js";
+
+const CANDIDATE_EXTENSIONS = [".js", ".mjs", ".ts"];
+
+async function importIfExists(basePath: string): Promise<Record<string, unknown> | null> {
+  for (const ext of CANDIDATE_EXTENSIONS) {
+    const fullPath = basePath + ext;
+    if (!existsSync(fullPath)) continue;
+    try {
+      const mod = await import(pathToFileURL(fullPath).href);
+      const exports = (mod.default ?? mod) as Record<string, unknown>;
+      return exports;
+    } catch (err) {
+      console.error(`[extension-loader] Failed to import ${fullPath}: ${err}`);
+      return null;
+    }
+  }
+  return null;
+}
+
+async function importAllInDir(dirPath: string): Promise<Array<{ file: string; exports: Record<string, unknown> }>> {
+  if (!existsSync(dirPath)) return [];
+  const files = await readdir(dirPath);
+  const results: Array<{ file: string; exports: Record<string, unknown> }> = [];
+  for (const file of files) {
+    if (!CANDIDATE_EXTENSIONS.some((e) => file.endsWith(e))) continue;
+    const fullPath = join(dirPath, file);
+    try {
+      const mod = await import(pathToFileURL(fullPath).href);
+      const exports = (mod.default ?? mod) as Record<string, unknown>;
+      results.push({ file, exports });
+    } catch (err) {
+      console.error(`[extension-loader] Failed to import ${fullPath}: ${err}`);
+    }
+  }
+  return results;
+}
+
+/**
+ * Load `workspace/extensions/helpers.{js,mjs,ts}` if present and register
+ * each exported function as a Handlebars helper. No-op if the file is missing.
+ */
+export async function loadWorkspaceHelpers(workspacePath: string): Promise<string[]> {
+  const basePath = join(workspacePath, "extensions", "helpers");
+  const exports = await importIfExists(basePath);
+  if (!exports) return [];
+
+  const registered: string[] = [];
+  for (const [name, fn] of Object.entries(exports)) {
+    if (typeof fn !== "function") {
+      console.error(`[extension-loader] Skipping '${name}' in helpers — not a function`);
+      continue;
+    }
+    registerHelper(name, fn as HelperFn);
+    registered.push(name);
+  }
+  return registered;
+}
+
+/**
+ * Load `workspace/extensions/handlers.{js,mjs,ts}` if present and register
+ * each exported function as a module output handler, keyed by module name.
+ * No-op if the file is missing.
+ */
+export async function loadWorkspaceHandlers(workspacePath: string): Promise<string[]> {
+  const basePath = join(workspacePath, "extensions", "handlers");
+  const exports = await importIfExists(basePath);
+  if (!exports) return [];
+
+  const registered: string[] = [];
+  for (const [name, fn] of Object.entries(exports)) {
+    if (typeof fn !== "function") {
+      console.error(`[extension-loader] Skipping '${name}' in handlers — not a function`);
+      continue;
+    }
+    registerModuleHandler(name, fn as ModuleHandler);
+    registered.push(name);
+  }
+  return registered;
+}
+
+/**
+ * Load all deployment-provided extensions. Called once at startup from
+ * `src/index.ts`. Returns a summary for logging.
+ *
+ * Future phases extend this to load providers, actions, adapters, sensors
+ * from the same directory structure (`workspace/extensions/providers.js`,
+ * `workspace/extensions/actions.js`, `workspace/extensions/adapters/*.js`,
+ * `workspace/extensions/sensors/*.js`).
+ */
+export async function loadAllExtensions(workspacePath: string): Promise<{
+  helpers: string[];
+  handlers: string[];
+}> {
+  const [helpers, handlers] = await Promise.all([
+    loadWorkspaceHelpers(workspacePath),
+    loadWorkspaceHandlers(workspacePath),
+  ]);
+  return { helpers, handlers };
+}
+
+// Re-export the directory scanner for later phases that need it.
+export { importAllInDir };

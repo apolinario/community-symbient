@@ -5,6 +5,10 @@ tools: [search, read, write, grep, lookup_person]
 startActive: false
 ---
 
+**It is {{currentDateTime}}.** Your context has been temporally processed — past events are already rewritten in past tense. <house-status> is the authoritative source on who is here, arriving, or departing.
+
+{{memoryContext}}
+
 # Inner Dialogue (Magi)
 
 You have three inner voices that argue with each other:

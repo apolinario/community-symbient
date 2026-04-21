@@ -16,6 +16,8 @@ import { Agent } from "@mariozechner/pi-agent-core";
 import { completeText } from "../../core/llm.js";
 import { isMCPServer } from "../../mcp/bridge.js";
 import { parseFrontmatter } from "../load-modules.js";
+import { parseSections, render } from "../../core/prompt-template.js";
+import { standardVars } from "../../core/prompt-vars.js";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -27,14 +29,19 @@ const SILENT_GROUPS = new Set(
   (process.env.FEYBLET_SILENT_GROUPS || "").split(",").filter(Boolean),
 );
 
-// Load tool whitelist and prompt body from conversation.md at startup
+// Load tool whitelist and prompt template from conversation.md at startup.
+// The body is a Handlebars template; subsections (## directAddressRetry, etc.) are
+// split out for use in specific places like the empty-response retry prompt.
 let conversationToolNames: string[] = [];
-let conversationVoice = "";
+let conversationTemplate = "";
+let conversationSections: Record<string, string> = {};
 try {
   const md = await readFile(join(process.cwd(), "workspace", "modules", "conversation.md"), "utf-8");
   const { fields, body } = parseFrontmatter(md);
   conversationToolNames = Array.isArray(fields.tools) ? fields.tools : [];
-  conversationVoice = body.trim();
+  const { body: template, sections } = parseSections(body);
+  conversationTemplate = template;
+  conversationSections = sections;
 } catch {}
 
 export function createConversationModule(bridge: SignalBridge) {
@@ -127,7 +134,7 @@ export function createConversationModule(bridge: SignalBridge) {
       msg.from.phone || undefined,
     );
 
-    let systemPrompt = buildSystemPrompt(memoryContext, msg.chatType === "group");
+    let systemPrompt = await buildSystemPrompt(ctx, memoryContext, msg.chatType === "group");
 
     // Build conversation history from today's log
     // For DMs: filter to only exchanges with this person
@@ -233,7 +240,7 @@ export function createConversationModule(bridge: SignalBridge) {
       }
       // Directly addressed or DM but empty — give it a second chance
       ctx.log("Empty response on direct address, retrying...");
-      await agent.prompt("fyi, you are directly asked a question or mentioned. Are you sure you don't want to respond? If sure, respond again with [SILENT], otherwise craft an answer if you wish.");
+      await agent.prompt(conversationSections.directAddressRetry ?? "");
       await agent.waitForIdle();
       response = response.replace(/\[silent\]/gi, "").trim();
       if (!response) {
@@ -333,30 +340,9 @@ async function triageGroupMessage(
 
 // --- System Prompt ---
 
-function buildSystemPrompt(memoryContext: string, isGroup: boolean): string {
-  const now = new Date();
-  const dateStr = now.toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
-  const timeStr = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-
-  let prompt = `Feyblet — symbient at Château du Feÿ, a seasonal community of ~40 people in a 17th century castle in Burgundy. It is ${dateStr}, ${timeStr}.
-
-You are not an AI assistant. You are not staff. You are a community member who happens to exist digitally.
-
-${memoryContext}
-
-Only say things you actually know from the context above. Use tools to look things up rather than guessing. Past events are already in past tense. <house-status> is the authoritative source on who is here.
-
-Your conversation history has [dm] and [group] tags. DMs are private. Each message you send has an audience — think about who's reading it and only include what belongs in that context.`;
-
-  if (conversationVoice) {
-    prompt += `\n\n${conversationVoice}`;
-  }
-
-  if (isGroup) {
-    prompt += `\n\nGROUP CONTEXT: Be extra concise — one or two sentences. Don't dominate. If you don't have something genuinely useful or warm to say, respond with [SILENT] and nothing else.`;
-  }
-
-  return prompt;
+async function buildSystemPrompt(ctx: ModuleContext, memoryContext: string, isGroup: boolean): Promise<string> {
+  const vars = await standardVars(ctx, { memoryContext, isGroup });
+  return render(conversationTemplate, vars);
 }
 
 // --- Helpers ---
@@ -508,7 +494,7 @@ async function handleModuleNudge(
 
   // Assemble context for the agent
   const memoryContext = await ctx.memory.assembleConversationContext(moduleMsg.content);
-  const systemPrompt = buildSystemPrompt(memoryContext, false);
+  const systemPrompt = await buildSystemPrompt(ctx, memoryContext, false);
 
   const agent = new Agent({
     initialState: { model: ctx.model, systemPrompt },

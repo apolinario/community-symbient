@@ -51,6 +51,7 @@ import { initMCP, onMCPReconnect } from "./mcp/bridge.js";
 
 // Module loader + special modules
 import { loadModuleConfigs } from "./modules/load-modules.js";
+import { loadAllExtensions } from "./core/extension-loader.js";
 import { createConversationModule } from "./modules/base/conversation.js";
 import { createRadioModule } from "./modules/hardware/radio.js";
 import { createSaunaModule } from "./modules/hardware/sauna.js";
@@ -207,6 +208,16 @@ async function main() {
     { name: "radio-calendar", intervalMs: 5 * 60_000, startActive: true, description: "Process scheduled radio calendar items" },
     createRadioModule(feyopsDb),
   );
+
+  // --- Workspace extensions (custom helpers + handlers) ---
+
+  const extensions = await loadAllExtensions(config.workspacePath);
+  if (extensions.helpers.length > 0) {
+    console.log(`Workspace helpers: ${extensions.helpers.join(", ")}`);
+  }
+  if (extensions.handlers.length > 0) {
+    console.log(`Workspace handlers: ${extensions.handlers.join(", ")}`);
+  }
 
   // --- Agent modules (loaded from workspace/modules/*.md) ---
 

@@ -13,6 +13,8 @@ import { readdir, readFile, rename, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { parseFrontmatter } from "../load-modules.js";
 import { createAgentModule } from "../agent-module.js";
+import { parseSections } from "../../core/prompt-template.js";
+import { getModuleHandler, defaultModuleHandler } from "../../core/handler-registry.js";
 
 // Track what we've loaded to detect changes
 const loadedModules = new Map<string, { mtime: number }>();
@@ -89,11 +91,11 @@ export function createModuleSyncModule(orchestrator: Orchestrator, workspacePath
           }
         }
 
-        // Determine output handler (default: log to daily memory)
-        const defaultHandler = async (c: any, output: string, _trace: string[]) => {
-          await c.memory.appendLog(`*[${name}]* ${output}`);
-          c.log(`${name}: ${output.slice(0, 100)}...`);
-        };
+        // Split md body into Handlebars template + `## section` sub-prompts.
+        const { body: template, sections } = parseSections(body);
+
+        // Handler: workspace-registered first, else framework default.
+        const handler = getModuleHandler(name) ?? defaultModuleHandler;
 
         const follows = fields.follows as string | undefined;
         const config = {
@@ -107,8 +109,10 @@ export function createModuleSyncModule(orchestrator: Orchestrator, workspacePath
         const fn = createAgentModule({
           name,
           prompt: body,
+          template,
+          sections,
           toolNames,
-          outputHandler: defaultHandler,
+          outputHandler: handler,
         });
 
         orchestrator.registerLive(config, fn);
