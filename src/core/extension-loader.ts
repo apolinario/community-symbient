@@ -28,6 +28,10 @@ import { registerHelper, type HelperFn } from "./prompt-vars.js";
 import { registerModuleHandler, type ModuleHandler } from "./handler-registry.js";
 import { registerProvider, type ContextProvider } from "./context-providers.js";
 import { registerAction, type ActionHandler } from "./action-registry.js";
+import { registerChatAdapter, registerSensor, registerDirectory } from "./adapter-registry.js";
+import type { ChatAdapterFactory } from "../adapters/chat/types.js";
+import type { SensorFactory } from "../adapters/sensor/types.js";
+import type { DirectoryFactory } from "../adapters/directory/types.js";
 
 const CANDIDATE_EXTENSIONS = [".js", ".mjs", ".ts"];
 
@@ -162,26 +166,68 @@ export async function loadWorkspaceActions(workspacePath: string): Promise<strin
 }
 
 /**
+ * Load all *.js files from a workspace/extensions subdirectory and pass
+ * their default exports to a registrar. Each factory object must carry
+ * a `name` and an adapter-kind-specific shape (factory.create, etc.).
+ */
+async function loadFactoriesFromDir<F extends { name: string }>(
+  workspacePath: string,
+  subdir: string,
+  register: (factory: F) => void,
+  validate: (entry: unknown) => entry is F,
+): Promise<string[]> {
+  const dirPath = join(workspacePath, "extensions", subdir);
+  const entries = await importAllInDir(dirPath);
+  const registered: string[] = [];
+  for (const { file, exports } of entries) {
+    const factory = exports.default ?? exports;
+    if (!validate(factory)) {
+      console.error(`[extension-loader] Skipping ${subdir}/${file} — missing expected fields`);
+      continue;
+    }
+    register(factory);
+    registered.push(factory.name);
+  }
+  return registered;
+}
+
+const isChatFactory = (x: unknown): x is ChatAdapterFactory =>
+  !!x && typeof (x as any).name === "string" && typeof (x as any).create === "function";
+const isSensorFactory = (x: unknown): x is SensorFactory =>
+  !!x && typeof (x as any).name === "string" && typeof (x as any).create === "function";
+const isDirectoryFactory = (x: unknown): x is DirectoryFactory =>
+  !!x && typeof (x as any).name === "string" && typeof (x as any).create === "function";
+
+export const loadWorkspaceChatAdapters = (ws: string) =>
+  loadFactoriesFromDir(ws, "adapters/chat", registerChatAdapter, isChatFactory);
+export const loadWorkspaceSensors = (ws: string) =>
+  loadFactoriesFromDir(ws, "sensors", registerSensor, isSensorFactory);
+export const loadWorkspaceDirectories = (ws: string) =>
+  loadFactoriesFromDir(ws, "adapters/directory", registerDirectory, isDirectoryFactory);
+
+/**
  * Load all deployment-provided extensions. Called once at startup from
  * `src/index.ts`. Returns a summary for logging.
- *
- * Future phases extend this to load adapters and sensors from the same
- * directory structure (`workspace/extensions/adapters/*.js`,
- * `workspace/extensions/sensors/*.js`).
  */
 export async function loadAllExtensions(workspacePath: string): Promise<{
   helpers: string[];
   handlers: string[];
   providers: string[];
   actions: string[];
+  chatAdapters: string[];
+  sensors: string[];
+  directories: string[];
 }> {
-  const [helpers, handlers, providers, actions] = await Promise.all([
+  const [helpers, handlers, providers, actions, chatAdapters, sensors, directories] = await Promise.all([
     loadWorkspaceHelpers(workspacePath),
     loadWorkspaceHandlers(workspacePath),
     loadWorkspaceProviders(workspacePath),
     loadWorkspaceActions(workspacePath),
+    loadWorkspaceChatAdapters(workspacePath),
+    loadWorkspaceSensors(workspacePath),
+    loadWorkspaceDirectories(workspacePath),
   ]);
-  return { helpers, handlers, providers, actions };
+  return { helpers, handlers, providers, actions, chatAdapters, sensors, directories };
 }
 
 // Re-export the directory scanner for later phases that need it.

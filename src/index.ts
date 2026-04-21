@@ -243,6 +243,15 @@ async function main() {
   if (extensions.actions.length > 0) {
     console.log(`Workspace actions: ${extensions.actions.join(", ")}`);
   }
+  if (extensions.chatAdapters.length > 0) {
+    console.log(`Workspace chat adapters: ${extensions.chatAdapters.join(", ")}`);
+  }
+  if (extensions.sensors.length > 0) {
+    console.log(`Workspace sensors: ${extensions.sensors.join(", ")}`);
+  }
+  if (extensions.directories.length > 0) {
+    console.log(`Workspace directories: ${extensions.directories.join(", ")}`);
+  }
 
   // --- Agent modules (loaded from workspace/modules/*.md) ---
 

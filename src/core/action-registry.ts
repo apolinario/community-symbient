@@ -86,20 +86,25 @@ const groupAction: ActionHandler = async ({ params, messages, watchId }) => {
   log.info(`group nudge sent (watch ${watchId})`);
 };
 
-/** Broadcast on radio. Nudges the radio module with `request_broadcast:`. */
-const broadcastAction: ActionHandler = async ({ params, messages, watchId }) => {
-  if (!params.intent) {
-    log.warn(`broadcast action missing intent (watch ${watchId})`);
+/**
+ * Generic nudge — sends a payload to any module's mailbox. This is the
+ * universal "do something" action: the target module's handler/prompt
+ * decides what `payload` means. Use this when dm/group don't fit.
+ *
+ * Example watch action:
+ *   { "kind": "nudge", "module": "radio", "payload": "request_broadcast:{\"intent\":\"...\"}" }
+ */
+const nudgeAction: ActionHandler = async ({ params, messages, watchId }) => {
+  const module = params.module;
+  const payload = params.payload;
+  if (!module || !payload) {
+    log.warn(`nudge action missing module/payload (watch ${watchId})`);
     return;
   }
-  const payload = `request_broadcast:${JSON.stringify({
-    intent: params.intent,
-    reasoning: params.reasoning ?? `watch ${watchId} fired`,
-  })}`;
-  await messages.send("radio", payload);
-  log.info(`broadcast nudge sent (watch ${watchId})`);
+  await messages.send(String(module), String(payload));
+  log.info(`nudge sent to ${module} (watch ${watchId})`);
 };
 
 registerAction("dm", dmAction);
 registerAction("group", groupAction);
-registerAction("broadcast", broadcastAction);
+registerAction("nudge", nudgeAction);

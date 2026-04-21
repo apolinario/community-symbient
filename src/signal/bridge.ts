@@ -13,7 +13,8 @@ import type {
   OutboundMessage,
   SignalSender,
 } from "../core/types.js";
-import type { ChatAdapter, ChatMessageHandler } from "../adapters/chat/types.js";
+import type { ChatAdapter, ChatAdapterFactory, ChatMessageHandler } from "../adapters/chat/types.js";
+import { registerChatAdapter } from "../core/adapter-registry.js";
 import { createLogger } from "../core/logger.js";
 import { recordEvent } from "../core/event-log.js";
 import WebSocket from "ws";
@@ -266,6 +267,16 @@ export class SignalBridge implements ChatAdapter {
     }
   }
 }
+
+// Self-register as the built-in "signal" chat adapter factory so that
+// config.yaml entries with `adapter: signal` can find it. Deployments
+// using Signal as their chat transport don't need to do anything — just
+// point config.adapters.chat at this factory by name.
+export const signalChatAdapterFactory: ChatAdapterFactory = {
+  name: "signal",
+  create: (params) => new SignalBridge(params as unknown as SignalConfig),
+};
+registerChatAdapter(signalChatAdapterFactory);
 
 // --- Signal Envelope Types ---
 

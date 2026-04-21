@@ -52,9 +52,14 @@ export type { Event, QueryFilter } from "./event-log.js";
 export type { ModuleContext } from "./types.js";
 
 // Adapter interfaces — deployments implement these to plug in custom chat
-// transports, sensors, directories, and output channels (via workspace/
-// extensions/adapters/*.js and workspace/extensions/sensors/*.js).
+// transports, sensors, and directories (via workspace/extensions/adapters/
+// and workspace/extensions/sensors/).
+//
+// Outputs (broadcast, email, webhook, etc.) are intentionally NOT a framework
+// interface: they're just modules using tools. To add a broadcast capability,
+// add a module .md + relevant tool (built-in or via MCP), and if you want a
+// watch action that targets it, register a custom action in
+// workspace/extensions/actions.js that nudges that module.
 export type { ChatAdapter, ChatAdapterFactory, ChatMessageHandler } from "../adapters/chat/types.js";
 export type { Sensor, SensorFactory } from "../adapters/sensor/types.js";
 export type { Directory, DirectoryFactory, Member, Booking } from "../adapters/directory/types.js";
-export type { OutputChannel, OutputChannelFactory, BroadcastRequest } from "../adapters/output/types.js";

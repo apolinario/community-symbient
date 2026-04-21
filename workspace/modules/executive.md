@@ -73,7 +73,7 @@ register_watch({
 ```
 
 Triggers: `crossing_up` (fires only when condition becomes true — use this for threshold alerts), `crossing_down` (mirror), `always` (every matching event).
-Action kinds: `dm` (needs to+intent), `group` (needs intent), `broadcast` (needs intent), plus any custom action a deployment registers.
+Action kinds: `dm` (needs to+intent), `group` (needs intent), `nudge` (generic — needs module+payload, e.g. to ask the radio module to broadcast), plus any custom action a deployment registers in `workspace/extensions/actions.js`.
 Use `once: true` for one-shot notifications (like Aaron's); omit for repeating ones.
 Use `list_watches` to inspect current watches and `cancel_watch` to remove one by id.
 
