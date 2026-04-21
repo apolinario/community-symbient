@@ -45,6 +45,9 @@ import {
   createCreateModuleTool,
   createDisableModuleTool,
   createListModulesTool,
+  createRegisterWatchTool,
+  createListWatchesTool,
+  createCancelWatchTool,
 } from "./tools/index.js";
 import { createSandboxedPiTools } from "./tools/pi-tools.js";
 import { initMCP, onMCPReconnect } from "./mcp/bridge.js";
@@ -53,6 +56,8 @@ import { initMCP, onMCPReconnect } from "./mcp/bridge.js";
 import { loadModuleConfigs } from "./modules/load-modules.js";
 import { loadAllExtensions } from "./core/extension-loader.js";
 import { setEventLogWorkspace } from "./core/event-log.js";
+import { setWatchesWorkspace } from "./core/watches.js";
+import { createWatchEvaluatorModule } from "./sense/watch-evaluator.js";
 import { createConversationModule } from "./modules/base/conversation.js";
 import { createRadioModule } from "./modules/hardware/radio.js";
 import { createSaunaModule } from "./modules/hardware/sauna.js";
@@ -141,6 +146,9 @@ async function main() {
     createCreateModuleTool(config.workspacePath),
     createDisableModuleTool(config.workspacePath),
     createListModulesTool(config.workspacePath),
+    createRegisterWatchTool("feyblet"),
+    createListWatchesTool(),
+    createCancelWatchTool(),
     ...piTools,
     ...mcpTools,
   ];
@@ -192,6 +200,11 @@ async function main() {
     createModuleSyncModule(orchestrator, config.workspacePath),
   );
 
+  orchestrator.register(
+    { name: "watch-evaluator", intervalMs: 10_000, startActive: true, description: "Evaluates registered watches against new events, fires actions" },
+    createWatchEvaluatorModule(),
+  );
+
   // meta-report disabled — quiet hours concept doesn't apply at the château
   // orchestrator.register(
   //   { name: "meta-report", intervalMs: 30 * 60_000, startActive: true, description: "System self-monitoring" },
@@ -210,11 +223,12 @@ async function main() {
     createRadioModule(feyopsDb),
   );
 
-  // --- Event log ---
+  // --- Event log + watches ---
 
   setEventLogWorkspace(config.workspacePath);
+  setWatchesWorkspace(config.workspacePath);
 
-  // --- Workspace extensions (custom helpers, handlers, providers) ---
+  // --- Workspace extensions (custom helpers, handlers, providers, actions) ---
 
   const extensions = await loadAllExtensions(config.workspacePath);
   if (extensions.helpers.length > 0) {
@@ -225,6 +239,9 @@ async function main() {
   }
   if (extensions.providers.length > 0) {
     console.log(`Workspace providers: ${extensions.providers.join(", ")}`);
+  }
+  if (extensions.actions.length > 0) {
+    console.log(`Workspace actions: ${extensions.actions.join(", ")}`);
   }
 
   // --- Agent modules (loaded from workspace/modules/*.md) ---

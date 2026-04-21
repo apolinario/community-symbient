@@ -27,6 +27,7 @@ import { pathToFileURL } from "node:url";
 import { registerHelper, type HelperFn } from "./prompt-vars.js";
 import { registerModuleHandler, type ModuleHandler } from "./handler-registry.js";
 import { registerProvider, type ContextProvider } from "./context-providers.js";
+import { registerAction, type ActionHandler } from "./action-registry.js";
 
 const CANDIDATE_EXTENSIONS = [".js", ".mjs", ".ts"];
 
@@ -136,24 +137,51 @@ export async function loadWorkspaceProviders(workspacePath: string): Promise<str
 }
 
 /**
+ * Load `workspace/extensions/actions.{js,mjs,ts}` if present and register
+ * each exported function as a watch action kind. No-op if file is missing.
+ *
+ * Built-in kinds (dm/group/broadcast) nudge conversation/radio modules.
+ * Deployments add things like `webhook`, `email`, `sms` without touching
+ * core — a watch then references `"kind": "webhook"` in its action JSON.
+ */
+export async function loadWorkspaceActions(workspacePath: string): Promise<string[]> {
+  const basePath = join(workspacePath, "extensions", "actions");
+  const exports = await importIfExists(basePath);
+  if (!exports) return [];
+
+  const registered: string[] = [];
+  for (const [kind, fn] of Object.entries(exports)) {
+    if (typeof fn !== "function") {
+      console.error(`[extension-loader] Skipping '${kind}' in actions — not a function`);
+      continue;
+    }
+    registerAction(kind, fn as ActionHandler);
+    registered.push(kind);
+  }
+  return registered;
+}
+
+/**
  * Load all deployment-provided extensions. Called once at startup from
  * `src/index.ts`. Returns a summary for logging.
  *
- * Future phases extend this to load actions, adapters, sensors from the
- * same directory structure (`workspace/extensions/actions.js`,
- * `workspace/extensions/adapters/*.js`, `workspace/extensions/sensors/*.js`).
+ * Future phases extend this to load adapters and sensors from the same
+ * directory structure (`workspace/extensions/adapters/*.js`,
+ * `workspace/extensions/sensors/*.js`).
  */
 export async function loadAllExtensions(workspacePath: string): Promise<{
   helpers: string[];
   handlers: string[];
   providers: string[];
+  actions: string[];
 }> {
-  const [helpers, handlers, providers] = await Promise.all([
+  const [helpers, handlers, providers, actions] = await Promise.all([
     loadWorkspaceHelpers(workspacePath),
     loadWorkspaceHandlers(workspacePath),
     loadWorkspaceProviders(workspacePath),
+    loadWorkspaceActions(workspacePath),
   ]);
-  return { helpers, handlers, providers };
+  return { helpers, handlers, providers, actions };
 }
 
 // Re-export the directory scanner for later phases that need it.

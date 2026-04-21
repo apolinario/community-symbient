@@ -683,6 +683,86 @@ export function createCancelScheduleTool(workspacePath: string): AgentTool {
   };
 }
 
+// --- Watches (event-driven triggers) ---
+
+export function createRegisterWatchTool(senderName: string): AgentTool {
+  return {
+    name: "register_watch",
+    description: "Register a watch that fires an action when a matching event occurs. Use this instead of a polling cron when the trigger is a specific condition (e.g. sauna hits 82°C, someone arrives). The watch evaluator catches the exact moment the condition becomes true.",
+    label: "Register Watch",
+    parameters: Type.Object({
+      on: Type.Object({
+        type: Type.String({ description: "Event type to listen for (e.g. sauna_reading, chat_message, broadcast, arrival)" }),
+        where: Type.Optional(Type.String({ description: "Filter expression, e.g. 'temp >= 82' or 'from == \"Aaron\"'. Supports == != < <= > >= && ||." })),
+        trigger: Type.Optional(Type.Union([
+          Type.Literal("always"),
+          Type.Literal("crossing_up"),
+          Type.Literal("crossing_down"),
+        ], { description: "When to fire. 'crossing_up' = only on the transition into matching (default for thresholds). 'always' = every matching event." })),
+      }),
+      action: Type.Object({
+        kind: Type.String({ description: "Action kind: 'dm', 'group', 'broadcast', or any custom action registered via workspace/extensions/actions.js" }),
+      }, { additionalProperties: true, description: "Action params. For 'dm': {to, intent}. For 'group'/'broadcast': {intent}." }),
+      once: Type.Optional(Type.Boolean({ description: "If true, watch self-deletes after firing once" })),
+      description: Type.Optional(Type.String({ description: "Human-readable description for list_watches" })),
+    }),
+    execute: async (_id, params) => {
+      const { addWatch } = await import("../core/watches.js");
+      const full = await addWatch({
+        on: params.on,
+        action: params.action,
+        once: params.once ?? false,
+        description: params.description,
+        created_by: senderName,
+      });
+      return { content: [{ type: "text", text: `Registered watch ${full.id}` }], details: {} };
+    },
+  };
+}
+
+export function createListWatchesTool(): AgentTool {
+  return {
+    name: "list_watches",
+    description: "List all registered watches with their filters and actions",
+    label: "List Watches",
+    parameters: Type.Object({}),
+    execute: async () => {
+      const { loadWatches } = await import("../core/watches.js");
+      const watches = await loadWatches();
+      if (watches.length === 0) {
+        return { content: [{ type: "text", text: "No watches registered." }], details: {} };
+      }
+      const lines = watches.map((w) => {
+        const triggerTxt = w.on.trigger ?? "always";
+        const whereTxt = w.on.where ? ` where ${w.on.where}` : "";
+        const onceTxt = w.once ? " (once)" : "";
+        const desc = w.description ? `\n    ${w.description}` : "";
+        return `• ${w.id}: on ${w.on.type}${whereTxt} [${triggerTxt}]${onceTxt} → ${w.action.kind}${desc}`;
+      });
+      return { content: [{ type: "text", text: lines.join("\n") }], details: {} };
+    },
+  };
+}
+
+export function createCancelWatchTool(): AgentTool {
+  return {
+    name: "cancel_watch",
+    description: "Remove a registered watch by ID",
+    label: "Cancel Watch",
+    parameters: Type.Object({
+      id: Type.String({ description: "Watch ID to remove" }),
+    }),
+    execute: async (_id, params) => {
+      const { removeWatch } = await import("../core/watches.js");
+      const removed = await removeWatch(params.id);
+      return {
+        content: [{ type: "text", text: removed ? `Removed watch ${params.id}` : `No watch with id ${params.id}` }],
+        details: {},
+      };
+    },
+  };
+}
+
 // --- Radio ---
 
 export function createRadioBroadcastTool(): AgentTool {

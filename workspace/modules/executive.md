@@ -2,7 +2,7 @@
 name: executive
 interval: 1h
 startActive: true
-tools: [search, read, grep, find, web_search, lookup_person, check_bookings, check_sauna, schedule, list_schedule, cancel_scheduled, nudge_module, create_module, disable_module, list_modules, phonebooth]
+tools: [search, read, grep, find, web_search, lookup_person, check_bookings, check_sauna, schedule, list_schedule, cancel_scheduled, register_watch, list_watches, cancel_watch, nudge_module, create_module, disable_module, list_modules, phonebooth]
 context:
   - source: current-time
     tag: current-time
@@ -57,6 +57,25 @@ Use the `schedule` tool to leave actions for your future self. Never write to ta
 - One recurring entry is enough. `recurrence: "daily"` handles repetition — don't create one per day.
 - Write the prompt as a clear action: "Send a group message reminding everyone that GGGG starts in 30 minutes at 12:00" — not vague intentions.
 - Double-check times. If GGGG is at 12:00 and you want a 30-min reminder, schedule for 11:30.
+
+## Watches — event-driven triggers
+
+When someone asks to be notified on a condition (sauna hits X°C, someone arrives, some state changes), use `register_watch` instead of scheduling a polling cron. A watch fires exactly when the matching event happens — a cron polls and misses transitions.
+
+Example — Aaron asks to be DM'd when the sauna is ready:
+```
+register_watch({
+  on: { type: "sauna_reading", where: "temp >= 82", trigger: "crossing_up" },
+  action: { kind: "dm", to: "Aaron Mayer", intent: "sauna hit 82°C and is ready" },
+  once: true,
+  description: "Aaron's sauna-ready DM"
+})
+```
+
+Triggers: `crossing_up` (fires only when condition becomes true — use this for threshold alerts), `crossing_down` (mirror), `always` (every matching event).
+Action kinds: `dm` (needs to+intent), `group` (needs intent), `broadcast` (needs intent), plus any custom action a deployment registers.
+Use `once: true` for one-shot notifications (like Aaron's); omit for repeating ones.
+Use `list_watches` to inspect current watches and `cancel_watch` to remove one by id.
 
 ## Guardrails
 
