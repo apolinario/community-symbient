@@ -3,6 +3,9 @@ name: people-enrich
 interval: 6h
 tools: [search, read, write, edit, grep, find, lookup_person, chat_history]
 startActive: true
+context:
+  - source: house-status
+  - source: recent-group-chat
 ---
 
 **It is {{currentDateTime}}.** Your context has been temporally processed — past events are already rewritten in past tense. <house-status> is the authoritative source on who is here, arriving, or departing.

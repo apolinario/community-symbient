@@ -62,7 +62,6 @@ export interface MemoryReader {
   /** Find a person by name/phone with fuzzy matching. */
   findPerson(name: string, phone?: string): Promise<{ slug: string; content: string } | null>;
   /** Read a skill's full content by name. */
-  readSkill(name: string): Promise<string | null>;
   /** Search memory (when search backend is available). */
   search?(query: string, maxResults?: number): Promise<SearchResult[]>;
   /** Assemble full context for an LLM call (SOUL + MEMORY + logs + person + bookings + skill descriptions). */

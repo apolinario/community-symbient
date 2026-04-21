@@ -23,6 +23,7 @@ import type { ChatAdapter } from "../../src/adapters/chat/types.js";
 import { registerBuiltInModule } from "../../src/core/module-factories.js";
 import type { FeyOpsDB } from "../services/feyops/db.js";
 import { createFeyEnricher } from "../services/feyops/enricher.js";
+import { configureFeyProviders } from "./providers.js";
 import { createSaunaModule } from "../services/feyops/sauna.js";
 import { createBookingsModule } from "../services/feyops/bookings.js";
 import { createPeopleSyncModule } from "../services/feyops/people-sync.js";
@@ -42,12 +43,15 @@ export default function feySetup(deps: WorkspaceModulesDeps): unknown[] {
   // code is allowed to know that shape and cast.
   const feyopsDb = deps.directory as unknown as FeyOpsDB | undefined;
 
-  // --- Memory enricher (house-status, sauna, season, meal, broadcasts) ---
+  // --- Memory enricher (only per-person blocks — booking context + nicknames) ---
   if (feyopsDb) {
     deps.memory.setEnricher(createFeyEnricher({
       feyopsDb,
       workspacePath: deps.workspacePath,
     }));
+    // Wire the deployment providers so house-status/sauna/etc. can look up
+    // the FeyOps DB when invoked from a module's seed-prompt assembly.
+    configureFeyProviders({ feyopsDb });
   }
 
   // --- Deployment-specific modules ---

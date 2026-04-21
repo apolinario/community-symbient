@@ -6,6 +6,10 @@ tools: [search, read, grep, find, web_search, lookup_person, check_bookings, che
 context:
   - source: current-time
     tag: current-time
+  - source: house-status
+  - source: sauna
+  - source: recent-group-chat
+  - source: active-states
   - source: upcoming-scheduled
     window_hours: 24
     tag: upcoming-scheduled

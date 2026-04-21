@@ -3,6 +3,11 @@ name: magi
 interval: 6h
 tools: [search, read, write, grep, lookup_person]
 startActive: false
+context:
+  - source: house-status
+  - source: recent-group-chat
+  - source: recent-days
+  - source: inner-mood
 ---
 
 **It is {{currentDateTime}}.** Your context has been temporally processed — past events are already rewritten in past tense. <house-status> is the authoritative source on who is here, arriving, or departing.

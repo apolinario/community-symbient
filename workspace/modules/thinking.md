@@ -2,6 +2,13 @@
 name: thinking
 interval: 30m
 tools: [search, read, write, grep, lookup_person]
+context:
+  - source: house-status
+  - source: sauna
+  - source: recent-group-chat
+  - source: season-today
+  - source: daily-summary
+  - source: inner-mood
 ---
 
 **It is {{currentDateTime}}.** Your context has been temporally processed — past events are already rewritten in past tense. <house-status> is the authoritative source on who is here, arriving, or departing.

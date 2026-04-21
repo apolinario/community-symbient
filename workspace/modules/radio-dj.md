@@ -5,6 +5,8 @@ tools: [radio.radio_overview, radio.search, radio.play_music, radio.player_setti
 context:
   - source: current-time
     tag: current-time
+  - source: house-status
+  - source: recent-group-chat
   - source: events
     type: tool_call
     where: { module: conversation, tool: radio.play_music }

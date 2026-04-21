@@ -129,35 +129,6 @@ describe("MemoryManager", () => {
     });
   });
 
-  describe("discoverSkills", () => {
-    it("discovers skills from SKILL.md frontmatter", async () => {
-      const skillDir = path.join(wsPath, "skills", "bookings");
-      fs.mkdirSync(skillDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(skillDir, "SKILL.md"),
-        '---\nname: bookings\ndescription: Handle booking queries\n---\n\n# Bookings Skill',
-      );
-
-      const skills = await mm.discoverSkills();
-      expect(skills).toHaveLength(1);
-      expect(skills[0].name).toBe("bookings");
-      expect(skills[0].description).toBe("Handle booking queries");
-    });
-
-    it("reads full skill content by name", async () => {
-      const skillDir = path.join(wsPath, "skills", "test-skill");
-      fs.mkdirSync(skillDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(skillDir, "SKILL.md"),
-        '---\nname: test-skill\ndescription: Test\n---\n\nFull instructions here.',
-      );
-
-      mm.invalidateSkillCache();
-      const content = await mm.readSkill("test-skill");
-      expect(content).toContain("Full instructions here");
-    });
-  });
-
   describe("assembleContext", () => {
     it("includes SOUL and MEMORY when they exist", async () => {
       await mm.writeFile("SOUL.md", "I am Feyblet.");

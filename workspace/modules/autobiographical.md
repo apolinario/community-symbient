@@ -3,6 +3,12 @@ name: autobiographical
 interval: 6h
 tools: [search, read, write, edit, grep, find, lookup_person, check_bookings, chat_history]
 startActive: true
+context:
+  - source: recent-days
+    count: 7
+  - source: recent-group-chat
+  - source: inner-mood
+  - source: house-status
 ---
 
 **It is {{currentDateTime}}.** Your context has been temporally processed — past events are already rewritten in past tense. <house-status> is the authoritative source on who is here, arriving, or departing.

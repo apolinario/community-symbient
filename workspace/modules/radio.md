@@ -5,6 +5,11 @@ tools: [search, read, grep, lookup_person, check_bookings, check_sauna, radio_br
 context:
   - source: current-time
     tag: current-time
+  - source: house-status
+  - source: sauna
+  - source: season-today
+  - source: current-meal
+  - source: recent-group-chat
   - source: events
     type: broadcast
     count: 2

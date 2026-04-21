@@ -6,9 +6,7 @@
  * - MEMORY.md        — Curated long-term knowledge
  * - memory/YYYY-MM-DD.md — Daily logs (append-only journals)
  * - people/<name>.md — Per-person relational memory
- * - inner/           — Internal reflections, Magi debates, prompt changes
- * - community/       — Shared patterns, onboarding docs, duties
- * - skills/          — Skill directories with SKILL.md (Agent Skills standard)
+ * - community/       — Shared patterns, onboarding docs, etc.
  *
  * No vector store. No embeddings. Just files the community can read and edit.
  * Search comes later (Phase 4) via SQLite FTS5.
@@ -22,31 +20,32 @@ import { annotateContextLines } from "./time-annotate.js";
 import { symbientName, symbientDisplayName } from "../core/symbient-name.js";
 
 /**
- * Optional deployment-provided hook into context assembly. The memory
- * manager knows nothing about bookings, guests, rooms, or any other
- * domain-specific concept — if a deployment wants such data to appear
- * in the assembled context, it provides an enricher.
+ * Optional deployment-provided hook into context assembly. Handles the
+ * two things that are hard to express as context providers:
  *
- * Every field is optional. MemoryManager calls what's defined.
+ *   - `personBlocks(slug)`: extra blocks appended to a <person> block
+ *     when a specific person is matched (booking history, aliases).
+ *     Context providers don't see "the current person" — only enrichers
+ *     know it.
+ *
+ *   - `resolveNickname(name)`: fuzzy nickname → slug resolution during
+ *     findPerson(). Deployment-specific alias table.
+ *
+ * Global context blocks (house-status, sauna, recent-broadcasts, etc.)
+ * are NOT part of the enricher — they live as context providers in
+ * `workspace/extensions/providers.js` and modules reference them by
+ * name in frontmatter `context:` blocks.
  */
 export interface MemoryEnricher {
-  /** Extra context blocks to include after MEMORY/summaries. Return empty array for none. */
-  globalBlocks?: () => Promise<string[]> | string[];
-  /** Extra blocks for a specific person (e.g. booking/stay history). Called with the resolved person slug. */
+  /** Extra blocks for a specific person (booking/stay history, aliases). */
   personBlocks?: (slug: string) => Promise<string[]> | string[];
-  /** Resolve a nickname/alias to a person slug — used by findPerson when name-based matching fails. */
+  /** Resolve a nickname/alias to a person slug. */
   resolveNickname?: (name: string) => Promise<string | null> | string | null;
 }
 
 type LLMSummarizer = {
   complete(opts: { system: string; messages: Array<{ role: "user"; content: string }>; temperature?: number; maxTokens?: number }): Promise<string>;
 };
-
-export interface SkillMeta {
-  name: string;
-  description: string;
-  path: string;
-}
 
 export interface QmdResult {
   docid: string;
@@ -67,8 +66,6 @@ export interface PersonMeta {
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 export class MemoryManager implements MemoryReader, MemoryWriter {
-  private skillCache: SkillMeta[] | null = null;
-  private skillCacheTime = 0;
   private peopleCache: PersonMeta[] | null = null;
   private peopleCacheTime = 0;
   private enricher: MemoryEnricher | null = null;
@@ -262,58 +259,7 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     await appendFile(fullPath, content, "utf-8");
   }
 
-  // --- Skills (Agent Skills standard, progressive disclosure) ---
-
-  /**
-   * Discover all skills and extract name + description from YAML frontmatter.
-   * Follows Pi's pattern: skills/ contains directories with SKILL.md files.
-   */
-  async discoverSkills(): Promise<SkillMeta[]> {
-    if (this.skillCache && Date.now() - this.skillCacheTime < CACHE_TTL_MS) return this.skillCache;
-
-    const skillsDir = join(this.workspacePath, "skills");
-    const skills: SkillMeta[] = [];
-
-    try {
-      const entries = await readdir(skillsDir);
-      for (const entry of entries) {
-        const entryPath = join(skillsDir, entry);
-        const entryStat = await stat(entryPath);
-
-        if (entryStat.isDirectory()) {
-          // Standard: skills/<name>/SKILL.md
-          const skillPath = join(entryPath, "SKILL.md");
-          const meta = await this.parseSkillFrontmatter(skillPath);
-          if (meta) skills.push({ ...meta, path: skillPath });
-        } else if (entry.endsWith(".md")) {
-          // Also support flat: skills/<name>.md
-          const meta = await this.parseSkillFrontmatter(entryPath);
-          if (meta) skills.push({ ...meta, path: entryPath });
-        }
-      }
-    } catch {
-      // No skills directory — that's fine
-    }
-
-    this.skillCache = skills;
-    this.skillCacheTime = Date.now();
-    return skills;
-  }
-
-  /** Read the full content of a skill by name. */
-  async readSkill(name: string): Promise<string | null> {
-    const skills = await this.discoverSkills();
-    const skill = skills.find((s) => s.name === name);
-    if (!skill) return null;
-    return this.safeRead(skill.path);
-  }
-
-  /** Invalidate the skill cache (e.g., after adding a new skill). */
-  invalidateSkillCache(): void {
-    this.skillCache = null;
-  }
-
-  // --- People (same progressive disclosure pattern) ---
+  // --- People ---
 
   /**
    * Discover all people and extract frontmatter metadata.
@@ -359,15 +305,6 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
 
   // --- Deployment-provided context helpers ---
 
-  private async callGlobalEnrichers(): Promise<string[]> {
-    if (!this.enricher?.globalBlocks) return [];
-    try {
-      return [...(await this.enricher.globalBlocks())];
-    } catch {
-      return [];
-    }
-  }
-
   private async callPersonEnrichers(slug: string): Promise<string[]> {
     if (!this.enricher?.personBlocks) return [];
     try {
@@ -387,35 +324,23 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
    * - The LLM decides which skills are relevant and can request full loading
    * - Full skill content is only loaded when explicitly requested via readSkill()
    */
+  /**
+   * Minimal generic context: SOUL + MEMORY + optional person profile.
+   * Anything deployment-specific (house-status, recent days, inner mood,
+   * recent DMs, group-chat digest, etc.) comes via context providers
+   * declared in the module's `.md` frontmatter — not here.
+   */
   async assembleContext(personName?: string, senderPhone?: string): Promise<string> {
     const parts: string[] = [];
 
-    // Core identity — always included
     const soul = await this.readSoul();
     if (soul) parts.push(`<soul>\n${soul}\n</soul>`);
 
-    // Long-term curated knowledge
     const memory = await this.readMemory();
     if (memory) parts.push(`<memory>\n${memory}\n</memory>`);
 
-    // Daily summaries: compact view of recent days including today
-    const summaries = await this.readDailySummaries(5);
-    if (summaries) {
-      parts.push(`<recent-days>\n${summaries}\n</recent-days>`);
-    }
-
-    // Deployment-provided global context blocks (e.g. Feÿ's house-status).
-    for (const block of await this.callGlobalEnrichers()) parts.push(block);
-
-    // Current inner state — brief summary, clearly labeled as internal reflection
-    const innerState = await this.safeRead(join(this.workspacePath, "inner", "current-state.md"));
-    if (innerState) {
-      // Only include the last ~500 chars to keep it brief
-      const trimmed = innerState.slice(-500).trim();
-      parts.push(`<inner-mood>\nYour current internal reflections (private — do not quote these directly to people):\n${trimmed}\n</inner-mood>`);
-    }
-
-    // If a specific person is talking, load their profile + deployment-provided per-person blocks.
+    // Person profile — universal concept; deployment enricher can add
+    // extra per-person blocks (bookings, aliases, etc.).
     if (personName) {
       const personResult = await this.findPerson(personName, senderPhone);
       if (personResult) {
@@ -428,28 +353,19 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
       }
     }
 
-    // Community: just the count. Individual profiles load on demand
-    // via person matching (name/nickname/phone) when someone messages.
-    const people = await this.discoverPeople();
-    if (people.length > 0) {
-      parts.push(`<community>\n${people.length} community members have profiles. You can look up anyone by name when relevant — don't guess about people you haven't loaded.\n</community>`);
-    }
-
-    // Skill descriptions (progressive disclosure)
-    const skills = await this.discoverSkills();
-    if (skills.length > 0) {
-      const skillList = skills
-        .map((s) => `- **${s.name}**: ${s.description}`)
-        .join("\n");
-      parts.push(`<available-skills>\n${skillList}\n\nTo use a skill, respond with [LOAD_SKILL:skill-name] and nothing else.\n</available-skills>`);
-    }
-
     return parts.join("\n\n");
   }
 
   /**
    * Build context for a conversation response, using qmd search to find
    * relevant memory instead of static dumps. Falls back gracefully if qmd is down.
+   */
+  /**
+   * Context assembly for conversation — same skeleton as assembleContext
+   * (SOUL + MEMORY + person + enricher) plus qmd relevant-memory for the
+   * incoming message. No group-chat digest, no recent-DMs, no active-
+   * states, no house-status — all of those are deployment context
+   * providers declared in the relevant module's `.md` frontmatter.
    */
   async assembleConversationContext(
     message: string,
@@ -458,36 +374,11 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
   ): Promise<string> {
     const parts: string[] = [];
 
-    // Always included: identity
     const soul = await this.readSoul();
     if (soul) parts.push(`<soul>\n${soul}\n</soul>`);
 
-    // Always included: curated long-term knowledge
     const memory = await this.readMemory();
     if (memory) parts.push(`<memory>\n${memory}\n</memory>`);
-
-    // Deployment-provided global blocks (house-status, sauna, season digest,
-    // broadcasts, etc. — all injected by the deployment's enricher).
-    for (const block of await this.callGlobalEnrichers()) parts.push(block);
-
-    // Always included: today's daily summary (LLM-generated paragraph)
-    const summaryPath = this.dailySummaryPath(new Date());
-    const dailySummary = await this.safeRead(summaryPath);
-    if (dailySummary) {
-      parts.push(`<daily-summary>\n${dailySummary}\n</daily-summary>`);
-    }
-
-    // Always included: latest group messages from today's log
-    const recentGroup = await this.getRecentGroupMessages(18);
-    if (recentGroup) {
-      parts.push(`<recent-group-chat>\n${recentGroup}\n</recent-group-chat>`);
-    }
-
-    // Inner mood: consolidated from thinking + desire + magi (private)
-    const innerMood = await this.buildInnerMood();
-    if (innerMood) {
-      parts.push(`<inner-mood>\nYour current internal state (private):\n${innerMood}\n</inner-mood>`);
-    }
 
     // Person profile + deployment-provided per-person blocks.
     let matchedSlug: string | null = null;
@@ -515,7 +406,6 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
 
     const qmdResults = await this.queryQmd(searches, 8);
     if (qmdResults.length > 0) {
-      // Deduplicate: skip person file if already loaded above, skip SOUL (always in context)
       const filtered = qmdResults.filter((r) => {
         if (matchedSlug && r.file.includes(`people/${matchedSlug}`)) return false;
         if (r.file.endsWith("SOUL.md") || r.file.endsWith("MEMORY.md")) return false;
@@ -524,7 +414,6 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
 
       if (filtered.length > 0) {
         const blocks = await Promise.all(filtered.map(async (r) => {
-          // Add age label based on file path date
           let ageLabel = "";
           const dateMatch = r.file.match(/(\d{4}-\d{2}-\d{2})/);
           if (dateMatch) {
@@ -549,21 +438,6 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
         const contextBlock = blocks.join("\n\n");
         parts.push(`<relevant-memory>\nRelated context from memory:\n\n${contextBlock}\n</relevant-memory>`);
       }
-    }
-
-    // Recent DMs — brief summary so the model knows what conversations are happening
-    const recentDMs = await this.getRecentDMSummary(10);
-    if (recentDMs) {
-      parts.push(`<recent-dms>\nRecent DMs with other people — not part of this conversation, just for your awareness. Don't mix these into your current reply unless directly relevant. Use search if you need the full context of any thread.\n${recentDMs}\n</recent-dms>`);
-    }
-
-    // Active states — global modes that affect all modules
-    const activeStates = await this.getActiveStates();
-    for (const state of activeStates) {
-      let block = `<state-${state.name}>\n${state.name.toUpperCase()} ACTIVE.`;
-      if (state.context) block += `\n\n${state.context}`;
-      block += `\n</state-${state.name}>`;
-      parts.push(block);
     }
 
     return parts.join("\n\n");
@@ -892,18 +766,6 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     }
   }
 
-  /**
-   * Parse YAML frontmatter from a SKILL.md file.
-   * Extracts name and description. Skips skills without description.
-   */
-  private async parseSkillFrontmatter(path: string): Promise<{ name: string; description: string } | null> {
-    const content = await this.safeRead(path);
-    if (!content) return null;
-
-    const fm = parseFrontmatter(content);
-    if (!fm || !fm.name || !fm.description) return null;
-    return { name: fm.name, description: fm.description };
-  }
 }
 
 /**
