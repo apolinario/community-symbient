@@ -18,6 +18,11 @@ import {
   createCheckBookingsTool,
   createSeasonLogTool,
 } from "../services/feyops/tools.js";
+import { createRequestCapabilityTool } from "../services/coder/request-capability-tool.js";
+import { createApproveCapabilityTool, createSkipCapabilityTool } from "../services/coder/approval-tools.js";
+import { createOpenCapabilityPrTool, type CoderConfig } from "../services/coder/open-pr-tool.js";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 export interface ToolDeps {
   memory: MemoryManager;
@@ -43,7 +48,26 @@ export default function feyToolset(deps: ToolDeps): AgentTool[] {
   tools.push(
     createCheckSaunaTool(deps.memory),
     createSeasonLogTool(deps.workspacePath),
+    createRequestCapabilityTool(deps.workspacePath),
+    createApproveCapabilityTool(deps.workspacePath),
+    createSkipCapabilityTool(deps.workspacePath),
   );
+
+  const coderConfig = readCoderConfig();
+  if (coderConfig) {
+    tools.push(createOpenCapabilityPrTool(deps.workspacePath, process.cwd(), coderConfig));
+  }
+
+  function readCoderConfig(): CoderConfig | null {
+    try {
+      const raw = readFileSync(join(process.cwd(), "config", "feyblet.json"), "utf-8");
+      const cfg = JSON.parse(raw);
+      if (!cfg?.coder?.reviewer || !cfg?.coder?.repo || !cfg?.coder?.worktreeBase) return null;
+      return cfg.coder as CoderConfig;
+    } catch {
+      return null;
+    }
+  }
 
   const feyopsDb = deps.directory as unknown as FeyOpsDB | undefined;
   if (feyopsDb?.getBookings) {

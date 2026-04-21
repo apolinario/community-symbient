@@ -154,11 +154,15 @@ export class Orchestrator {
         continue;
       }
 
-      // Delay first run for slow modules to avoid startup stampede
+      // Delay first run for slow modules to avoid startup stampede, but
+      // still wake immediately if another module nudges us.
       if (firstRun && !runImmediately) {
         firstRun = false;
-        modLog.info(`First run in ${Math.round(mod.config.intervalMs / 1000)}s`);
-        await sleep(mod.config.intervalMs, signal);
+        modLog.info(`First run in ${Math.round(mod.config.intervalMs / 1000)}s (or on nudge)`);
+        await Promise.race([
+          sleep(mod.config.intervalMs, signal),
+          this.bus.waitForMessage(name),
+        ]);
         if (signal.aborted) break;
       }
       firstRun = false;

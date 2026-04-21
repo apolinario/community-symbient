@@ -94,7 +94,9 @@ function resolveField(evt: Event, path: string): string {
 function formatEvent(evt: Event, format: string | undefined): string {
   if (!format) return JSON.stringify(evt);
   return format.replace(/\{([^}]+)\}/g, (_, token: string) => {
-    const [field, pattern] = token.split(":");
+    const colon = token.indexOf(":");
+    const field = colon < 0 ? token : token.slice(0, colon);
+    const pattern = colon < 0 ? undefined : token.slice(colon + 1);
     if (field === "ts" && pattern) {
       return formatDate(Number(evt.ts), pattern);
     }

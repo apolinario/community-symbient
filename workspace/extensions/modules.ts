@@ -19,6 +19,7 @@ import type { MemoryManager } from "../../src/memory/manager.js";
 import type { Directory } from "../../src/adapters/directory/types.js";
 import type { ChatAdapter } from "../../src/adapters/chat/types.js";
 import { registerBuiltInModule } from "../../src/core/module-factories.js";
+import { loadWatches, addWatch } from "../../src/core/watches.js";
 import type { FeyOpsDB } from "../services/feyops/db.js";
 import { createFeyEnricher } from "../services/feyops/enricher.js";
 import { configureFeyProviders } from "./providers.js";
@@ -28,6 +29,8 @@ import { createBookingsModule } from "../services/bookings/index.js";
 import { createPeopleSyncModule } from "../services/people-sync/index.js";
 import { createOnboardingModule } from "../services/onboarding/index.js";
 import { createRadioModule } from "../services/radio/index.js";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 export interface WorkspaceModulesDeps {
   memory: MemoryManager;
@@ -86,5 +89,32 @@ export default function feySetup(deps: WorkspaceModulesDeps): unknown[] {
     factory: () => createRadioModule(),
   });
 
+  ensureCoderWatches().catch((err) => console.error(`coder watch registration failed: ${err}`));
+
   return [];
+}
+
+async function ensureCoderWatches(): Promise<void> {
+  const raw = await readFile(join(process.cwd(), "config", "feyblet.json"), "utf-8").catch(() => null);
+  if (!raw) return;
+  const cfg = JSON.parse(raw);
+  const reviewer = cfg?.coder?.reviewer;
+  if (!reviewer) return;
+
+  const existing = await loadWatches();
+
+  if (!existing.some((w) => w.id === "coder-capability-gap-dm")) {
+    await addWatch({
+      id: "coder-capability-gap-dm",
+      on: { type: "capability_gap", trigger: "always" },
+      action: {
+        kind: "dm",
+        to: reviewer,
+        intent: "review a new capability gap the symbient just filed — details are in the pending-capability-gaps context; reply naturally to approve or decline",
+      },
+      created_by: "workspace-setup",
+      description: "DM reviewer when request_capability files a new gap",
+    });
+  }
+
 }

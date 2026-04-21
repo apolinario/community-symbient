@@ -2,7 +2,7 @@
 name: executive
 interval: 1h
 startActive: true
-tools: [search, read, grep, find, web_search, lookup_person, check_bookings, check_sauna, schedule, list_schedule, cancel_scheduled, register_watch, list_watches, cancel_watch, nudge_module, create_module, disable_module, list_modules, phonebooth]
+tools: [search, read, grep, find, web_search, lookup_person, check_bookings, check_sauna, schedule, list_schedule, cancel_scheduled, register_watch, list_watches, cancel_watch, request_capability, nudge_module, create_module, disable_module, list_modules, phonebooth]
 context:
   - source: current-time
     tag: current-time

@@ -27,6 +27,7 @@ workspace/media/
 
 # Ephemeral state
 workspace/state/*.json
+workspace/state/capability-gaps/
 workspace/tasks/scheduled.json
 workspace/tasks/*.md
 

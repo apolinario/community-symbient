@@ -48,5 +48,10 @@
     "magi": { "intervalMs": 14400000, "startActive": false },
     "autobiographical": { "intervalMs": 21600000, "startActive": false },
     "prompt-modifier": { "intervalMs": 86400000, "startActive": false }
+  },
+  "coder": {
+    "reviewer": "Apolinário Passos",
+    "repo": "apolinario/community-symbient",
+    "worktreeBase": "/tmp/symbient-coder"
   }
 }

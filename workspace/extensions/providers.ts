@@ -331,6 +331,36 @@ const activeThreadsProvider: ContextProvider = {
   },
 };
 
+/**
+ * Pending capability gaps — unapproved requests awaiting reviewer decision.
+ * Lets the conversation module know what's pending so the reviewer's
+ * natural-language reply ("yeah go ahead", "skip it") can be matched to
+ * the right gap via approve_capability / skip_capability tools.
+ */
+const pendingCapabilityGapsProvider: ContextProvider = {
+  async execute(_decl, ctx) {
+    const { readdir } = await import("node:fs/promises");
+    const dir = join(workspacePathOf(ctx), "state", "capability-gaps");
+    let files: string[] = [];
+    try { files = await readdir(dir); } catch { return null; }
+
+    const entries: string[] = [];
+    for (const file of files) {
+      if (!file.endsWith(".json")) continue;
+      const raw = await safeRead(join(dir, file));
+      if (!raw) continue;
+      try {
+        const g = JSON.parse(raw);
+        if (g.approved !== null || g.pr_url) continue; // pending only
+        const extras = [g.example ? `example: ${g.example}` : null, g.suggested_shape ? `shape: ${g.suggested_shape}` : null].filter(Boolean).join(" | ");
+        entries.push(`[${g.id}] wanted: ${g.what}\n  why: ${g.why}${extras ? "\n  " + extras : ""}`);
+      } catch {}
+    }
+    if (entries.length === 0) return null;
+    return entries.join("\n\n");
+  },
+};
+
 const activeStatesProvider: ContextProvider = {
   async execute(_decl, ctx) {
     const raw = await safeRead(join(workspacePathOf(ctx), "state", "active-states.json"));
@@ -369,4 +399,5 @@ export default {
   "active-states": activeStatesProvider,
   "most-played-songs": mostPlayedSongsProvider,
   "active-threads": activeThreadsProvider,
+  "pending-capability-gaps": pendingCapabilityGapsProvider,
 };
