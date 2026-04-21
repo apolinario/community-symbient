@@ -11,13 +11,13 @@
  * Runs every 30 minutes.
  */
 
-import type { ModuleContext } from "../core/types.js";
-import type { FeyOpsDB, BookingRow } from "../feyops/db.js";
-import type { MemoryManager } from "../memory/manager.js";
-import { slugify } from "../core/slugify.js";
+import type { ModuleContext } from "../../../src/core/types.js";
+import type { FeyOpsDB, BookingRow } from "./db.js";
+import type { MemoryManager } from "../../../src/memory/manager.js";
+import { slugify } from "../../../src/core/slugify.js";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { formatDate, addDays } from "../core/date-utils.js";
+import { formatDate, addDays } from "../../../src/core/date-utils.js";
 
 export function createPeopleSyncModule(db: FeyOpsDB, memory: MemoryManager) {
   return async function peopleSync(ctx: ModuleContext): Promise<void> {

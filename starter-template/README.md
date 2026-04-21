@@ -4,30 +4,75 @@ Minimal skeleton for a new symbient deployment. Copy this directory into
 your deployment repo (or fork the framework), fill in the placeholders,
 add your chat/sensor/output adapters as needed, and run.
 
-## CMA architecture
+## Architecture
 
-This framework implements a **Concurrent Modular Agent** (see the paper
-at https://arxiv.org/pdf/2508.19042 and the reference implementation at
-https://github.com/AlternativeMachine/concurrent-modular-agent).
+This framework uses a **modified Concurrent Modular Agent (CMA) architecture**,
+cross-pollinated with the Pi Agent (for per-module reasoning) and OpenClaw
+(for memory-as-markdown).
 
-Key CMA properties the framework preserves:
+The original CMA ([paper](https://arxiv.org/pdf/2508.19042),
+[reference impl](https://github.com/AlternativeMachine/concurrent-modular-agent))
+draws on subsumption architecture (Brooks), asynchronous message passing,
+and Baars's global workspace theory. Modules run concurrently, loosely coupled
+via MQTT, and share a vector-store "DSM" (distributed shared memory). Every
+module reads and writes the DSM; no central planner.
 
+### What we keep from CMA
 - **Concurrent modules.** Each `.md` in `workspace/modules/` runs on
-  its own cycle (timer, reactive, or follows-another-module).
-- **Shared substrate (DSM).** `ctx.memory` is the distributed shared
-  memory — files on disk, written and read by every module. `SOUL.md`,
-  `MEMORY.md`, `inner/*.md`, `memory/YYYY-MM-DD.md`.
-- **Loose coupling via messages.** `ctx.messages.send(module, content)`
-  routes over MQTT. The `nudge_module` tool exposes the same.
-- **Emergent behavior.** No central planner — the executive module
-  (if you enable it) deliberates but doesn't dictate. Desires, thoughts,
-  and inner dialogue run in parallel and influence each other through
-  the shared substrate.
+  its own cycle.
+- **Loose coupling via MQTT.** `ctx.messages.send(module, content)`
+  routes over MQTT to the target module's mailbox. The `nudge_module`
+  tool exposes the same.
+- **Shared substrate.** Every module reads and writes the same memory.
+- **Emergent behavior.** No central planner — modules like `desire`,
+  `thinking`, and `magi` run in parallel and influence each other
+  through the shared substrate.
 
-The CMA cognitive modules below are provided as a starting point. Keep
-the ones that fit your community, delete the rest, or replace with your
-own patterns — the framework doesn't care which cognitive architecture
-you pick, only that you run it in a CMA style.
+### What we modify
+- **Memory-as-markdown** (from OpenClaw). Instead of CMA's ChromaDB
+  vector store as primary DSM, our DSM is **files on disk**: `SOUL.md`,
+  `MEMORY.md`, `inner/*.md`, `memory/YYYY-MM-DD.md`, `people/*.md`. A
+  `qmd-index` module layers vector search on top, but files are the
+  source of truth — human-readable, editable, diffable.
+
+- **Pi Agent per module.** Each module's cycle instantiates a
+  [Pi Agent](https://github.com/mariozechner/pi-mono) which itself runs
+  an internal tool-use loop (ask LLM → call tool → re-evaluate → repeat
+  until done). So each CMA module is itself a mini while-loop. The
+  concurrent layer is the CMA module scheduler; the reactive layer is
+  the Pi Agent inside each cycle.
+
+- **Structured event log.** We add an append-only JSONL event stream
+  (`workspace/logs/YYYY-MM-DD.jsonl`) alongside markdown. Context
+  providers pull from events declaratively in frontmatter; watches
+  fire on event transitions. Not in the CMA reference — but consistent
+  with the same "shared substrate" principle.
+
+- **Declarative seed prompts + handlebars templates.** Modules define
+  their prompt in the `.md` body with `{{currentDateTime}}` etc.,
+  and seed context in frontmatter (`context: - source: events, ...`).
+  No per-module Python code unless you really need it.
+
+### Cognitive modules (adapted from Alter3)
+
+The cognitive modules below — `thinking`, `desire`, `magi` (inner
+dialogue), `autobiographical`, `executive` — are adapted from
+[Alter3](https://alternativemachine.co.jp/en/alter3/), the android
+project by Alternative Machine that predates and inspired the CMA
+formalization. Alter3 runs concurrent cognitive processes that argue,
+reflect, and act; CMA is the generalized framework extracted from
+that experience.
+
+The CMA reference repo itself ships only bare demos (`chat`, `echo`,
+`vision`) — the cognitive architecture lives in the Alter3 instantiation.
+We've adapted it for a community symbient (as opposed to an embodied
+robot), but the underlying patterns — periodic free reflection,
+concrete desire generation, multi-voice inner dialogue,
+autobiographical memory rewriting — are Alter3's contribution.
+
+Keep these modules, delete them, or replace with your own cognitive
+architecture. The framework is pattern-agnostic; this starter is just
+a sensible Alter3/CMA default adapted for a digital-community context.
 
 ## Included CMA modules (all optional — delete what you don't want)
 

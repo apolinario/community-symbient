@@ -1,15 +1,30 @@
 {
   "name": "feyblet",
   "workspacePath": "./workspace",
-  "signal": {
-    "account": "+15674026181",
-    "httpHost": "127.0.0.1",
-    "httpPort": 8080,
-    "dmPolicy": "open",
-    "groupPolicy": "open",
-    "allowFrom": [],
-    "groupAllowFrom": []
+  "adapters": {
+    "chat": {
+      "adapter": "signal",
+      "params": {
+        "account": "+15674026181",
+        "httpHost": "127.0.0.1",
+        "httpPort": 8080,
+        "dmPolicy": "open",
+        "groupPolicy": "open",
+        "allowFrom": [],
+        "groupAllowFrom": []
+      }
+    },
+    "directory": {
+      "adapter": "feyops",
+      "params": {
+        "path": "./data/feyops.db"
+      }
+    }
   },
+  "mcp_servers": [
+    { "name": "radio", "url": "http://192.168.10.97:8001/mcp" },
+    { "name": "phonebooth", "url": "http://192.168.10.97:3001/mcp" }
+  ],
   "mqtt": {
     "brokerUrl": "localhost",
     "port": 1883

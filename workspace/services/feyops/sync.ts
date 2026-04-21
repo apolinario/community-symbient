@@ -5,7 +5,7 @@
 
 import { FeyOpsDB } from "./db.js";
 import { readCachedOOI } from "./ooi-fetcher.js";
-import { formatDate, addDays } from "../core/date-utils.js";
+import { formatDate, addDays } from "../../../src/core/date-utils.js";
 
 interface AmenitizConfig {
   accessToken: string;

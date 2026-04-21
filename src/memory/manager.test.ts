@@ -189,9 +189,4 @@ describe("MemoryManager", () => {
     });
   });
 
-  describe("getHouseSummary", () => {
-    it("returns null when no FeyOps DB connected", () => {
-      expect(mm.getHouseSummary()).toBeNull();
-    });
-  });
 });

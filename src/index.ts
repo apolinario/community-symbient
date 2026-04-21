@@ -17,23 +17,16 @@ import { loadConfig } from "./config.js";
 import { Orchestrator } from "./core/orchestrator.js";
 import { MQTTBus } from "./core/mqtt-bus.js";
 import { MemoryManager } from "./memory/manager.js";
-import { SignalBridge } from "./signal/bridge.js";
-import { FeyOpsDB } from "./feyops/db.js";
 import { createModel, getApiKey } from "./core/pi-model.js";
 import { createLLMClient } from "./core/llm.js";
 import "@mariozechner/pi-ai/openai-completions";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { ChatAdapter } from "./adapters/chat/types.js";
+import type { Directory } from "./adapters/directory/types.js";
 
 // Tools
 import {
-  createLookupPersonTool,
   createSearchMemoryTool,
-  createCheckBookingsTool,
-  createSeasonLogTool,
-  createRadioBroadcastTool,
-  createRadioScheduleTool,
-  createRadioCalendarTool,
-  createCheckSaunaTool,
   createScheduleTool,
   createListScheduleTool,
   createCancelScheduleTool,
@@ -52,23 +45,15 @@ import {
 import { createSandboxedPiTools } from "./tools/pi-tools.js";
 import { initMCP, onMCPReconnect } from "./mcp/bridge.js";
 
-// Module loader + special modules
+// Module loader + registries
 import { loadModuleConfigs } from "./modules/load-modules.js";
-import { loadAllExtensions } from "./core/extension-loader.js";
+import { loadAllExtensions, loadWorkspaceToolsFactory, loadWorkspaceModulesFactory } from "./core/extension-loader.js";
 import { setEventLogWorkspace } from "./core/event-log.js";
 import { setWatchesWorkspace } from "./core/watches.js";
-import { createWatchEvaluatorModule } from "./sense/watch-evaluator.js";
-import { createConversationModule } from "./modules/base/conversation.js";
-import { createRadioModule } from "./act/radio.js";
-import { createSaunaModule } from "./sense/sauna.js";
-import { createBookingsModule } from "./sense/bookings.js";
-import { createOnboardingModule } from "./act/onboarding.js";
-import { createQmdIndexModule } from "./sense/qmd-index.js";
-import { createPeopleSyncModule } from "./sense/people-sync.js";
-// people-enrich is now a markdown agent module (workspace/modules/people-enrich.md)
-import { createScheduleCheckerModule } from "./sense/schedule-checker.js";
-import { createModuleSyncModule } from "./core/module-sync.js";
-import { createMetaReport } from "./modules/meta/meta-report.js";
+import { registerBuiltIns } from "./core/register-builtins.js";
+import { getBuiltInModule, listBuiltInModules, type ModuleDeps } from "./core/module-factories.js";
+import { getChatAdapter, getDirectory } from "./core/adapter-registry.js";
+
 import { startDashboard, pushLogLine } from "./dashboard/server.js";
 import { setLogSink } from "./core/logger.js";
 
@@ -89,10 +74,32 @@ async function main() {
 
   // Core systems
   const memory = new MemoryManager(config.workspacePath);
-  const feyopsDb = new FeyOpsDB("./data/feyops.db");
-  memory.setFeyOpsDB(feyopsDb);
   memory.setSummarizer(createLLMClient(config.llm));
-  console.log("FeyOps DB connected");
+
+  // Register all built-in adapters + module factories, then load workspace
+  // extensions (custom adapters, helpers, handlers, providers, actions,
+  // sensors, directories). Both must run BEFORE config.adapters.* lookups
+  // so the factory registry has everything before we try to resolve names.
+  registerBuiltIns();
+  const extensions = await loadAllExtensions(config.workspacePath);
+
+  // Directory adapter — config-driven via the registry. Deployments
+  // without a member/booking source set config.adapters.directory to null;
+  // the framework then skips modules that require it (bookings, onboarding,
+  // people-sync, radio-calendar).
+  let directory: Directory | undefined;
+  const dirSel = config.adapters?.directory;
+  if (dirSel === null || dirSel === undefined) {
+    console.log("Directory: disabled");
+  } else {
+    const factory = getDirectory(dirSel.adapter);
+    if (!factory) {
+      console.error(`Unknown directory adapter "${dirSel.adapter}" — register via workspace/extensions/adapters/directory/`);
+    } else {
+      directory = await factory.create(dirSel.params ?? {});
+      console.log(`Directory: ${dirSel.adapter}`);
+    }
+  }
 
   // MQTT bus — created early so tools can reference it
   const bus = new MQTTBus(
@@ -100,8 +107,22 @@ async function main() {
     config.name,
   );
 
-  // Signal bridge — created early so tools can reference it
-  const signal = new SignalBridge(config.signal);
+  // Chat adapter — config-driven. Default (Feÿ legacy) is the built-in Signal
+  // factory with `config.signal`. Non-Signal deployments set config.adapters.chat
+  // to a different adapter, or `null` for CLI/headless deployments.
+  let chatAdapter: ChatAdapter | undefined;
+  const chatSel = config.adapters?.chat;
+  if (chatSel === null || chatSel === undefined) {
+    console.log("Chat: disabled (no config.adapters.chat)");
+  } else {
+    const factory = getChatAdapter(chatSel.adapter);
+    if (!factory) {
+      console.error(`Unknown chat adapter "${chatSel.adapter}" — register via workspace/extensions/adapters/chat/`);
+    } else {
+      chatAdapter = factory.create(chatSel.params ?? {});
+      console.log(`Chat: ${chatSel.adapter}`);
+    }
+  }
 
   // Check external services
   const WHISPER_API = process.env.WHISPER_API || "http://localhost:8001";
@@ -113,45 +134,47 @@ async function main() {
     console.log("Whisper: not available (voice messages won't be transcribed)");
   }
 
-  // MCP servers — tools auto-discovered at startup
-  const RADIO_MCP = process.env.RADIO_MCP_URL || "http://192.168.10.97:8001/mcp";
-  const PHONEBOOTH_MCP = process.env.PHONEBOOTH_MCP_URL || "http://192.168.10.97:3001/mcp";
-  let mcpTools = await initMCP([
-    { name: "radio", url: RADIO_MCP },
-    { name: "phonebooth", url: PHONEBOOTH_MCP },
-  ]);
+  // MCP servers — declared in config.mcp_servers. Tools auto-discovered at startup.
+  let mcpTools = await initMCP(config.mcp_servers ?? []);
 
   // Pi file tools (sandboxed to workspace, write-restricted)
   const piTools = createSandboxedPiTools(config.workspacePath);
   console.log(`Pi tools: ${piTools.map(t => t.name).join(", ")}`);
 
-  // Local tools + Pi tools + MCP tools
+  // Framework tools — universal, always available.
   const tools: AgentTool[] = [
-    createLookupPersonTool(feyopsDb, memory),
     createSearchMemoryTool(),
-    createCheckBookingsTool(feyopsDb),
-    createSeasonLogTool(config.workspacePath),
-    createRadioBroadcastTool(),
-    createRadioScheduleTool(),
-    createRadioCalendarTool(),
-    createCheckSaunaTool(memory),
     createScheduleTool(config.workspacePath),
     createListScheduleTool(config.workspacePath),
     createCancelScheduleTool(config.workspacePath),
-    createNudgeModuleTool(bus, "feyblet"),
+    createNudgeModuleTool(bus, config.name),
     createWebSearchTool(),
     createChatHistoryTool(memory),
-    createSendDMTool(signal, memory),
-    createSendGroupMessageTool(signal, memory),
     createCreateModuleTool(config.workspacePath),
     createDisableModuleTool(config.workspacePath),
     createListModulesTool(config.workspacePath),
-    createRegisterWatchTool("feyblet"),
+    createRegisterWatchTool(config.name),
     createListWatchesTool(),
     createCancelWatchTool(),
     ...piTools,
     ...mcpTools,
   ];
+  // Chat tools — only if a chat adapter is wired.
+  if (chatAdapter) {
+    tools.push(
+      createSendDMTool(chatAdapter, memory),
+      createSendGroupMessageTool(chatAdapter, memory),
+    );
+  }
+  // Workspace tools — deployment-specific (Feÿ's radio_broadcast, check_sauna, etc.).
+  // Loaded from workspace/extensions/tools.{js,mjs,ts} if present.
+  const workspaceTools = await loadWorkspaceToolsFactory(config.workspacePath);
+  if (workspaceTools) {
+    const deployToolDeps = { memory, directory, chatAdapter, workspacePath: config.workspacePath };
+    const deployTools = workspaceTools(deployToolDeps) as AgentTool[];
+    tools.push(...deployTools);
+    console.log(`Workspace tools: ${deployTools.map((t) => t.name).join(", ")}`);
+  }
   console.log(`${tools.length} tools (${mcpTools.length} from MCP): ${tools.map(t => t.name).join(", ")}`);
   const orchestrator = new Orchestrator(config, memory, bus);
   orchestrator.setPiContext(model, tools, apiKey);
@@ -162,75 +185,56 @@ async function main() {
     mcpTools = newTools;
   });
 
-  // --- Hardware modules (code-driven, not markdown) ---
-
-  orchestrator.register(
-    { name: "sauna", intervalMs: 60_000, startActive: true },
-    createSaunaModule(),
-  );
-
-  orchestrator.register(
-    { name: "bookings", intervalMs: 30 * 60_000, startActive: true, description: "FeyOps arrivals/departures" },
-    createBookingsModule(feyopsDb),
-  );
-
-  orchestrator.register(
-    { name: "onboarding", intervalMs: 24 * 60 * 60_000, startActive: false, description: "Welcome/goodbye DMs (disabled)" },
-    createOnboardingModule(feyopsDb, signal),
-  );
-
-  orchestrator.register(
-    { name: "qmd-index", intervalMs: 30_000, startActive: true, description: "qmd BM25 every 30s, vectors every 5min" },
-    createQmdIndexModule(),
-  );
-
-  orchestrator.register(
-    { name: "people-sync", intervalMs: 30 * 60_000, startActive: true, description: "Create/enrich person files from bookings + messages" },
-    createPeopleSyncModule(feyopsDb, memory),
-  );
-
-
-  orchestrator.register(
-    { name: "schedule-checker", intervalMs: 60_000, startActive: true, description: "Checks for due scheduled items, wakes executive" },
-    createScheduleCheckerModule(),
-  );
-
-  orchestrator.register(
-    { name: "module-sync", intervalMs: 30_000, startActive: true, description: "Hot-reload markdown modules" },
-    createModuleSyncModule(orchestrator, config.workspacePath),
-  );
-
-  orchestrator.register(
-    { name: "watch-evaluator", intervalMs: 10_000, startActive: true, description: "Evaluates registered watches against new events, fires actions" },
-    createWatchEvaluatorModule(),
-  );
-
-  // meta-report disabled — quiet hours concept doesn't apply at the château
-  // orchestrator.register(
-  //   { name: "meta-report", intervalMs: 30 * 60_000, startActive: true, description: "System self-monitoring" },
-  //   createMetaReport(orchestrator),
-  // );
-
-  // --- Special modules (conversation + radio need custom wiring) ---
-
-  orchestrator.register(
-    { name: "conversation", intervalMs: 500, startActive: true },
-    createConversationModule(signal),
-  );
-
-  orchestrator.register(
-    { name: "radio-calendar", intervalMs: 5 * 60_000, startActive: true, description: "Process scheduled radio calendar items" },
-    createRadioModule(feyopsDb),
-  );
-
-  // --- Event log + watches ---
+  // --- Event log + watches (stateful singletons; set before modules start) ---
 
   setEventLogWorkspace(config.workspacePath);
   setWatchesWorkspace(config.workspacePath);
 
-  // --- Workspace extensions (custom helpers, handlers, providers, actions) ---
+  // Deps passed to each factory. Factories whose `requires` aren't
+  // satisfied (e.g. a module that needs chatAdapter when none is wired)
+  // are skipped below with a warning.
+  const deps: ModuleDeps = {
+    memory,
+    workspacePath: config.workspacePath,
+    bus,
+    orchestrator,
+    chatAdapter,
+    directory,
+  };
 
-  const extensions = await loadAllExtensions(config.workspacePath);
+  // --- Workspace deployment wiring ---
+  // Invoke workspace/extensions/modules.ts if present. It can attach an
+  // enricher to memory, register custom modules, etc.
+  const workspaceModulesFactory = await loadWorkspaceModulesFactory(config.workspacePath);
+  if (workspaceModulesFactory) {
+    try {
+      workspaceModulesFactory(deps);
+      console.log("Workspace setup: applied");
+    } catch (err) {
+      console.error(`Workspace setup failed: ${err}`);
+    }
+  }
+
+  // Which built-in modules to run. If config.enabled_modules is set, use
+  // that list; else default to every registered built-in (current Feÿ behavior).
+  const enabled = config.enabled_modules ?? listBuiltInModules();
+
+  for (const name of enabled) {
+    const mod = getBuiltInModule(name);
+    if (!mod) {
+      console.warn(`Unknown built-in module "${name}" — skipping`);
+      continue;
+    }
+    const missing = (mod.requires ?? []).filter((r) => !deps[r]);
+    if (missing.length > 0) {
+      console.warn(`Module "${name}" skipped: missing deps [${missing.join(", ")}]`);
+      continue;
+    }
+    orchestrator.register(mod.config, mod.factory(deps));
+  }
+
+  // --- Log what workspace extensions registered earlier ---
+
   if (extensions.helpers.length > 0) {
     console.log(`Workspace helpers: ${extensions.helpers.join(", ")}`);
   }
@@ -267,7 +271,7 @@ async function main() {
   startDashboard(orchestrator, memory);
 
   await bus.connect();
-  await signal.start();
+  if (chatAdapter) await chatAdapter.start();
   console.log("All systems ready. Feyblet is alive.\n");
   await orchestrator.start();
 }

@@ -171,10 +171,16 @@ export interface OutboundMessage {
 
 // --- Feyblet Config ---
 
+export interface AdapterSelection {
+  /** Factory name (references a registered adapter in src/core/adapter-registry.ts). */
+  adapter: string;
+  /** Params passed to the factory's create() method. */
+  params?: Record<string, unknown>;
+}
+
 export interface FeybletConfig {
   name: string;
   workspacePath: string;
-  signal: SignalConfig;
   mqtt: {
     brokerUrl: string;
     port: number;
@@ -187,5 +193,25 @@ export interface FeybletConfig {
     apiKey?: string;
     baseUrl?: string;
   };
+  /** Per-module overrides (intervalMs, startActive, etc.). */
   modules: Record<string, Partial<ModuleConfig>>;
+  /** Declarative adapter selection. All entries optional — if omitted, framework uses current Feÿ defaults. */
+  adapters?: {
+    /** Pick a chat transport. Set to null for a headless deployment. */
+    chat?: AdapterSelection | null;
+    /** Pick a directory (member/booking source). Set to null to skip. */
+    directory?: AdapterSelection | null;
+  };
+  /**
+   * Which built-in modules to enable. Omit to enable all built-ins.
+   * A minimal deployment without PMS would list just the framework
+   * infrastructure modules (qmd-index, module-sync, schedule-checker,
+   * watch-evaluator, conversation).
+   */
+  enabled_modules?: string[];
+  /**
+   * External MCP servers to connect at startup. Their tools are auto-
+   * discovered and made available to agent modules. Omit for none.
+   */
+  mcp_servers?: Array<{ name: string; url: string }>;
 }

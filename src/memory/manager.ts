@@ -17,9 +17,25 @@
 import { readFile, writeFile, appendFile, mkdir, access, readdir, stat } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import type { MemoryReader, MemoryWriter, SearchResult } from "../core/types.js";
-import type { FeyOpsDB, BookingRow, PersonNickname } from "../feyops/db.js";
 import { slugify } from "../core/slugify.js";
 import { annotateContextLines } from "./time-annotate.js";
+
+/**
+ * Optional deployment-provided hook into context assembly. The memory
+ * manager knows nothing about bookings, guests, rooms, or any other
+ * domain-specific concept — if a deployment wants such data to appear
+ * in the assembled context, it provides an enricher.
+ *
+ * Every field is optional. MemoryManager calls what's defined.
+ */
+export interface MemoryEnricher {
+  /** Extra context blocks to include after MEMORY/summaries. Return empty array for none. */
+  globalBlocks?: () => Promise<string[]> | string[];
+  /** Extra blocks for a specific person (e.g. booking/stay history). Called with the resolved person slug. */
+  personBlocks?: (slug: string) => Promise<string[]> | string[];
+  /** Resolve a nickname/alias to a person slug — used by findPerson when name-based matching fails. */
+  resolveNickname?: (name: string) => Promise<string | null> | string | null;
+}
 
 type LLMSummarizer = {
   complete(opts: { system: string; messages: Array<{ role: "user"; content: string }>; temperature?: number; maxTokens?: number }): Promise<string>;
@@ -54,13 +70,17 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
   private skillCacheTime = 0;
   private peopleCache: PersonMeta[] | null = null;
   private peopleCacheTime = 0;
-  private feyopsDb: FeyOpsDB | null = null;
+  private enricher: MemoryEnricher | null = null;
 
   constructor(private workspacePath: string) {}
 
-  /** Connect to FeyOps DB for booking context */
-  setFeyOpsDB(db: FeyOpsDB): void {
-    this.feyopsDb = db;
+  /**
+   * Attach a deployment-specific context enricher. MemoryManager stays
+   * domain-agnostic; all booking/inventory/people-metadata comes through
+   * this hook. A CLI-only deployment just never calls this.
+   */
+  setEnricher(enricher: MemoryEnricher): void {
+    this.enricher = enricher;
   }
 
   // --- MemoryReader ---
@@ -121,12 +141,11 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
       match = people.find((p) => p.name.toLowerCase() === lower);
     }
 
-    // Try FeyOps nicknames
-    if (!match && this.feyopsDb) {
-      const nicknames = this.feyopsDb.getAllNicknames();
-      const nickMatch = nicknames.find((n) => n.nickname.toLowerCase() === lower);
-      if (nickMatch) {
-        match = people.find((p) => p.filename === nickMatch.slug);
+    // Try deployment-provided nickname/alias resolution.
+    if (!match && this.enricher?.resolveNickname) {
+      const slug = await this.enricher.resolveNickname(name);
+      if (slug) {
+        match = people.find((p) => p.filename === slug);
       }
     }
 
@@ -332,85 +351,24 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     this.peopleCache = null;
   }
 
-  // --- Booking Context ---
+  // --- Deployment-provided context helpers ---
 
-  /**
-   * Get booking context for a person from FeyOps DB.
-   * Returns formatted text about their current/upcoming bookings, room, dates.
-   */
-  private getBookingContext(slug: string): string | null {
-    if (!this.feyopsDb) return null;
-
-    const today = new Date().toISOString().slice(0, 10);
-    const allBookings = this.feyopsDb.getBookings();
-    const personBookings = allBookings.filter(
-      (b) => b.person_slug === slug && b.status !== "cancelled"
-    );
-
-    if (personBookings.length === 0) return null;
-
-    const lines: string[] = [];
-    for (const b of personBookings) {
-      const nights = Math.ceil(
-        (new Date(b.checkout).getTime() - new Date(b.checkin).getTime()) / (1000 * 60 * 60 * 24)
-      );
-      let status: string;
-      if (b.checkout <= today) {
-        status = "departed";
-      } else if (b.checkin <= today) {
-        status = "HERE NOW";
-      } else {
-        const daysUntil = Math.ceil(
-          (new Date(b.checkin).getTime() - new Date(today).getTime()) / (1000 * 60 * 60 * 24)
-        );
-        status = `arriving in ${daysUntil} day${daysUntil === 1 ? "" : "s"}`;
-      }
-      lines.push(`- ${b.room} (${b.venue}): ${b.checkin} → ${b.checkout} (${nights} nights) — ${status} [${b.source}]`);
+  private async callGlobalEnrichers(): Promise<string[]> {
+    if (!this.enricher?.globalBlocks) return [];
+    try {
+      return [...(await this.enricher.globalBlocks())];
+    } catch {
+      return [];
     }
-
-    return lines.join("\n");
   }
 
-  /**
-   * Get a summary of today's arrivals/departures and occupancy from FeyOps DB.
-   */
-  private isPlaceholder(name: string): boolean {
-    const lower = name.toLowerCase();
-    return lower.startsWith("block") || lower.startsWith("hold") || lower.includes("secret garden");
-  }
-
-  getHouseSummary(): string | null {
-    if (!this.feyopsDb) return null;
-
-    const today = new Date().toISOString().slice(0, 10);
-    const activity = this.feyopsDb.getTodayActivity(today);
-    const allBookings = this.feyopsDb.getBookings();
-
-    const real = allBookings.filter((b) => !this.isPlaceholder(b.guest));
-    const currentGuests = real.filter((b) => b.checkin <= today && b.checkout > today);
-    const guestNames = [...new Set(currentGuests.map((b) => b.guest))];
-    const occupiedRooms = [...new Set(currentGuests.map((b) => b.room))];
-
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = tomorrow.toISOString().slice(0, 10);
-    const tomorrowArrivals = real.filter((b) => b.checkin === tomorrowStr);
-
-    const realArrivals = activity.arrivals.filter((b) => !this.isPlaceholder(b.guest));
-    const realDepartures = activity.departures.filter((b) => !this.isPlaceholder(b.guest));
-
-    const lines: string[] = [];
-    lines.push(`Today: ${guestNames.length} guests in ${occupiedRooms.length} rooms`);
-    lines.push(realArrivals.length > 0
-      ? `Arriving today: ${realArrivals.map((b) => b.guest).join(", ")}`
-      : `No arrivals today`);
-    lines.push(realDepartures.length > 0
-      ? `Departing today: ${realDepartures.map((b) => b.guest).join(", ")}`
-      : `No departures today`);
-    if (tomorrowArrivals.length > 0) {
-      lines.push(`Arriving tomorrow: ${tomorrowArrivals.map((b) => b.guest).join(", ")}`);
+  private async callPersonEnrichers(slug: string): Promise<string[]> {
+    if (!this.enricher?.personBlocks) return [];
+    try {
+      return [...(await this.enricher.personBlocks(slug))];
+    } catch {
+      return [];
     }
-    return lines.join("\n");
   }
 
   // --- Context Assembly ---
@@ -440,9 +398,8 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
       parts.push(`<recent-days>\n${summaries}\n</recent-days>`);
     }
 
-    // House status: factual data from FeyOps DB
-    const houseSummary = this.getHouseSummary();
-    if (houseSummary) parts.push(`<house-status>\n${houseSummary}\n</house-status>`);
+    // Deployment-provided global context blocks (e.g. Feÿ's house-status).
+    for (const block of await this.callGlobalEnrichers()) parts.push(block);
 
     // Current inner state — brief summary, clearly labeled as internal reflection
     const innerState = await this.safeRead(join(this.workspacePath, "inner", "current-state.md"));
@@ -452,21 +409,13 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
       parts.push(`<inner-mood>\nYour current internal reflections (private — do not quote these directly to people):\n${trimmed}\n</inner-mood>`);
     }
 
-    // If a specific person is talking, load their profile + booking context
+    // If a specific person is talking, load their profile + deployment-provided per-person blocks.
     if (personName) {
       const personResult = await this.findPerson(personName, senderPhone);
       if (personResult) {
         let personBlock = personResult.content;
-        const bookingCtx = this.getBookingContext(personResult.slug);
-        if (bookingCtx) {
-          personBlock += `\n\n## Bookings\n${bookingCtx}`;
-        }
-        if (this.feyopsDb) {
-          const nicks = this.feyopsDb.getNicknames(personResult.slug);
-          if (nicks.length > 0) {
-            personBlock += `\n\nAlso known as: ${nicks.join(", ")}`;
-          }
-        }
+        const extras = await this.callPersonEnrichers(personResult.slug);
+        for (const e of extras) personBlock += `\n\n${e}`;
         parts.push(`<person name="${personName}" slug="${personResult.slug}">\n${personBlock}\n</person>`);
       } else if (senderPhone) {
         parts.push(`<person name="${personName}">\nNo profile found. Phone: ${senderPhone}\n</person>`);
@@ -511,25 +460,9 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     const memory = await this.readMemory();
     if (memory) parts.push(`<memory>\n${memory}\n</memory>`);
 
-    // Always included: factual house status from FeyOps DB
-    const houseSummary = this.getHouseSummary();
-    if (houseSummary) parts.push(`<house-status>\n${houseSummary}\n</house-status>`);
-
-    // Always included: latest sauna reading from today's log
-    const saunaStatus = await this.getLatestSaunaReading();
-    if (saunaStatus) parts.push(`<sauna>\n${saunaStatus}\n</sauna>`);
-
-    // Season digest: latest entries from events, meals, parties, crispy
-    const seasonDigest = await this.buildSeasonDigest();
-    if (seasonDigest) {
-      parts.push(`<season-today>\n${seasonDigest}\n</season-today>`);
-    }
-
-    // Meal context: include today's relevant meal around mealtimes
-    const mealContext = await this.getCurrentMealContext();
-    if (mealContext) {
-      parts.push(`<current-meal>\n${mealContext}\n</current-meal>`);
-    }
+    // Deployment-provided global blocks (house-status, sauna, season digest,
+    // broadcasts, etc. — all injected by the deployment's enricher).
+    for (const block of await this.callGlobalEnrichers()) parts.push(block);
 
     // Always included: today's daily summary (LLM-generated paragraph)
     const summaryPath = this.dailySummaryPath(new Date());
@@ -544,30 +477,21 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
       parts.push(`<recent-group-chat>\n${recentGroup}\n</recent-group-chat>`);
     }
 
-    // Latest radio broadcasts — so conversation knows what was said on air
-    const recentBroadcasts = await this.getRecentBroadcasts(2);
-    if (recentBroadcasts) {
-      parts.push(`<recent-broadcasts>\n${recentBroadcasts}\n</recent-broadcasts>`);
-    }
-
     // Inner mood: consolidated from thinking + desire + magi (private)
     const innerMood = await this.buildInnerMood();
     if (innerMood) {
       parts.push(`<inner-mood>\nYour current internal state (private):\n${innerMood}\n</inner-mood>`);
     }
 
-    // Person profile via reliable phone/name matching + booking context
+    // Person profile + deployment-provided per-person blocks.
     let matchedSlug: string | null = null;
     if (personName) {
       const personResult = await this.findPerson(personName, senderPhone);
       if (personResult) {
         matchedSlug = personResult.slug;
         let personBlock = personResult.content;
-        const bookingCtx = this.getBookingContext(personResult.slug);
-        if (bookingCtx) personBlock += `\n\n## Bookings\n${bookingCtx}`;
-        if (this.feyopsDb) {
-          const nicks = this.feyopsDb.getNicknames(personResult.slug);
-          if (nicks.length > 0) personBlock += `\n\nAlso known as: ${nicks.join(", ")}`;
+        for (const extra of await this.callPersonEnrichers(personResult.slug)) {
+          personBlock += `\n\n${extra}`;
         }
         parts.push(`<person name="${personName}" slug="${personResult.slug}">\n${personBlock}\n</person>`);
       } else if (senderPhone) {
@@ -593,32 +517,30 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
       });
 
       if (filtered.length > 0) {
-        const contextBlock = filtered
-          .map((r) => {
-            // Add age label based on file path date
-            let ageLabel = "";
-            const dateMatch = r.file.match(/(\d{4}-\d{2}-\d{2})/);
-            if (dateMatch) {
-              const fileDate = new Date(dateMatch[1]);
-              const today = new Date(); today.setHours(0, 0, 0, 0);
-              const daysAgo = Math.floor((today.getTime() - fileDate.getTime()) / 86400000);
-              if (daysAgo === 0) ageLabel = " [today]";
-              else if (daysAgo === 1) ageLabel = " [yesterday]";
-              else if (daysAgo < 7) ageLabel = ` [${daysAgo} days ago]`;
-              else if (daysAgo < 30) ageLabel = ` [${Math.floor(daysAgo / 7)} weeks ago]`;
-              else ageLabel = ` [${Math.floor(daysAgo / 30)} months ago]`;
+        const blocks = await Promise.all(filtered.map(async (r) => {
+          // Add age label based on file path date
+          let ageLabel = "";
+          const dateMatch = r.file.match(/(\d{4}-\d{2}-\d{2})/);
+          if (dateMatch) {
+            const fileDate = new Date(dateMatch[1]);
+            const today = new Date(); today.setHours(0, 0, 0, 0);
+            const daysAgo = Math.floor((today.getTime() - fileDate.getTime()) / 86400000);
+            if (daysAgo === 0) ageLabel = " [today]";
+            else if (daysAgo === 1) ageLabel = " [yesterday]";
+            else if (daysAgo < 7) ageLabel = ` [${daysAgo} days ago]`;
+            else if (daysAgo < 30) ageLabel = ` [${Math.floor(daysAgo / 7)} weeks ago]`;
+            else ageLabel = ` [${Math.floor(daysAgo / 30)} months ago]`;
+          }
+          let block = `### ${r.title} (${r.file})${ageLabel}\n${r.snippet}`;
+          const personMatch = r.file.match(/people\/([^/]+)\.md$/);
+          if (personMatch) {
+            for (const extra of await this.callPersonEnrichers(personMatch[1])) {
+              block += `\n\n${extra}`;
             }
-            let block = `### ${r.title} (${r.file})${ageLabel}\n${r.snippet}`;
-            // If this is a person file, enrich with booking data
-            const personMatch = r.file.match(/people\/([^/]+)\.md$/);
-            if (personMatch && this.feyopsDb) {
-              const slug = personMatch[1];
-              const bookingCtx = this.getBookingContext(slug);
-              if (bookingCtx) block += `\n\nBookings:\n${bookingCtx}`;
-            }
-            return block;
-          })
-          .join("\n\n");
+          }
+          return block;
+        }));
+        const contextBlock = blocks.join("\n\n");
         parts.push(`<relevant-memory>\nRelated context from memory:\n\n${contextBlock}\n</relevant-memory>`);
       }
     }
@@ -774,87 +696,8 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
   }
 
   /**
-   * Get the latest sauna reading — live from Google Sheets, falls back to today's log.
-   */
-  private async getLatestSaunaReading(): Promise<string | null> {
-    // Try live reading first (same source as sauna module)
-    try {
-      const SPREADSHEET_ID = "1nQioINK2QYU3MymE5u04F5K0GBASeOIC96TA4UtiQL4";
-      const url = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:json&tq=${encodeURIComponent("order by A desc limit 1")}`;
-      const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
-      if (res.ok) {
-        const raw = await res.text();
-        const jsonStr = raw.replace(/^[^(]+\(/, "").replace(/\);?\s*$/, "");
-        const data = JSON.parse(jsonStr);
-        const row = data.table.rows[0];
-        if (row) {
-          const temp = row.c[1]?.v;
-          if (typeof temp === "number") {
-            // Get trend from log history
-            const log = await this.readTodayLog();
-            let trend = "";
-            if (log) {
-              const readings = log.match(/\*\[Sauna\]\*.*?(\d+\.?\d*)°C/g);
-              if (readings && readings.length >= 1) {
-                const prev = parseFloat(readings[readings.length - 1].match(/(\d+\.?\d*)°C/)?.[1] || "0");
-                if (temp > prev + 2) trend = " and heating up";
-                else if (temp < prev - 2) trend = " and cooling down";
-                else trend = " and holding steady";
-              }
-            }
-            return `Sauna: ${temp}°C${trend} (live)`;
-          }
-        }
-      }
-    } catch {}
-
-    // Fallback: read from today's log
-    const log = await this.readTodayLog();
-    if (!log) return null;
-
-    const readings = log.match(/\*\[Sauna\]\*.*$/gm);
-    if (!readings || readings.length === 0) return null;
-
-    const latest = readings[readings.length - 1].replace("*[Sauna]* ", "");
-    const temp = parseFloat(latest.match(/(\d+\.?\d*)°C/)?.[1] || "0");
-
-    let trend = "";
-    if (readings.length >= 2) {
-      const prev = parseFloat(readings[readings.length - 2].match(/(\d+\.?\d*)°C/)?.[1] || "0");
-      if (temp > prev + 2) trend = " and heating up";
-      else if (temp < prev - 2) trend = " and cooling down";
-      else trend = " and holding steady";
-    }
-
-    return `Sauna: ${temp}°C${trend}`;
-  }
-
-  /**
-   * Get the last N broadcasts from the radio log.
-   */
-  private async getRecentBroadcasts(count: number): Promise<string | null> {
-    const radioLog = await this.safeRead(join(this.workspacePath, "radio", "log.md"));
-    if (!radioLog) return null;
-
-    const broadcasts: string[] = [];
-    const sections = radioLog.split("\n## ");
-    for (const section of sections) {
-      const timeMatch = section.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2})/);
-      const broadcastMatch = section.match(/\*\*Broadcast:\*\*\s*([\s\S]*?)(?=\n\*\*|\n##|$)/);
-      if (timeMatch && broadcastMatch) {
-        broadcasts.push(`[${timeMatch[1]}] ${broadcastMatch[1].trim()}`);
-      }
-    }
-
-    if (broadcasts.length === 0) return null;
-    const recent = broadcasts.slice(-count);
-    const annotated = await annotateContextLines(recent);
-    return annotated.join("\n");
-  }
-
-  /**
    * Extract the latest N group messages from today's log.
-   * Skips DMs, inner state, sauna readings, and Feyblet's own responses.
+   * Generic — any chat system produces timestamped group entries in the log.
    */
   private async getRecentGroupMessages(count: number): Promise<string | null> {
     const log = await this.readTodayLog();
@@ -884,108 +727,6 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     return annotated.join("\n");
   }
 
-  /**
-   * If it's around mealtime, include today's relevant meal from the season log.
-   * Breakfast: 9-11, Lunch: 13-14, Dinner: 19:30-20:30
-   */
-  private async getCurrentMealContext(): Promise<string | null> {
-    const now = new Date();
-    const h = now.getHours();
-    const m = now.getMinutes();
-    const mins = h * 60 + m;
-
-    let mealType: string | null = null;
-    if (mins >= 510 && mins <= 690) mealType = "breakfast";       // 8:30-11:30
-    else if (mins >= 750 && mins <= 900) mealType = "lunch";      // 12:30-15:00
-    else if (mins >= 1140 && mins <= 1320) mealType = "dinner";   // 19:00-22:00
-
-    if (!mealType) return null;
-
-    const content = await this.safeRead(join(this.workspacePath, "season", "meals.md"));
-    if (!content) return null;
-
-    const todayISO = now.toISOString().slice(0, 10);
-    const todayLines = content.split("\n").filter((l) => l.includes(todayISO));
-    if (todayLines.length === 0) return null;
-
-    // Find the relevant meal type in today's entries
-    const mealLine = todayLines.find((l) => l.toLowerCase().includes(mealType!));
-    if (mealLine) return `It's ${mealType} time. Today's ${mealType}: ${mealLine.trim()}`;
-
-    // No specific meal type found, return all today's meal entries
-    return `It's ${mealType} time. Today's meals: ${todayLines.map((l) => l.trim()).join("; ")}`;
-  }
-
-  /**
-   * Build a digest of recent season entries — latest meals, events, parties, crispy bits.
-   * Gives the feyblet a general awareness of what's been happening beyond just the chat stream.
-   */
-  private async buildSeasonDigest(): Promise<string | null> {
-    const categories = ["meals", "events", "parties", "crispy"];
-    const parts: string[] = [];
-
-    const { rewriteStaleEntries } = await import("../core/temporal-rewrite.js");
-    const now = new Date();
-    const nowHour = now.getHours();
-    const todayISO = now.toISOString().slice(0, 10);
-    const yesterdayISO = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-
-    for (const cat of categories) {
-      const content = await this.safeRead(join(this.workspacePath, "season", `${cat}.md`));
-      if (!content) continue;
-
-      const freshLines: string[] = [];
-      const staleToRewrite: Array<{ text: string; datetime: string; relativeAge: string }> = [];
-
-      for (const line of content.split("\n")) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-
-        if (trimmed.includes(todayISO)) {
-          // Today's entry — check if it's from earlier today
-          const timeMatch = trimmed.match(/\*\*\d{4}-\d{2}-\d{2}\s+(\d{2}):(\d{2}):\*\*/);
-          if (timeMatch) {
-            const entryHour = parseInt(timeMatch[1]);
-            const hoursAgo = nowHour - entryHour;
-            if (hoursAgo > 2) {
-              staleToRewrite.push({
-                text: trimmed,
-                datetime: `${todayISO} ${timeMatch[1]}:${timeMatch[2]}`,
-                relativeAge: `${hoursAgo}h ago`,
-              });
-              continue;
-            }
-          }
-          freshLines.push(trimmed);
-        } else if (trimmed.includes(yesterdayISO)) {
-          // Yesterday — always rewrite
-          const timeMatch = trimmed.match(/\*\*\d{4}-\d{2}-\d{2}\s+(\d{2}):(\d{2}):\*\*/);
-          const time = timeMatch ? `${timeMatch[1]}:${timeMatch[2]}` : "00:00";
-          staleToRewrite.push({
-            text: trimmed,
-            datetime: `${yesterdayISO} ${time}`,
-            relativeAge: "yesterday",
-          });
-        }
-      }
-
-      // Rewrite stale entries via tiny LLM
-      let rewrittenLines: string[] = [];
-      if (staleToRewrite.length > 0) {
-        rewrittenLines = await rewriteStaleEntries(staleToRewrite);
-      }
-
-      if (freshLines.length > 0 || rewrittenLines.length > 0) {
-        let block = `<${cat}>\n`;
-        if (freshLines.length > 0) block += `Now/recent:\n${freshLines.join("\n")}\n`;
-        if (rewrittenLines.length > 0) block += `Earlier:\n${rewrittenLines.join("\n")}\n`;
-        block += `</${cat}>`;
-        parts.push(block);
-      }
-    }
-
-    return parts.length > 0 ? parts.join("\n") : null;
-  }
 
   /**
    * Build a consolidated inner mood from the three independent inner modules.

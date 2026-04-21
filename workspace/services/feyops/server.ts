@@ -14,7 +14,7 @@ import path from "node:path";
 import { FeyOpsDB } from "./db.js";
 import { syncAmenitiz } from "./sync.js";
 import { fetchOOI, getOOICacheAge } from "./ooi-fetcher.js";
-import { createLogger } from "../core/logger.js";
+import { createLogger } from "../../../src/core/logger.js";
 
 const log = createLogger("FeyOps");
 

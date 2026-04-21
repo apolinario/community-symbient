@@ -206,6 +206,53 @@ export const loadWorkspaceDirectories = (ws: string) =>
   loadFactoriesFromDir(ws, "adapters/directory", registerDirectory, isDirectoryFactory);
 
 /**
+ * Load `workspace/extensions/tools.{js,mjs,ts}` if present. The default
+ * export must be a function `(deps) => AgentTool[]`. Framework calls it
+ * with the deployment's deps object and mixes the returned tools into
+ * the global tool list.
+ *
+ * This is how a deployment plugs in community-specific tools (e.g. Feÿ's
+ * radio_broadcast, check_sauna) without the framework knowing about them.
+ * Returns the factory function or null if the file is missing.
+ */
+export async function loadWorkspaceToolsFactory(
+  workspacePath: string,
+): Promise<((deps: unknown) => unknown[]) | null> {
+  const basePath = join(workspacePath, "extensions", "tools");
+  const exports = await importIfExists(basePath);
+  if (!exports) return null;
+  const factory = exports.default ?? exports;
+  if (typeof factory !== "function") {
+    console.error(`[extension-loader] workspace/extensions/tools — default export must be a function`);
+    return null;
+  }
+  return factory as (deps: unknown) => unknown[];
+}
+
+/**
+ * Load `workspace/extensions/modules.{js,mjs,ts}` if present. The default
+ * export must be a factory `(deps) => BuiltInModule[]` that returns an
+ * array of deployment-provided code-driven modules (not markdown-driven).
+ *
+ * Deployments with Feÿ-specific modules — bookings, people-sync,
+ * onboarding, etc. — declare them here alongside their factory functions.
+ * Framework has no knowledge of them; the workspace owns them.
+ */
+export async function loadWorkspaceModulesFactory(
+  workspacePath: string,
+): Promise<((deps: unknown) => unknown[]) | null> {
+  const basePath = join(workspacePath, "extensions", "modules");
+  const exports = await importIfExists(basePath);
+  if (!exports) return null;
+  const factory = exports.default ?? exports;
+  if (typeof factory !== "function") {
+    console.error(`[extension-loader] workspace/extensions/modules — default export must be a function`);
+    return null;
+  }
+  return factory as (deps: unknown) => unknown[];
+}
+
+/**
  * Load all deployment-provided extensions. Called once at startup from
  * `src/index.ts`. Returns a summary for logging.
  */

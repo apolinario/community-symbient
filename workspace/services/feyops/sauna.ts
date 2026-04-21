@@ -10,8 +10,8 @@
  * it has opinions, it remembers patterns.
  */
 
-import type { ModuleContext } from "../core/types.js";
-import { recordEvent } from "../core/event-log.js";
+import type { ModuleContext } from "../../../src/core/types.js";
+import { recordEvent } from "../../../src/core/event-log.js";
 
 const SPREADSHEET_ID = "1nQioINK2QYU3MymE5u04F5K0GBASeOIC96TA4UtiQL4";
 

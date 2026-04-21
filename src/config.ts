@@ -1,6 +1,8 @@
 /**
  * Configuration loader for Feyblet.
- * Reads from config/feyblet.json or environment variables.
+ *
+ * Reads from `config/feyblet.json` (or `FEYBLET_CONFIG` env var) and
+ * merges over the defaults. Env vars override specific fields.
  */
 
 import { readFile } from "node:fs/promises";
@@ -10,15 +12,6 @@ import type { FeybletConfig } from "./core/types.js";
 const DEFAULT_CONFIG: FeybletConfig = {
   name: "feyblet",
   workspacePath: resolve("workspace"),
-  signal: {
-    account: process.env.SIGNAL_ACCOUNT || "+15674026181",
-    httpHost: "127.0.0.1",
-    httpPort: 8080,
-    dmPolicy: "open",
-    groupPolicy: "open",
-    allowFrom: [],
-    groupAllowFrom: [],
-  },
   mqtt: {
     brokerUrl: process.env.MQTT_BROKER || "localhost",
     port: Number(process.env.MQTT_PORT) || 1883,

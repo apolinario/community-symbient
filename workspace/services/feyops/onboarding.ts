@@ -9,10 +9,10 @@
  * Placeholders: {name}, {room}, {venue}
  */
 
-import type { ModuleContext } from "../core/types.js";
-import type { FeyOpsDB, BookingRow } from "../feyops/db.js";
-import type { ChatAdapter } from "../adapters/chat/types.js";
-import { formatDate, addDays } from "../core/date-utils.js";
+import type { ModuleContext } from "../../../src/core/types.js";
+import type { FeyOpsDB, BookingRow } from "./db.js";
+import type { ChatAdapter } from "../../../src/adapters/chat/types.js";
+import { formatDate, addDays } from "../../../src/core/date-utils.js";
 
 export function createOnboardingModule(db: FeyOpsDB, bridge: ChatAdapter) {
   let lastRunDate: string | null = null;

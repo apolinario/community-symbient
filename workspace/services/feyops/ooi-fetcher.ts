@@ -13,7 +13,7 @@
 import puppeteer from "puppeteer-core";
 import fs from "node:fs";
 import path from "node:path";
-import { createLogger } from "../core/logger.js";
+import { createLogger } from "../../../src/core/logger.js";
 
 const log = createLogger("OOI");
 

@@ -476,3 +476,28 @@ export class FeyOpsDB {
     this.db.close();
   }
 }
+
+/**
+ * FeyOps directory adapter — registered as `feyops` in the directory
+ * registry at module load. Deployments reference it by name in
+ * config.adapters.directory. Other communities can implement their own
+ * DirectoryFactory or skip the directory layer (config.adapters.directory = null).
+ *
+ * The factory returns the raw FeyOpsDB class (which is richer than the
+ * minimal Directory interface — it has amenitiz sync, room mapping, etc.).
+ * Feÿ-specific modules (bookings, people-sync, onboarding, radio-calendar)
+ * cast it back to FeyOpsDB when they need the rich API. Generic consumers
+ * use it through the Directory interface.
+ */
+import { registerDirectory } from "../../../src/core/adapter-registry.js";
+import type { DirectoryFactory, Directory } from "../../../src/adapters/directory/types.js";
+
+export function createFeyOpsDB(params: { path?: string } = {}): FeyOpsDB {
+  return new FeyOpsDB(params.path ?? "./data/feyops.db");
+}
+
+export const feyOpsDirectoryFactory: DirectoryFactory = {
+  name: "feyops",
+  create: (params) => createFeyOpsDB(params as { path?: string }) as unknown as Directory,
+};
+registerDirectory(feyOpsDirectoryFactory);

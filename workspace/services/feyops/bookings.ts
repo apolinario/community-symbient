@@ -6,9 +6,9 @@
  * Uses the local FeyOps SQLite DB (synced from Amenitiz by feyops server).
  */
 
-import type { ModuleContext } from "../core/types.js";
-import type { FeyOpsDB, BookingRow } from "../feyops/db.js";
-import { formatDate, addDays } from "../core/date-utils.js";
+import type { ModuleContext } from "../../../src/core/types.js";
+import type { FeyOpsDB, BookingRow } from "./db.js";
+import { formatDate, addDays } from "../../../src/core/date-utils.js";
 
 export function createBookingsModule(db?: FeyOpsDB) {
   let lastReportedDate: string | null = null;
