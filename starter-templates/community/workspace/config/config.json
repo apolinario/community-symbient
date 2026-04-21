@@ -1,0 +1,41 @@
+{
+  "name": "symbient",
+  "workspacePath": "./starter-templates/community/workspace",
+  "qmd": { "url": "http://localhost:8181" },
+  "mqtt": {
+    "brokerUrl": "localhost",
+    "port": 1883
+  },
+  "llm": {
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-6"
+  },
+  "adapters": {
+    "chat": {
+      "adapter": "signal",
+      "params": {
+        "account": "+1XXXXXXXXXX",
+        "httpHost": "127.0.0.1",
+        "httpPort": 8080,
+        "dmPolicy": "open",
+        "groupPolicy": "open",
+        "allowFrom": [],
+        "groupAllowFrom": []
+      }
+    },
+    "directory": null
+  },
+  "enabled_modules": [
+    "qmd-index",
+    "schedule-checker",
+    "watch-evaluator",
+    "module-sync",
+    "conversation"
+  ],
+  "modules": {
+    "thinking": { "intervalMs": 1800000 },
+    "desire": { "intervalMs": 3600000 },
+    "magi": { "intervalMs": 21600000, "startActive": false },
+    "autobiographical": { "intervalMs": 21600000 }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "symbient",
+  "workspacePath": "./starter-templates/minimal/workspace",
+  "qmd": { "url": "http://localhost:8181" },
+  "mqtt": {
+    "brokerUrl": "localhost",
+    "port": 1883
+  },
+  "llm": {
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-6"
+  },
+  "adapters": {
+    "chat": {
+      "adapter": "signal",
+      "params": {
+        "account": "+1XXXXXXXXXX",
+        "httpHost": "127.0.0.1",
+        "httpPort": 8080,
+        "dmPolicy": "open",
+        "groupPolicy": "open",
+        "allowFrom": [],
+        "groupAllowFrom": []
+      }
+    },
+    "directory": null
+  },
+  "modules": {}
+}

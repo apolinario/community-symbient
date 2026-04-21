@@ -1,8 +1,12 @@
 ---
 name: magi
 interval: 6h
-tools: [search, read, write, grep, lookup_person]
+tools: [search, read, write, grep]
 startActive: false
+context:
+  - source: recent-group-chat
+  - source: recent-days
+  - source: inner-mood
 ---
 
 It is {{currentDateTime}}.

@@ -1,8 +1,13 @@
 ---
 name: autobiographical
 interval: 6h
-tools: [search, read, write, edit, grep, find, lookup_person, chat_history]
+tools: [search, read, write, edit, grep, find, chat_history]
 startActive: true
+context:
+  - source: recent-days
+    count: 7
+  - source: recent-group-chat
+  - source: inner-mood
 ---
 
 It is {{currentDateTime}}.

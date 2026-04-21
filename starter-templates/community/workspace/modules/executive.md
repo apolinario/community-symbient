@@ -2,16 +2,16 @@
 name: executive
 interval: 1h
 startActive: true
-tools: [search, read, grep, find, web_search, lookup_person, schedule, list_schedule, cancel_scheduled, register_watch, list_watches, cancel_watch, nudge_module, create_module, disable_module, list_modules]
+tools: [search, read, grep, find, web_search, schedule, list_schedule, cancel_scheduled, register_watch, list_watches, cancel_watch, nudge_module, create_module, disable_module, list_modules]
 context:
   - source: current-time
     tag: current-time
+  - source: recent-group-chat
+  - source: active-states
   - source: upcoming-scheduled
     window_hours: 24
     tag: upcoming-scheduled
     note: "Already scheduled for later — these will fire automatically, do NOT act on them now"
-  - source: active-threads
-    tag: active-threads
   - source: events
     type: tool_call
     where: { module: executive }

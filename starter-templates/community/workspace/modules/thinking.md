@@ -1,7 +1,12 @@
 ---
 name: thinking
 interval: 30m
-tools: [search, read, write, grep, lookup_person]
+tools: [search, read, write, grep]
+context:
+  - source: recent-group-chat
+  - source: recent-days
+  - source: daily-summary
+  - source: inner-mood
 ---
 
 It is {{currentDateTime}}.

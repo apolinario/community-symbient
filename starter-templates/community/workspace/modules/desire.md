@@ -1,7 +1,10 @@
 ---
 name: desire
 interval: 1h
-tools: [search, read, write, grep, lookup_person]
+tools: [search, read, write, grep]
+context:
+  - source: recent-group-chat
+  - source: inner-mood
 ---
 
 It is {{currentDateTime}}.
