@@ -21,6 +21,7 @@ import { createQmdIndexModule } from "../sense/qmd-index.js";
 import { createScheduleCheckerModule } from "../sense/schedule-checker.js";
 import { createWatchEvaluatorModule } from "../sense/watch-evaluator.js";
 import { createModuleSyncModule } from "./module-sync.js";
+import { createChatReactor } from "../modules/chat-reactor.js";
 
 // Built-in chat adapter factories self-register on import. A deployment
 // that doesn't use Signal still pays the import cost but the factory
@@ -46,5 +47,15 @@ export function registerBuiltIns(): void {
   registerBuiltInModule("module-sync", {
     config: { name: "module-sync", intervalMs: 30_000, startActive: true, description: "Hot-reload markdown modules" },
     factory: (deps) => createModuleSyncModule(deps.orchestrator, deps.workspacePath),
+  });
+
+  // Generic reactive chat module. Deployments that want custom behavior
+  // (triage, retry, special protocols) re-register "conversation" in
+  // their workspace/extensions/modules.ts with their own factory.
+  registerBuiltInModule("conversation", {
+    config: { name: "conversation", intervalMs: 500, startActive: true },
+    factory: (deps) => createChatReactor(deps.chatAdapter!, deps.workspacePath),
+    requires: ["chatAdapter"],
+    note: "Reactive chat-reactor (framework default — Feÿ deployment replaces this)",
   });
 }
