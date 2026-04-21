@@ -188,11 +188,33 @@ export interface FeybletConfig {
   llm: {
     provider: "anthropic" | "openai" | "ollama";
     model: string;
-    tinyModel?: string;
-    tinyBaseUrl?: string;
     apiKey?: string;
     baseUrl?: string;
+    /**
+     * Optional smaller/faster model for minor tasks (time parsing,
+     * temporal rewrites, image descriptions). If omitted, the main
+     * `model` is used. Same provider unless `tinyBaseUrl` is set.
+     */
+    tinyModel?: string;
+    tinyBaseUrl?: string;
   };
+  /**
+   * Markdown/vector memory search backend. Required — the search tool
+   * and `assembleConversationContext()` both consult it. Run qmd
+   * locally or on any reachable host.
+   */
+  qmd: { url: string };
+  /**
+   * Arbitrary deployment-specific external services, keyed by name. The
+   * framework stores this as-is; deployment tools / extensions read
+   * whichever keys they need (e.g. `services.whisper.url` for voice
+   * transcription, `services.searxng.url` for web search,
+   * `services.tts.url` for radio broadcast, `services.image_gen.url`
+   * for image generation, whatever). Framework never enumerates these —
+   * if a tool/module needs a service, it reads it here; if missing,
+   * the feature degrades.
+   */
+  services?: Record<string, { url: string } & Record<string, unknown>>;
   /** Per-module overrides (intervalMs, startActive, etc.). */
   modules: Record<string, Partial<ModuleConfig>>;
   /** Declarative adapter selection. All entries optional — if omitted, framework uses current Feÿ defaults. */

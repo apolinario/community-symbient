@@ -9,8 +9,24 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tinyComplete } from "./tiny-llm.js";
 
-const SIGNAL_API = "http://127.0.0.1:8080";
-const WHISPER_API = process.env.WHISPER_API || "http://localhost:8001";
+/**
+ * Runtime service URLs — set once at startup from config. If a URL is
+ * empty, the corresponding feature degrades gracefully: no Whisper →
+ * voice messages aren't transcribed; no SIGNAL_API → Signal attachments
+ * can't be fetched (deployment isn't using Signal, so this never gets
+ * called).
+ */
+let signalApiUrl = "";
+let whisperUrl = "";
+
+export function configureAttachmentServices(options: {
+  signalApiUrl?: string;
+  whisperUrl?: string;
+}): void {
+  signalApiUrl = options.signalApiUrl ?? "";
+  whisperUrl = options.whisperUrl ?? "";
+}
+
 const MEDIA_DIR = join(process.cwd(), "workspace", "media");
 
 export interface Attachment {
@@ -57,7 +73,8 @@ export async function processAttachments(
 }
 
 async function downloadAttachment(id: string): Promise<Buffer | null> {
-  const res = await fetch(`${SIGNAL_API}/v1/attachments/${id}`, {
+  if (!signalApiUrl) return null;
+  const res = await fetch(`${signalApiUrl}/v1/attachments/${id}`, {
     signal: AbortSignal.timeout(10000),
   });
   if (!res.ok) return null;
@@ -105,12 +122,17 @@ async function processAudio(
 ): Promise<void> {
   result.logs.push(`Voice saved: workspace/media/${filename} (${Math.round(buffer.length / 1024)}KB)`);
 
+  if (!whisperUrl) {
+    result.transcriptions.push(`[voice message from ${fromLabel} — transcription unavailable; configure config.services.whisper.url]`);
+    return;
+  }
+
   try {
     const formData = new FormData();
     formData.append("file", new Blob([buffer], { type: contentType }), `voice.${ext}`);
     formData.append("model", "base");
 
-    const res = await fetch(`${WHISPER_API}/v1/audio/transcriptions`, {
+    const res = await fetch(`${whisperUrl}/v1/audio/transcriptions`, {
       method: "POST",
       body: formData,
       signal: AbortSignal.timeout(30000),

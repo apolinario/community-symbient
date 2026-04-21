@@ -1,14 +1,16 @@
 /**
- * Tiny LLM — single place for all calls to the small/fast model.
+ * Tiny LLM — single place for all "fast, cheap" model calls
+ * (temporal rewrites, time parsing, image descriptions).
  *
- * Used for: temporal rewrites, time parsing, image descriptions, etc.
- * Configured via config.llm.tinyModel and config.llm.baseUrl.
+ * Deployments can optionally configure a separate smaller/faster model
+ * (config.llm.tinyModel + config.llm.tinyBaseUrl). If not set, the main
+ * LLM is used — same provider, same endpoint.
  */
 
-let _model = "LFM2.5-VL-1.6B-Q8_0";
-let _baseUrl = "http://localhost:1234";
+let _model = "";
+let _baseUrl = "";
 
-/** Call once at startup with config values. */
+/** Call once at startup. Both fields required. */
 export function initTinyLLM(baseUrl: string, model: string) {
   _baseUrl = baseUrl;
   _model = model;

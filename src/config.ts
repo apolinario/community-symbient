@@ -19,11 +19,12 @@ const DEFAULT_CONFIG: FeybletConfig = {
   llm: {
     provider: (process.env.LLM_PROVIDER as "anthropic" | "openai" | "ollama") || "openai",
     model: process.env.LLM_MODEL || "qwen/qwen3.5-35b-a3b",
-    tinyModel: process.env.LLM_TINY_MODEL || "LFM2.5-VL-1.6B-Q4_0",
-    tinyBaseUrl: process.env.LLM_TINY_BASE_URL || "http://localhost:1235",
     apiKey: process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY,
-    baseUrl: process.env.LLM_BASE_URL || "http://localhost:1234",
+    baseUrl: process.env.LLM_BASE_URL,
+    tinyModel: process.env.LLM_TINY_MODEL,
+    tinyBaseUrl: process.env.LLM_TINY_BASE_URL,
   },
+  qmd: { url: process.env.QMD_URL || "http://localhost:8181" },
   modules: {},
 };
 

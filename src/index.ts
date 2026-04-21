@@ -41,6 +41,7 @@ import {
   createRegisterWatchTool,
   createListWatchesTool,
   createCancelWatchTool,
+  configureToolServices,
 } from "./tools/index.js";
 import { createSandboxedPiTools } from "./tools/pi-tools.js";
 import { initMCP, onMCPReconnect } from "./mcp/bridge.js";
@@ -60,7 +61,10 @@ import { setLogSink } from "./core/logger.js";
 async function main() {
   const config = await loadConfig();
 
-  console.log(`Starting Feyblet "${config.name}"...`);
+  const { setSymbientName } = await import("./core/symbient-name.js");
+  setSymbientName(config.name);
+
+  console.log(`Starting "${config.name}"...`);
   console.log(`Workspace: ${config.workspacePath}`);
 
   // Pi SDK model
@@ -68,13 +72,38 @@ async function main() {
   const apiKey = getApiKey(config.llm);
   console.log(`Model: ${model.id} via ${model.provider} at ${model.baseUrl}`);
 
-  // Tiny LLM (time parsing, temporal rewrites, image descriptions)
+  // Tiny LLM (time parsing, temporal rewrites, image descriptions).
+  // Optional — falls back to the main LLM if tinyModel/tinyBaseUrl aren't set.
   const { initTinyLLM } = await import("./core/tiny-llm.js");
-  initTinyLLM(config.llm.tinyBaseUrl || "http://localhost:1235", config.llm.tinyModel || "LFM2.5-VL-1.6B-Q8_0");
+  initTinyLLM(
+    config.llm.tinyBaseUrl ?? config.llm.baseUrl ?? "",
+    config.llm.tinyModel ?? config.llm.model,
+  );
 
   // Core systems
   const memory = new MemoryManager(config.workspacePath);
   memory.setSummarizer(createLLMClient(config.llm));
+  memory.setQmdUrl(config.qmd.url);
+
+  // Wire framework tool service URLs.
+  const searxngUrl = config.services?.searxng?.url as string | undefined;
+  configureToolServices({
+    qmdUrl: config.qmd.url,
+    searxngUrl,
+  });
+
+  // Wire attachment-processing service URLs (voice transcription + fetching
+  // attachments from chat adapter's backend). Both optional — missing
+  // Whisper means voice messages aren't transcribed.
+  const { configureAttachmentServices } = await import("./core/attachments.js");
+  configureAttachmentServices({
+    whisperUrl: config.services?.whisper?.url as string | undefined,
+    // Signal attachments are fetched from the Signal REST API. Reuse the
+    // host/port the chat adapter already has configured.
+    signalApiUrl: config.adapters?.chat?.adapter === "signal" && config.adapters.chat.params
+      ? `http://${config.adapters.chat.params.httpHost}:${config.adapters.chat.params.httpPort}`
+      : undefined,
+  });
 
   // Register all built-in adapters + module factories, then load workspace
   // extensions (custom adapters, helpers, handlers, providers, actions,
@@ -124,16 +153,6 @@ async function main() {
     }
   }
 
-  // Check external services
-  const WHISPER_API = process.env.WHISPER_API || "http://localhost:8001";
-  try {
-    const wr = await fetch(`${WHISPER_API}/v1/audio/transcriptions`, { signal: AbortSignal.timeout(3000) });
-    // 405 (Method Not Allowed) means the endpoint exists but needs POST — that's fine
-    console.log(`Whisper: ${wr.ok || wr.status === 405 ? "ready" : `error (${wr.status})`}`);
-  } catch {
-    console.log("Whisper: not available (voice messages won't be transcribed)");
-  }
-
   // MCP servers — declared in config.mcp_servers. Tools auto-discovered at startup.
   let mcpTools = await initMCP(config.mcp_servers ?? []);
 
@@ -148,7 +167,6 @@ async function main() {
     createListScheduleTool(config.workspacePath),
     createCancelScheduleTool(config.workspacePath),
     createNudgeModuleTool(bus, config.name),
-    createWebSearchTool(),
     createChatHistoryTool(memory),
     createCreateModuleTool(config.workspacePath),
     createDisableModuleTool(config.workspacePath),
@@ -159,6 +177,10 @@ async function main() {
     ...piTools,
     ...mcpTools,
   ];
+  // Web search — only if a SearXNG-compatible endpoint is configured.
+  if (searxngUrl) {
+    tools.push(createWebSearchTool());
+  }
   // Chat tools — only if a chat adapter is wired.
   if (chatAdapter) {
     tools.push(
@@ -170,7 +192,13 @@ async function main() {
   // Loaded from workspace/extensions/tools.{js,mjs,ts} if present.
   const workspaceTools = await loadWorkspaceToolsFactory(config.workspacePath);
   if (workspaceTools) {
-    const deployToolDeps = { memory, directory, chatAdapter, workspacePath: config.workspacePath };
+    const deployToolDeps = {
+      memory,
+      directory,
+      chatAdapter,
+      workspacePath: config.workspacePath,
+      services: config.services,
+    };
     const deployTools = workspaceTools(deployToolDeps) as AgentTool[];
     tools.push(...deployTools);
     console.log(`Workspace tools: ${deployTools.map((t) => t.name).join(", ")}`);

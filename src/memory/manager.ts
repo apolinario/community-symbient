@@ -19,6 +19,7 @@ import { join, dirname } from "node:path";
 import type { MemoryReader, MemoryWriter, SearchResult } from "../core/types.js";
 import { slugify } from "../core/slugify.js";
 import { annotateContextLines } from "./time-annotate.js";
+import { symbientName, symbientDisplayName } from "../core/symbient-name.js";
 
 /**
  * Optional deployment-provided hook into context assembly. The memory
@@ -71,8 +72,13 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
   private peopleCache: PersonMeta[] | null = null;
   private peopleCacheTime = 0;
   private enricher: MemoryEnricher | null = null;
+  private qmdUrl: string = "";
 
   constructor(private workspacePath: string) {}
+
+  setQmdUrl(url: string): void {
+    this.qmdUrl = url;
+  }
 
   /**
    * Attach a deployment-specific context enricher. MemoryManager stays
@@ -426,7 +432,7 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     // via person matching (name/nickname/phone) when someone messages.
     const people = await this.discoverPeople();
     if (people.length > 0) {
-      parts.push(`<community>\n${people.length} Feytopians have profiles this season. You can look up anyone by name when relevant — don't guess about people you haven't loaded.\n</community>`);
+      parts.push(`<community>\n${people.length} community members have profiles. You can look up anyone by name when relevant — don't guess about people you haven't loaded.\n</community>`);
     }
 
     // Skill descriptions (progressive disclosure)
@@ -568,7 +574,9 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     const todayLog = await this.readTodayLog();
     if (!todayLog) return null;
 
-    // Extract DM entries: "**Name** (dm): first few words..." and "**Feyblet** (dm to Name): ..."
+    // Extract DM entries: `**Name** (dm): text` and `**<Symbient>** (dm to Name): text`
+    const self = symbientName();
+    const selfDisplay = symbientDisplayName();
     const dmPattern = /^\*\*([^*]+)\*\*\s*\(dm(?:\s+to\s+([^)]+))?\):\s*(.+)/gm;
     const entries: Array<{ time: string; from: string; to: string; snippet: string }> = [];
     const sections = todayLog.split(/^## (\d{2}:\d{2}:\d{2})/m);
@@ -584,23 +592,23 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
         const name = m[1];
         const toName = m[2] || "";
         const snippet = m[3].replace(/\n/g, " ");
-        if (name === "Feyblet") {
-          entries.push({ time: currentTime, from: "feyblet", to: toName, snippet });
+        if (name === selfDisplay) {
+          entries.push({ time: currentTime, from: self, to: toName, snippet });
         } else {
-          entries.push({ time: currentTime, from: name, to: "feyblet", snippet });
+          entries.push({ time: currentTime, from: name, to: self, snippet });
         }
       }
     }
 
     if (entries.length === 0) return null;
 
-    // Only show incoming DMs, not feyblet's own responses (avoids anchoring on past failures)
+    // Only show incoming DMs, not self-authored responses (avoids anchoring).
     const dmLines = entries
-      .filter(e => e.from !== "feyblet")
+      .filter(e => e.from !== self)
       .slice(-maxEntries)
       .map(e => {
-        const person = e.from === "feyblet" ? e.to : e.from;
-        const direction = e.from === "feyblet" ? "→" : "←";
+        const person = e.from === self ? e.to : e.from;
+        const direction = e.from === self ? "→" : "←";
         return `[${e.time.slice(0, 5)}] ${person} ${direction} ${e.snippet}`;
       });
     const annotated = await annotateContextLines(dmLines);
@@ -613,12 +621,13 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     limit = 8,
   ): Promise<QmdResult[]> {
     try {
-      const res = await fetch("http://localhost:8181/query", {
+      if (!this.qmdUrl) return [];
+      const res = await fetch(`${this.qmdUrl}/query`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           searches: searches.map(s => ({ ...s, query: s.query.replace(/\n/g, " ").trim() })),
-          collections: ["feyblet"],
+          collections: [symbientName()],
           limit,
         }),
         signal: AbortSignal.timeout(3000),
@@ -644,11 +653,13 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
       const header = sections[i];
       const body = (sections[i + 1] || "").trim();
 
-      // Keep: actual conversations, bookings, sauna readings
-      // Skip: inner monologue ([Feyblet thinking], [Feyblet desire], [Inner Dialogue])
+      // Keep: actual conversations and external data.
+      // Skip: inner monologue (`*[<Symbient> thinking]*`, `*[<Symbient> desire]*`,
+      // `*[Inner Dialogue]*`). Pattern-matched dynamically so any symbient name works.
+      const selfDisplay = symbientDisplayName();
       if (
-        body.startsWith("*[Feyblet thinking]*") ||
-        body.startsWith("*[Feyblet desire]*") ||
+        body.startsWith(`*[${selfDisplay} thinking]*`) ||
+        body.startsWith(`*[${selfDisplay} desire]*`) ||
         body.startsWith("*[Inner Dialogue]*")
       ) {
         continue;

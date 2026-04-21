@@ -12,7 +12,22 @@ import type { MemoryManager } from "../memory/manager.js";
 import type { MQTTBus } from "../core/mqtt-bus.js";
 import { recordEvent } from "../core/event-log.js";
 
-const QMD_URL = process.env.QMD_URL || "http://localhost:8181";
+/**
+ * Runtime service URLs — set once at startup from `config.qmd` and
+ * `config.services`. Tools close over these values. A tool whose
+ * service isn't configured silently degrades (search returns empty,
+ * web_search returns "service not configured", etc.).
+ */
+let qmdUrl: string = "";
+let searxngUrl: string | undefined;
+
+export function configureToolServices(options: {
+  qmdUrl: string;
+  searxngUrl?: string;
+}): void {
+  qmdUrl = options.qmdUrl;
+  searxngUrl = options.searxngUrl;
+}
 
 
 // --- Person Lookup ---
@@ -30,7 +45,7 @@ export function createSearchMemoryTool(): AgentTool {
     }),
     execute: async (_id, params) => {
       try {
-        const res = await fetch(`${QMD_URL}/query`, {
+        const res = await fetch(`${qmdUrl}/query`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -152,9 +167,7 @@ export function createChatHistoryTool(memory: MemoryManager): AgentTool {
 // --- Season Log ---
 
 
-// --- Web Search (SearXNG) ---
-
-const SEARXNG_URL = process.env.SEARXNG_URL || "http://localhost:4000";
+// --- Web Search (SearXNG-compatible) ---
 
 export function createWebSearchTool(): AgentTool {
   return {
@@ -165,8 +178,11 @@ export function createWebSearchTool(): AgentTool {
       query: Type.String({ description: "What to search for" }),
     }),
     execute: async (_id, params) => {
+      if (!searxngUrl) {
+        return { content: [{ type: "text", text: "Web search not configured (set config.services.searxng.url)." }], details: {} };
+      }
       try {
-        const url = `${SEARXNG_URL}/search?q=${encodeURIComponent(params.query)}&format=json&categories=general&language=en`;
+        const url = `${searxngUrl}/search?q=${encodeURIComponent(params.query)}&format=json&categories=general&language=en`;
         const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
         if (!res.ok) return { content: [{ type: "text", text: `Search failed: ${res.status}` }], details: {} };
 

@@ -15,6 +15,17 @@ import { recordEvent } from "../../../src/core/event-log.js";
 
 const broadcastLog = createLogger("radio_broadcast");
 
+/**
+ * TTS service URL — Feÿ-specific, set at deployment startup from
+ * `config.services.tts.url`. Deployments without TTS don't register
+ * the radio_broadcast tool (workspace/extensions/tools.ts guards it).
+ */
+let TTS_API = "";
+
+export function configureFeyopsTools(options: { ttsUrl?: string }): void {
+  TTS_API = options.ttsUrl ?? "";
+}
+
 export function createCheckSaunaTool(memory: MemoryManager): AgentTool {
   return {
     name: "check_sauna",
