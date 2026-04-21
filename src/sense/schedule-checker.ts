@@ -13,8 +13,8 @@
  * For one-shot items, marks them `done: true`.
  */
 
-import type { ModuleContext } from "../../core/types.js";
-import { recordEvent } from "../../core/event-log.js";
+import type { ModuleContext } from "../core/types.js";
+import { recordEvent } from "../core/event-log.js";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Cron } from "croner";

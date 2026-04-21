@@ -7,14 +7,14 @@
  * Uses orchestrator.registerLive() and orchestrator.unregister().
  */
 
-import type { ModuleContext } from "../../core/types.js";
-import type { Orchestrator } from "../../core/orchestrator.js";
+import type { ModuleContext } from "./types.js";
+import type { Orchestrator } from "./orchestrator.js";
 import { readdir, readFile, rename, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { parseFrontmatter } from "../load-modules.js";
-import { createAgentModule } from "../agent-module.js";
-import { parseSections } from "../../core/prompt-template.js";
-import { getModuleHandler, defaultModuleHandler } from "../../core/handler-registry.js";
+import { parseFrontmatter } from "../modules/load-modules.js";
+import { createAgentModule } from "../modules/agent-module.js";
+import { parseSections } from "./prompt-template.js";
+import { getModuleHandler, defaultModuleHandler } from "./handler-registry.js";
 
 // Track what we've loaded to detect changes
 const loadedModules = new Map<string, { mtime: number }>();

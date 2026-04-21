@@ -7,7 +7,7 @@
 
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
-import type { ModuleContext } from "../../core/types.js";
+import type { ModuleContext } from "../core/types.js";
 
 const execAsync = promisify(exec);
 

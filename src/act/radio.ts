@@ -6,9 +6,9 @@
  * The radio.md prompt guides the Agent on what to do.
  */
 
-import type { ModuleContext } from "../../core/types.js";
-import type { FeyOpsDB } from "../../feyops/db.js";
-import { completeText } from "../../core/llm.js";
+import type { ModuleContext } from "../core/types.js";
+import type { FeyOpsDB } from "../feyops/db.js";
+import { completeText } from "../core/llm.js";
 
 export function createRadioModule(db: FeyOpsDB) {
   return async function radio(ctx: ModuleContext): Promise<void> {
