@@ -1,15 +1,18 @@
 /**
- * Memory Manager — OpenClaw-style Markdown memory for Feyblet.
+ * Memory Manager — OpenClaw-style Markdown memory.
  *
- * The memory system is just files:
- * - SOUL.md          — Feyblet's identity, values, tensions
- * - MEMORY.md        — Curated long-term knowledge
- * - memory/YYYY-MM-DD.md — Daily logs (append-only journals)
- * - people/<name>.md — Per-person relational memory
- * - community/       — Shared patterns, onboarding docs, etc.
+ * Files in the deployment's workspace:
+ * - SOUL.md          — symbient identity
+ * - MEMORY.md        — curated long-term knowledge
+ * - memory/YYYY-MM-DD.md — daily logs (append-only journals)
+ * - memory/YYYY-MM-DD.summary.md — LLM-generated daily summaries
+ * - people/<slug>.md — per-person relational memory (deployment convention)
+ * - state/*.json     — transient global modes with optional expiry
  *
- * No vector store. No embeddings. Just files the community can read and edit.
- * Search comes later (Phase 4) via SQLite FTS5.
+ * Framework memory knows nothing about bookings/seasons/moods/etc. —
+ * deployments inject domain context via the MemoryEnricher hook
+ * (per-person blocks) and context providers declared in module
+ * frontmatter (everything else).
  */
 
 import { readFile, writeFile, appendFile, mkdir, access, readdir, stat } from "node:fs/promises";
@@ -580,38 +583,6 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     return parts.length > 0 ? parts.join("\n\n") : null;
   }
 
-  /**
-   * Extract the latest N group messages from today's log.
-   * Generic — any chat system produces timestamped group entries in the log.
-   */
-  private async getRecentGroupMessages(count: number): Promise<string | null> {
-    const log = await this.readTodayLog();
-    if (!log) return null;
-
-    const groupMessages: string[] = [];
-    // Split keeping the timestamp headers
-    const parts = log.split(/^(## \d{2}:\d{2}:\d{2})/m);
-
-    let currentTime = "";
-    for (const part of parts) {
-      const timeMatch = part.match(/^## (\d{2}:\d{2}:\d{2})$/);
-      if (timeMatch) {
-        currentTime = timeMatch[1].slice(0, 5); // HH:MM
-        continue;
-      }
-      const trimmed = part.trim();
-      const match = trimmed.match(/^\*\*([^*]+)\*\*\s*\(([^)]*)\):\s*([\s\S]+)/);
-      if (match && match[2].includes("season")) {
-        groupMessages.push(`[${currentTime}] ${match[1]}: ${match[3].trim()}`);
-      }
-    }
-
-    if (groupMessages.length === 0) return null;
-    const recent = groupMessages.slice(-count);
-    const annotated = await annotateContextLines(recent);
-    return annotated.join("\n");
-  }
-
 
   /**
    * Build a consolidated inner mood from the three independent inner modules.
@@ -671,16 +642,20 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
   // --- Helpers ---
 
   /**
-   * State system — global modes that affect all modules.
-   * Each state has: name, active flag, optional context file, optional auto-trigger.
-   * States live in workspace/state/<name>.json with optional <name>-context.md
+   * Generic state system — each state is a JSON file at
+   * `workspace/state/<name>.json` with `{ active, since, expires? }`.
+   * Returns currently-active states (honoring expiry). Optional
+   * `<name>-context.md` provides extra description for the state.
+   *
+   * No auto-triggers, no domain-specific keywords — deployments with
+   * auto-triggered modes (e.g. "party-mode on Friday night") implement
+   * that logic in a workspace extension or context provider, and call
+   * `setState()` to activate the state.
    */
   async getActiveStates(): Promise<Array<{ name: string; context: string | null }>> {
     const states: Array<{ name: string; context: string | null }> = [];
     const stateDir = join(this.workspacePath, "state");
-    const now = new Date();
-
-    // Check manual/event states (with expiry)
+    const now = Date.now();
     try {
       const files = await readdir(stateDir);
       for (const file of files) {
@@ -688,49 +663,21 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
         try {
           const data = JSON.parse(await readFile(join(stateDir, file), "utf-8"));
           if (!data.active) continue;
-
-          // Check expiry
-          if (data.expires && new Date(data.expires).getTime() < now.getTime()) {
+          if (data.expires && new Date(data.expires).getTime() < now) {
             data.active = false;
             await writeFile(join(stateDir, file), JSON.stringify(data), "utf-8");
             continue;
           }
-
           const name = file.replace(".json", "");
           const contextFile = await this.safeRead(join(stateDir, `${name}-context.md`));
           states.push({ name, context: contextFile });
         } catch {}
       }
     } catch {}
-
-    // Auto-triggers for party mode
-    const day = now.getDay(); // 0=Sun, 5=Fri, 6=Sat
-    const hour = now.getHours();
-
-    // Friday/Saturday 20:00+ → expires Saturday/Sunday 8:00
-    const weekendParty = ((day === 5 || day === 6) && hour >= 20) || (day === 0 && hour < 8) || (day === 6 && hour < 8);
-
-    // Check season events for parties today
-    let eventParty = false;
-    try {
-      const parties = await this.safeRead(join(this.workspacePath, "season", "parties.md"));
-      const events = await this.safeRead(join(this.workspacePath, "season", "events.md"));
-      const todayISO = now.toISOString().slice(0, 10);
-      const combined = (parties || "") + "\n" + (events || "");
-      const todayLines = combined.split("\n").filter((l) => l.includes(todayISO));
-      const partyKeywords = /party|rave|cave.*sing|sonic sphere|celebration|birthday.*tonight|\bdance\b|\bdisco\b/i;
-      eventParty = todayLines.some((l) => partyKeywords.test(l));
-    } catch {}
-
-    if ((weekendParty || eventParty) && !states.some((s) => s.name === "party-mode")) {
-      const ctx = await this.safeRead(join(stateDir, "party-theory.md"));
-      states.push({ name: "party-mode", context: ctx });
-    }
-
     return states;
   }
 
-  /** Activate a state with optional duration (default 12h) */
+  /** Activate a state with optional duration (default 12h). */
   async setState(name: string, active: boolean, durationHours = 12): Promise<void> {
     await this.ensureDir(join(this.workspacePath, "state"));
     const expires = active

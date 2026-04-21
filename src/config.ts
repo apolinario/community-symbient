@@ -1,5 +1,5 @@
 /**
- * Configuration loader for Feyblet.
+ * Configuration loader.
  *
  * Reads from `config/feyblet.json` (or `FEYBLET_CONFIG` env var) and
  * merges over the defaults. Env vars override specific fields.
@@ -7,9 +7,9 @@
 
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type { FeybletConfig } from "./core/types.js";
+import type { SymbientConfig } from "./core/types.js";
 
-const DEFAULT_CONFIG: FeybletConfig = {
+const DEFAULT_CONFIG: SymbientConfig = {
   name: "feyblet",
   workspacePath: resolve("workspace"),
   mqtt: {
@@ -28,10 +28,10 @@ const DEFAULT_CONFIG: FeybletConfig = {
   modules: {},
 };
 
-export async function loadConfig(): Promise<FeybletConfig> {
+export async function loadConfig(): Promise<SymbientConfig> {
   const configPath = process.env.FEYBLET_CONFIG || join("config", "feyblet.json");
 
-  let fileConfig: Partial<FeybletConfig> = {};
+  let fileConfig: Partial<SymbientConfig> = {};
   try {
     const raw = await readFile(configPath, "utf-8");
     fileConfig = JSON.parse(raw);
@@ -39,7 +39,7 @@ export async function loadConfig(): Promise<FeybletConfig> {
     console.log(`No config file at ${configPath}, using defaults + env vars.`);
   }
 
-  return deepMerge(DEFAULT_CONFIG, fileConfig) as FeybletConfig;
+  return deepMerge(DEFAULT_CONFIG, fileConfig) as SymbientConfig;
 }
 
 function deepMerge(target: Record<string, any>, source: Record<string, any>): Record<string, any> {

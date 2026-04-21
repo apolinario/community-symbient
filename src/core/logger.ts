@@ -1,5 +1,5 @@
 /**
- * Lightweight structured logger for Feyblet.
+ * Lightweight structured logger.
  * Replaces direct console.log calls with tagged, level-aware logging.
  */
 

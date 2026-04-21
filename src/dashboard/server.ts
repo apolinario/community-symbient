@@ -1,5 +1,5 @@
 /**
- * Feyblet Dashboard — real-time monitoring UI.
+ * Symbient Dashboard — real-time monitoring UI.
  *
  * - Live log streaming via SSE
  * - Module status (active, last run, interval)
@@ -141,11 +141,18 @@ export function startDashboard(orchestrator: Orchestrator, memory?: MemoryManage
         const today = new Date().toISOString().slice(0, 10);
         const logPath = join(WORKSPACE, "memory", `${today}.md`);
         const log = await readFile(logPath, "utf-8");
+        // Dashboard's per-module log filter — matches the daily-log entry
+        // prefixes the module's handler writes (e.g. `*[<Symbient> thinking]*`).
+        // The handler format lives in workspace/extensions/handlers.js; we
+        // read both forms (`[Name ...]` and `[<Symbient> name]`) so dashboard
+        // works regardless of the handler's chosen prefix convention.
+        const { symbientDisplayName } = await import("../core/symbient-name.js");
+        const self = symbientDisplayName();
         const tag = `[${name.charAt(0).toUpperCase() + name.slice(1)}`;
-        const feybletTag = name === "thinking" ? "Feyblet thinking" :
-                           name === "desire" ? "Feyblet desire" :
-                           name === "magi" ? "Feyblet magi" : null;
-        const pattern = feybletTag ? new RegExp(`\\*\\[${feybletTag}\\]\\*`, "i") : null;
+        const symbientTag = ["thinking", "desire", "magi"].includes(name)
+          ? `${self} ${name}`
+          : null;
+        const pattern = symbientTag ? new RegExp(`\\*\\[${symbientTag}\\]\\*`, "i") : null;
 
         const sections = log.split(/^(## \d{2}:\d{2}:\d{2})/m);
         const relevant: string[] = [];

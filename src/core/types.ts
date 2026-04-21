@@ -1,7 +1,6 @@
 /**
- * Core types for Feyblet's concurrent modular architecture.
- * Inspired by CMA (Concurrent Modular Agent) paper, adapted for
- * a community symbient running on Pi SDK with Markdown-based memory.
+ * Core types for the symbient framework (modified CMA architecture
+ * with Pi SDK + OpenClaw-style markdown memory).
  */
 
 // --- Module System ---
@@ -57,16 +56,15 @@ export interface MemoryReader {
   readSoul(): Promise<string | null>;
   /** Read MEMORY.md (curated long-term knowledge). */
   readMemory(): Promise<string | null>;
-  /** Read a person's file. */
+  /** Read a person's file (convention: workspace/people/<slug>.md). */
   readPerson(name: string): Promise<string | null>;
   /** Find a person by name/phone with fuzzy matching. */
   findPerson(name: string, phone?: string): Promise<{ slug: string; content: string } | null>;
-  /** Read a skill's full content by name. */
   /** Search memory (when search backend is available). */
   search?(query: string, maxResults?: number): Promise<SearchResult[]>;
-  /** Assemble full context for an LLM call (SOUL + MEMORY + logs + person + bookings + skill descriptions). */
+  /** Assemble generic context: SOUL + MEMORY + optional person profile. */
   assembleContext(personName?: string, senderPhone?: string): Promise<string>;
-  /** Assemble context for conversation using qmd search for relevant memory. */
+  /** Conversation variant — adds qmd-relevant-memory for the given message. */
   assembleConversationContext(message: string, personName?: string, senderPhone?: string): Promise<string>;
 }
 
@@ -168,7 +166,7 @@ export interface OutboundMessage {
   attachments?: string[];
 }
 
-// --- Feyblet Config ---
+// --- Symbient Config ---
 
 export interface AdapterSelection {
   /** Factory name (references a registered adapter in src/core/adapter-registry.ts). */
@@ -177,7 +175,7 @@ export interface AdapterSelection {
   params?: Record<string, unknown>;
 }
 
-export interface FeybletConfig {
+export interface SymbientConfig {
   name: string;
   workspacePath: string;
   mqtt: {

@@ -19,8 +19,7 @@
  *
  * Providers come from three registers:
  *   1. Framework built-ins (in this file): `events`, `current-time`,
- *      `most-played-songs`, `upcoming-scheduled`, `active-threads`,
- *      `house-status`.
+ *      `upcoming-scheduled`.
  *   2. Workspace extensions via `workspace/extensions/providers.js`
  *      — register new `source: foo` handlers without editing core.
  *   3. (Future) MCP-backed providers.
@@ -30,8 +29,6 @@
 
 import type { ModuleContext } from "./types.js";
 import { queryEvents, type Event } from "./event-log.js";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 
 export interface ContextDecl {
   source: string;
@@ -143,36 +140,6 @@ const currentTimeProvider: ContextProvider = {
 };
 
 /**
- * Most-played songs — requires GROUP BY + count-sort, so not a pure event query.
- * Reads the Feÿ-specific play-history CSV. In a generic deployment this belongs
- * in workspace/extensions/providers.js as a custom provider; it's here for now
- * so the radio-dj module keeps working.
- */
-const mostPlayedSongsProvider: ContextProvider = {
-  async execute(decl) {
-    const count = (decl.count as number) ?? 10;
-    try {
-      const path = join(process.cwd(), "workspace", "radio", "play-history.csv");
-      const content = await readFile(path, "utf-8");
-      const counts = new Map<string, number>();
-      for (const line of content.split("\n")) {
-        const cols = line.split(",");
-        const title = cols[1]?.replace(/^"|"$/g, "").trim();
-        if (!title) continue;
-        counts.set(title, (counts.get(title) ?? 0) + 1);
-      }
-      const sorted = [...counts.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, count)
-        .map(([title, n]) => `${title} (${n}x)`);
-      return sorted.length > 0 ? sorted.join("\n") : null;
-    } catch {
-      return null;
-    }
-  },
-};
-
-/**
  * Upcoming scheduled items. Reads tasks/scheduled.json.
  */
 const upcomingScheduledProvider: ContextProvider = {
@@ -202,36 +169,10 @@ const upcomingScheduledProvider: ContextProvider = {
   },
 };
 
-const activeThreadsProvider: ContextProvider = {
-  async execute(_decl, ctx) {
-    try {
-      const raw = await ctx.memory.readFile("inner/active-threads.md");
-      return raw?.trim() || null;
-    } catch {
-      return null;
-    }
-  },
-};
-
-const houseStatusProvider: ContextProvider = {
-  async execute(_decl, ctx) {
-    try {
-      const ctxStr = await ctx.memory.assembleContext();
-      const m = ctxStr.match(/<house-status>([\s\S]*?)<\/house-status>/);
-      return m ? m[1].trim() : null;
-    } catch {
-      return null;
-    }
-  },
-};
-
 function registerBuiltInProviders(): void {
   registerProvider("events", eventsProvider);
   registerProvider("current-time", currentTimeProvider);
-  registerProvider("most-played-songs", mostPlayedSongsProvider);
   registerProvider("upcoming-scheduled", upcomingScheduledProvider);
-  registerProvider("active-threads", activeThreadsProvider);
-  registerProvider("house-status", houseStatusProvider);
 }
 
 registerBuiltInProviders();

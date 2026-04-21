@@ -1,5 +1,5 @@
 /**
- * Feyblet Tools — Pi Agent SDK native tools.
+ * Framework Tools — Pi Agent SDK native tools.
  *
  * All tools use Pi's AgentTool interface with TypeBox schemas
  * for typed, validated parameters. The Pi Agent handles the
@@ -11,6 +11,7 @@ import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { MemoryManager } from "../memory/manager.js";
 import type { MQTTBus } from "../core/mqtt-bus.js";
 import { recordEvent } from "../core/event-log.js";
+import { symbientName, symbientDisplayName } from "../core/symbient-name.js";
 
 /**
  * Runtime service URLs — set once at startup from `config.qmd` and
@@ -38,7 +39,7 @@ export function configureToolServices(options: {
 export function createSearchMemoryTool(): AgentTool {
   return {
     name: "search",
-    description: "Search everything — memory, people profiles, past conversations, community knowledge, season history, onboarding docs, and more",
+    description: "Search everything — memory, people profiles, past conversations, community knowledge, and more",
     label: "Search",
     parameters: Type.Object({
       query: Type.String({ description: "What to search for" }),
@@ -53,7 +54,7 @@ export function createSearchMemoryTool(): AgentTool {
               { type: "vec", query: params.query.replace(/\n/g, " ").trim() },
               { type: "lex", query: params.query.replace(/\n/g, " ").trim() },
             ],
-            collections: ["feyblet"],
+            collections: [symbientName()],
             limit: 10,
             maxPerFile: 5,
             rerank: true,
@@ -110,15 +111,16 @@ export function createChatHistoryTool(memory: MemoryManager): AgentTool {
 
         const lines = log.split("\n");
 
+        const self = symbientDisplayName();
         if (!params.person) {
           // List recent DM contacts
           const contacts = new Map<string, number>();
           for (const line of lines) {
             const inbound = line.match(/^\*\*([^*]+)\*\*\s*\(dm/);
-            if (inbound && inbound[1] !== "Feyblet") {
+            if (inbound && inbound[1] !== self) {
               contacts.set(inbound[1], (contacts.get(inbound[1]) || 0) + 1);
             }
-            const outbound = line.match(/^\*\*Feyblet\*\*\s*\(dm to ([^)]+)\)/);
+            const outbound = line.match(new RegExp(`^\\*\\*${self}\\*\\*\\s*\\(dm to ([^)]+)\\)`));
             if (outbound) {
               const name = outbound[1].replace(/, via .+/, "");
               contacts.set(name, (contacts.get(name) || 0) + 1);
@@ -138,9 +140,10 @@ export function createChatHistoryTool(memory: MemoryManager): AgentTool {
         if (matchName) searchNames.push(matchName.toLowerCase());
 
         const entries: string[] = [];
+        const selfDmToRe = new RegExp(`^\\*\\*${self}\\*\\*\\s*\\(dm to`);
         for (const line of lines) {
           const lower = line.toLowerCase();
-          const isDM = line.match(/^\*\*([^*]+)\*\*\s*\(dm/) || line.match(/^\*\*Feyblet\*\*\s*\(dm to/);
+          const isDM = line.match(/^\*\*([^*]+)\*\*\s*\(dm/) || line.match(selfDmToRe);
           if (isDM && searchNames.some(n => lower.includes(n))) {
             entries.push(line);
           }
@@ -252,7 +255,7 @@ export function createSendDMTool(bridge: ChatAdapter, memory: MemoryManager): Ag
 
         await bridge.send({ to: signalId, text: params.message, attachments });
         const imageNote = params.image_path ? ` [+image: ${params.image_path}]` : "";
-        await memory.appendLog(`**Feyblet** (dm to ${params.to}): ${params.message}${imageNote}`);
+        await memory.appendLog(`**${symbientDisplayName()}** (dm to ${params.to}): ${params.message}${imageNote}`);
         return { content: [{ type: "text", text: `DM sent to ${params.to}: "${params.message.slice(0, 100)}"${imageNote}` }], details: {} };
       } catch (err) {
         return { content: [{ type: "text", text: `Failed to send DM: ${err}` }], details: {} };
@@ -334,7 +337,7 @@ export function createSendGroupMessageTool(bridge: ChatAdapter, memory: MemoryMa
         if (recentMessages.length > 20) recentMessages.shift();
 
         const imageNote = params.image_path ? ` [+image]` : "";
-        await memory.appendLog(`**Feyblet** (group): ${params.message}${imageNote}`);
+        await memory.appendLog(`**${symbientDisplayName()}** (group): ${params.message}${imageNote}`);
         return { content: [{ type: "text", text: `Sent to group: "${params.message.slice(0, 100)}"${imageNote}` }], details: {} };
       } catch (err) {
         return { content: [{ type: "text", text: `Failed to send: ${err}` }], details: {} };

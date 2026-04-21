@@ -1,5 +1,5 @@
 /**
- * Module Orchestrator — the heart of Feyblet's concurrent architecture.
+ * Module Orchestrator — the heart of the framework's concurrent architecture.
  *
  * Inspired by CMA's Agent class: registers modules, runs them concurrently
  * as async loops, coordinates via MQTT messaging and shared Markdown memory.
@@ -12,7 +12,7 @@ import type {
   ModuleFunction,
   ModuleContext,
   ModuleHandle,
-  FeybletConfig,
+  SymbientConfig,
 } from "./types.js";
 import { MemoryManager } from "../memory/manager.js";
 import { MQTTBus } from "./mqtt-bus.js";
@@ -29,7 +29,7 @@ export class Orchestrator {
   private piApiKey: string = "dummy";
 
   constructor(
-    private config: FeybletConfig,
+    private config: SymbientConfig,
     private memory: MemoryManager,
     private bus: MQTTBus,
   ) {}

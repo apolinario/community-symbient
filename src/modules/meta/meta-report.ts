@@ -1,5 +1,5 @@
 /**
- * Meta System Report — Feyblet's self-monitoring.
+ * Meta System Report — symbient's self-monitoring.
  *
  * Reads the state of all modules, recent memory, and system health,
  * then generates a report that other meta modules (autobiographical

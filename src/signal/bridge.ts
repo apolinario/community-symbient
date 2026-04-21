@@ -1,5 +1,5 @@
 /**
- * Signal Bridge — connects Feyblet to Signal via bbernhard/signal-cli-rest-api.
+ * Signal ChatAdapter — connects a symbient to Signal via bbernhard/signal-cli-rest-api.
  *
  * Uses the Docker container's REST + WebSocket API:
  * - Receives messages via WebSocket at /v1/receive/{number}

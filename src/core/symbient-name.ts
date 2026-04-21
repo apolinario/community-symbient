@@ -1,6 +1,6 @@
 /**
  * Symbient name registry — the symbient's own name, used in daily-log
- * entry prefixes (`**Feyblet** (dm to X): ...`) and when filtering logs
+ * entry prefixes (`**<Symbient>** (dm to X): ...`) and when filtering logs
  * so a symbient doesn't mistake its own past messages for someone else's.
  *
  * Set once at startup from `config.name`. Readers get both the canonical

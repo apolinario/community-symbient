@@ -1,5 +1,5 @@
 /**
- * Sandboxed Pi Agent tools for Feyblet.
+ * Sandboxed Pi Agent file tools (read/write/edit/grep/find/ls).
  *
  * Wraps Pi's built-in file tools (read, write, edit, grep, find, ls) with
  * path restrictions so the feyblet can only read within workspace/ and only

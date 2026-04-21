@@ -288,6 +288,49 @@ const dailySummaryProvider: ContextProvider = {
   },
 };
 
+/**
+ * Most-played songs — reads workspace/radio/play-history.csv (Feÿ-radio-specific).
+ * CSV format: `"title",count,"last_played"` — cols[0]=title, cols[1]=count.
+ */
+const mostPlayedSongsProvider: ContextProvider = {
+  async execute(decl, ctx) {
+    const count = (decl.count as number) ?? 10;
+    try {
+      const content = await safeRead(join(workspacePathOf(ctx), "radio", "play-history.csv"));
+      if (!content) return null;
+      const entries: Array<[string, number]> = [];
+      const lines = content.split("\n");
+      for (let i = 1; i < lines.length; i++) {  // skip header
+        const line = lines[i];
+        if (!line.trim()) continue;
+        const match = line.match(/^"([^"]*(?:""[^"]*)*)",(\d+),/);
+        if (match) {
+          entries.push([match[1].replace(/""/g, '"'), parseInt(match[2], 10)]);
+        }
+      }
+      if (entries.length === 0) return null;
+      return entries
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, count)
+        .map(([title, n]) => `${title} (${n}x)`)
+        .join("\n");
+    } catch {
+      return null;
+    }
+  },
+};
+
+/**
+ * Active threads — reads workspace/inner/active-threads.md (Feÿ's cognitive
+ * "things I'm tracking" file, maintained by the executive module).
+ */
+const activeThreadsProvider: ContextProvider = {
+  async execute(_decl, ctx) {
+    const raw = await safeRead(join(workspacePathOf(ctx), "inner", "active-threads.md"));
+    return raw?.trim() || null;
+  },
+};
+
 const activeStatesProvider: ContextProvider = {
   async execute(_decl, ctx) {
     const raw = await safeRead(join(workspacePathOf(ctx), "state", "active-states.json"));
@@ -324,4 +367,6 @@ export default {
   "recent-days": recentDaysProvider,
   "daily-summary": dailySummaryProvider,
   "active-states": activeStatesProvider,
+  "most-played-songs": mostPlayedSongsProvider,
+  "active-threads": activeThreadsProvider,
 };

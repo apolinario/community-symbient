@@ -1,5 +1,5 @@
 /**
- * Pi SDK model configuration for Feyblet.
+ * Pi SDK model configuration.
  *
  * Creates the Model object for whatever LLM backend is configured.
  * Currently: LM Studio (OpenAI-compatible) running locally.

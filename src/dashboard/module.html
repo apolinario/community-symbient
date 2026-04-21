@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Feyblet — Module</title>
+<title>Module</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: 'JetBrains Mono', 'Fira Code', monospace; background: #0a0a0a; color: #e0e0e0; padding: 16px; max-width: 900px; margin: 0 auto; }
@@ -70,7 +70,7 @@ async function load() {
   const res = await fetch(`/api/module/${encodeURIComponent(name)}`);
   const data = await res.json();
 
-  document.title = `Feyblet — ${data.name}`;
+  document.title = data.name + " — module";
   document.getElementById('title').innerHTML = `${data.name} <span class="status ${data.active ? 'active' : 'inactive'}">${data.active ? 'active' : 'inactive'}</span>`;
   document.getElementById('meta').textContent = `Every ${formatInterval(data.intervalMs)} | Last run: ${timeAgo(data.lastRun)}`;
 

@@ -1,5 +1,5 @@
 /**
- * Feyblet — A community symbient.
+ * Symbient framework — CMA-inspired concurrent modular agent runtime.
  *
  * Built on:
  * - Pi SDK (LLM, Agent, native tool calling)
@@ -300,7 +300,7 @@ async function main() {
 
   await bus.connect();
   if (chatAdapter) await chatAdapter.start();
-  console.log("All systems ready. Feyblet is alive.\n");
+  console.log(`All systems ready. ${config.name} is alive.\n`);
   await orchestrator.start();
 }
 
