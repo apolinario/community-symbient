@@ -12,9 +12,10 @@
  *   - tasks/            — scheduled actions
  */
 
-import { resolve, relative, extname } from "node:path";
+import { resolve, relative, extname, isAbsolute } from "node:path";
 import { access, readFile, writeFile, mkdir, stat } from "node:fs/promises";
 import { constants } from "node:fs";
+import { Type } from "@mariozechner/pi-ai";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 
 import {
@@ -82,7 +83,7 @@ export function createSandboxedPiTools(workspacePath: string): AgentTool[] {
   const ws = resolve(workspacePath);
 
   // Read — full workspace access, images supported
-  const read = createReadTool(ws, {
+  const piRead = createReadTool(ws, {
     operations: {
       readFile: async (absolutePath) => {
         assertReadable(absolutePath, ws);
@@ -98,6 +99,42 @@ export function createSandboxedPiTools(workspacePath: string): AgentTool[] {
       },
     },
   });
+
+  // Wrap pi's read tool to support tail semantics. Append-only logs (radio,
+  // memory, event logs) grow large and the "interesting" part is always near
+  // EOF — but pi's offset is 1-indexed positive, so callers can only read
+  // head. This wrapper adds:
+  //   - `tail: N` → read the last N lines of the file
+  //   - negative `offset` → shortcut for `tail: |offset|`
+  // Positive offsets and the existing limit behave unchanged.
+  const read: AgentTool = {
+    name: piRead.name,
+    description:
+      piRead.description +
+      " Set `tail: N` to read the last N lines (useful for append-only logs). " +
+      "A negative `offset` (e.g. -50) is shorthand for `tail: 50`. " +
+      "Positive `offset` and `limit` behave as before.",
+    label: piRead.label,
+    parameters: Type.Object({
+      path: Type.String({ description: "File path (workspace-relative or absolute)." }),
+      offset: Type.Optional(Type.Number({ description: "Line number to start reading from (1-indexed). Negative values read from end — `-50` means last 50 lines." })),
+      limit: Type.Optional(Type.Number({ description: "Max lines to return." })),
+      tail: Type.Optional(Type.Number({ description: "Return the last N lines of the file. Takes precedence over offset when both are set." })),
+    }),
+    execute: async (toolCallId, params, signal, onUpdate) => {
+      const tailLines = params.tail ?? (typeof params.offset === "number" && params.offset < 0 ? -params.offset : undefined);
+      if (tailLines === undefined) {
+        return piRead.execute(toolCallId, params, signal, onUpdate);
+      }
+      const absolutePath = isAbsolute(params.path) ? params.path : resolve(ws, params.path);
+      assertReadable(absolutePath, ws);
+      const content = (await readFile(absolutePath, "utf-8")).split("\n");
+      // Drop a single trailing empty element from trailing newline
+      if (content.length > 0 && content[content.length - 1] === "") content.pop();
+      const start = Math.max(1, content.length - tailLines + 1);
+      return piRead.execute(toolCallId, { ...params, offset: start, limit: params.limit ?? tailLines }, signal, onUpdate);
+    },
+  };
 
   // Write — restricted to writable paths
   const write = createWriteTool(ws, {
