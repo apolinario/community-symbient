@@ -68,6 +68,7 @@ export default function feySetup(deps: WorkspaceModulesDeps): unknown[] {
     config: { name: "conversation", intervalMs: 500, startActive: true },
     factory: (d) => createConversationModule(d.chatAdapter!, d.workspacePath),
     requires: ["chatAdapter"],
+    role: "chat-handler",
     note: "Feÿ chat handler: group triage, direct-address retry, attachment processing, inter-module nudges",
   });
 

@@ -15,6 +15,7 @@
 import type { MemoryManager } from "../../../../src/memory/manager.js";
 import type { ChatAdapter } from "../../../../src/adapters/chat/types.js";
 import { registerBuiltInModule } from "../../../../src/core/module-factories.js";
+import { createChatReactor } from "../../../../src/modules/chat-reactor.js";
 import { createQmdIndexModule } from "../services/qmd-index/index.js";
 
 export interface WorkspaceModulesDeps {
@@ -24,7 +25,7 @@ export interface WorkspaceModulesDeps {
   [key: string]: unknown;
 }
 
-export default function setup(_deps: WorkspaceModulesDeps): unknown[] {
+export default function setup(deps: WorkspaceModulesDeps): unknown[] {
   // qmd-index — keeps the qmd search index in sync. Reads BUN_PATH and
   // QMD_CLI from env. Disabled (with a single warning log) if either is
   // unset — the framework's HTTP-side qmd usage still works as long as
@@ -39,18 +40,40 @@ export default function setup(_deps: WorkspaceModulesDeps): unknown[] {
     factory: () => createQmdIndexModule(),
   });
 
+  // Chat handler — the framework's generic reactive reactor, registered
+  // as "conversation" with role "chat-handler". Watch-driven dm/group
+  // actions and the schedule-checker default fallback both resolve to
+  // this module by role. Replace with a deployment-specific factory
+  // (e.g. `createConversationModule`) for triage/retry/protocol logic.
+  if (deps.chatAdapter) {
+    registerBuiltInModule("conversation", {
+      config: { name: "conversation", intervalMs: 500, startActive: true },
+      factory: (d) => createChatReactor({
+        bridge: d.chatAdapter!,
+        workspacePath: d.workspacePath,
+        moduleName: "conversation",
+      }),
+      requires: ["chatAdapter"],
+      role: "chat-handler",
+      note: "Generic chat reactor (community starter)",
+    });
+  }
+
   // Add your own deployment wiring here. Examples:
   //
   // 1. Attach a memory enricher for fuzzy person-name resolution:
-  //    _deps.memory.setEnricher({
+  //    deps.memory.setEnricher({
   //      resolveNickname: async (name) => {
   //        // look up aliases in your own data store
   //      },
   //    });
   //
-  // 2. Register a custom conversation service:
+  // 2. Replace the chat handler with a custom one (overrides the block above):
   //    import { createConversationModule } from "../services/conversation/index.js";
-  //    registerBuiltInModule("conversation", { ... });
+  //    registerBuiltInModule("conversation", {
+  //      ..., factory: (d) => createConversationModule(d.chatAdapter!, d.workspacePath),
+  //      role: "chat-handler",
+  //    });
 
   return [];
 }

@@ -10,11 +10,12 @@
  * (loaded separately via extension-loader). Core only ships the default
  * handler (log-to-memory).
  *
- * Modules named `conversation` are skipped — the framework registers a
- * built-in conversation module via register-builtins.ts that owns the
- * chat-adapter wiring; the .md file is still read by chat-reactor for
- * its template/tool-whitelist, but it doesn't enter the orchestrator
- * twice.
+ * Markdown modules whose name matches an already-registered built-in
+ * (framework infra or any code-driven module the deployment registered)
+ * are skipped here, so the same name doesn't enter the orchestrator
+ * twice. The chat-handler's `.md` is one such case: the deployment owns
+ * the registration, and the chat-reactor factory reads the `.md` itself
+ * for its template/tool-whitelist.
  */
 
 import { readdir, readFile } from "node:fs/promises";
@@ -24,6 +25,7 @@ import { createAgentModule } from "./agent-module.js";
 import { getModuleHandler, defaultModuleHandler } from "../core/handler-registry.js";
 import { parseSections } from "../core/prompt-template.js";
 import { parseFrontmatter, parseInterval } from "../core/frontmatter.js";
+import { getBuiltInModule } from "../core/module-factories.js";
 
 // Re-exports kept so existing callers (chat-reactor, module-sync,
 // memory/manager, dashboard/server) keep working through the migration.
@@ -60,8 +62,11 @@ export async function loadModuleConfigs(workspacePath: string): Promise<ParsedMo
     const follows = typeof fields.follows === "string" ? fields.follows : undefined;
     const runImmediately = typeof fields.runImmediately === "boolean" ? fields.runImmediately : undefined;
 
-    // Skip conversation — it has special handling (Signal bridge)
-    if (name === "conversation") continue;
+    // Skip any module already owned by the built-in registry (framework
+    // built-ins like schedule-checker, watch-evaluator, module-sync, plus
+    // whatever the deployment registered code-side — including the
+    // chat-handler module which reads its own .md via createChatReactor).
+    if (getBuiltInModule(name)) continue;
 
     // Split the body into the Handlebars template (content before any `## section`)
     // plus any named subsections for use by the module's handler or template conditionals.

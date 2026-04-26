@@ -85,7 +85,8 @@ export type { ActionHandler, ActionContext } from "./action-registry.js";
 
 // Built-in module registry — for deployment extensions that want to
 // register code-driven modules alongside the framework's built-ins.
-export { registerBuiltInModule, getBuiltInModule, listBuiltInModules } from "./module-factories.js";
+export { registerBuiltInModule, getBuiltInModule, listBuiltInModules, getBuiltInModuleNameByRole } from "./module-factories.js";
+export type { ModuleRole } from "./module-factories.js";
 export type { ModuleDeps, BuiltInModule } from "./module-factories.js";
 
 // Watch storage — register, list, remove, and query persistent watches.

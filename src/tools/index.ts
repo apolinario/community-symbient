@@ -306,7 +306,7 @@ export function createScheduleTool(workspacePath: string): AgentTool {
       prompt: Type.String({ description: "The action to execute — be specific: 'Send a group message reminding everyone the meeting starts in 30 minutes at 12:00'" }),
       context: Type.Optional(Type.String({ description: "Background context for when the action fires" })),
       expires: Type.Optional(Type.String({ description: "When to stop recurring (ISO datetime). Only for cron schedules." })),
-      target: Type.Optional(Type.String({ description: "Module to wake up when this fires. Omit to use the deployment's default (typically 'conversation')." })),
+      target: Type.Optional(Type.String({ description: "Module to wake up when this fires. Omit to use the deployment's default chat-handler module — see your `list_modules` output." })),
     }),
     execute: async (_id, params) => {
       if (!params.when && !params.cron) {

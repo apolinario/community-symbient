@@ -39,6 +39,16 @@ export interface ModuleDeps {
   directory?: Directory;
 }
 
+/**
+ * Dispatch role. Framework code that needs to deliver something to "the
+ * chat handler" or "the default scheduled-action target" resolves the
+ * module by role rather than by hardcoded name. At most one module may
+ * claim each role; later registrations override earlier ones (so a
+ * deployment can swap the framework's default by registering its own
+ * module under the same role).
+ */
+export type ModuleRole = "chat-handler" | "scheduled-action-default";
+
 export interface BuiltInModule {
   config: ModuleConfig;
   factory: (deps: ModuleDeps, params?: Record<string, unknown>) => ModuleFunction;
@@ -46,6 +56,8 @@ export interface BuiltInModule {
   requires?: Array<keyof ModuleDeps>;
   /** Short description shown at registration time. */
   note?: string;
+  /** Optional dispatch role — see ModuleRole. */
+  role?: ModuleRole;
 }
 
 const registry = new Map<string, BuiltInModule>();
@@ -60,4 +72,12 @@ export function getBuiltInModule(name: string): BuiltInModule | undefined {
 
 export function listBuiltInModules(): string[] {
   return [...registry.keys()];
+}
+
+/** Resolve the registered module name for a given role, if any. */
+export function getBuiltInModuleNameByRole(role: ModuleRole): string | undefined {
+  for (const [name, m] of registry.entries()) {
+    if (m.role === role) return name;
+  }
+  return undefined;
 }

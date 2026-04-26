@@ -7,16 +7,21 @@
  *   - `cron` (cron expression): recurring schedule like "30 11 * * 1-5" (11:30 weekdays)
  *
  * When something is due, sends an MQTT nudge to the item's `target` module
- * (or to the deployment-configured default — typically `"conversation"`)
- * with a `scheduled_action` payload. Cron items advance `nextRun` to the
- * next occurrence; one-shot items are marked `done: true`.
+ * (or to the deployment-configured default; if neither is set, falls back
+ * to whichever module has `role: "scheduled-action-default"` or, failing
+ * that, `role: "chat-handler"`). Cron items advance `nextRun` to the next
+ * occurrence; one-shot items are marked `done: true`.
  */
 
 import type { ModuleContext } from "../core/types.js";
 import { recordEvent } from "../core/event-log.js";
+import { getBuiltInModuleNameByRole } from "../core/module-factories.js";
+import { createLogger } from "../core/logger.js";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Cron } from "croner";
+
+const log = createLogger("schedule");
 
 interface ScheduleItem {
   id: string;
@@ -37,7 +42,23 @@ interface ScheduleItem {
 }
 
 export function createScheduleCheckerModule(opts: { defaultTarget?: string; workspacePath?: string } = {}) {
-  const defaultTarget = opts.defaultTarget ?? "conversation";
+  /**
+   * Resolution order for the per-fire fallback target:
+   *   1. The item's own `target`.
+   *   2. The deployment's configured `scheduling.defaultTarget`.
+   *   3. A module registered with `role: "scheduled-action-default"`.
+   *   4. A module registered with `role: "chat-handler"`.
+   *   5. Drop the fire and warn — config is incomplete.
+   */
+  function resolveDefaultTarget(): string | null {
+    if (opts.defaultTarget) return opts.defaultTarget;
+    return (
+      getBuiltInModuleNameByRole("scheduled-action-default") ??
+      getBuiltInModuleNameByRole("chat-handler") ??
+      null
+    );
+  }
+
   return async function scheduleChecker(ctx: ModuleContext): Promise<void> {
     // Prefer the workspace passed in at registration time. Fall back to
     // process.cwd()-derived only if the deployment forgot to wire it.
@@ -121,8 +142,17 @@ export function createScheduleCheckerModule(opts: { defaultTarget?: string; work
 
     // Fire each due item to its target module (per-item override, else default).
     const counts = new Map<string, number>();
+    let dropped = 0;
     for (const item of due) {
-      const target = item.target || defaultTarget;
+      const target = item.target || resolveDefaultTarget();
+      if (!target) {
+        log.warn(
+          `Scheduled item ${item.id} dropped: no per-item target, no scheduling.defaultTarget, ` +
+          `and no module registered with role "scheduled-action-default" or "chat-handler".`,
+        );
+        dropped++;
+        continue;
+      }
       const payload = JSON.stringify({
         type: "scheduled_action",
         id: item.id,
@@ -140,6 +170,7 @@ export function createScheduleCheckerModule(opts: { defaultTarget?: string; work
       });
     }
     const summary = [...counts.entries()].map(([t, n]) => `${n}→${t}`).join(", ");
-    ctx.log(`${due.length} scheduled item(s) due (${summary})`);
+    const dropNote = dropped > 0 ? `, ${dropped} dropped (no target)` : "";
+    ctx.log(`${due.length} scheduled item(s) due (${summary}${dropNote})`);
   };
 }

@@ -1,18 +1,19 @@
 /**
  * Chat Reactor — generic reactive chat module.
  *
- * Framework-shipped default `conversation`. Any deployment that wires a
- * ChatAdapter gets this for free: on each incoming message, renders the
- * module's `.md` template + seed-prompt context providers, runs a Pi
- * Agent, sends the response back through the adapter.
+ * Reusable factory for a chat-handler module. The deployment registers
+ * it under whatever name it likes (typically "conversation") with
+ * `role: "chat-handler"` so the framework can route inbound chat,
+ * watch-driven dm/group actions, and scheduled-action defaults to it
+ * without hardcoding the name.
  *
  * Deliberately minimal — no group-vs-DM triage, no retry, no protocol
  * prefixes, no attachment handling. Deployments needing any of that
- * override "conversation" in their `workspace/extensions/modules.ts`
- * with a bespoke factory (last-registered-wins).
+ * register their own factory under the same role.
  *
- * Reads the module's .md at first invocation; subsequent ticks reuse
- * the parsed spec until the hot-reload cycle invalidates it.
+ * Loads the module's `.md` (looked up by the module's own name in the
+ * workspace's `modules/` dir) on first invocation; subsequent ticks
+ * reuse the parsed spec until hot-reload invalidates it.
  */
 
 import type { ModuleContext, InboundMessage } from "../core/types.js";
@@ -31,13 +32,27 @@ import { createLogger } from "../core/logger.js";
 
 const log = createLogger("chat-reactor");
 
-export function createChatReactor(bridge: ChatAdapter, workspacePath: string) {
+export interface ChatReactorOpts {
+  bridge: ChatAdapter;
+  workspacePath: string;
+  /**
+   * Name under which this reactor is registered — also the basename of
+   * its markdown file in `<workspace>/modules/<moduleName>.md`. Defaults
+   * to "conversation" for backward compatibility with deployments that
+   * haven't yet wired the role-based registration.
+   */
+  moduleName?: string;
+}
+
+export function createChatReactor(opts: ChatReactorOpts) {
+  const { bridge, workspacePath } = opts;
+  const moduleName = opts.moduleName ?? "conversation";
   const inbox: InboundMessage[] = [];
   bridge.onMessage(async (msg) => { inbox.push(msg); });
 
   let spec: { template: string; sections: Record<string, string>; toolNames: string[] } | null = null;
   async function loadSpec(): Promise<typeof spec> {
-    const modulePath = join(workspacePath, "modules", "conversation.md");
+    const modulePath = join(workspacePath, "modules", `${moduleName}.md`);
     // Distinguish "module not present" (silent) from "module present but
     // unreadable / malformed frontmatter" (logged). Both return null so
     // the chat reactor stays alive, but the diagnostic isn't lost.
@@ -52,7 +67,7 @@ export function createChatReactor(bridge: ChatAdapter, workspacePath: string) {
         toolNames: Array.isArray(fields.tools) ? fields.tools : [],
       };
     } catch (err) {
-      log.error(`Failed to load workspace/modules/conversation.md: ${(err as Error).message}`);
+      log.error(`Failed to load workspace/modules/${moduleName}.md: ${(err as Error).message}`);
       return null;
     }
   }

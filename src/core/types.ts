@@ -229,7 +229,8 @@ export interface SymbientConfig {
   /**
    * Scheduling defaults. When a scheduled item has no `target` field of
    * its own, the schedule-checker fires the action at this module name.
-   * Default: `"conversation"` (the framework-mandatory module).
+   * Omit to fall back to whichever module the deployment registered with
+   * `role: "scheduled-action-default"`, then `role: "chat-handler"`.
    */
   scheduling?: {
     defaultTarget?: string;
