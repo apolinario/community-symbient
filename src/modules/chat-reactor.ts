@@ -24,7 +24,7 @@ import { existsSync } from "node:fs";
 import { render, parseSections } from "../core/prompt-template.js";
 import { standardVars } from "../core/prompt-vars.js";
 import { recordEvent } from "../core/event-log.js";
-import { isMCPServer } from "../mcp/bridge.js";
+import { filterToolsByWhitelist } from "../mcp/bridge.js";
 import { parseFrontmatter } from "../core/frontmatter.js";
 import { symbientDisplayName } from "../core/symbient-name.js";
 import { createLogger } from "../core/logger.js";
@@ -82,13 +82,7 @@ export function createChatReactor(bridge: ChatAdapter, workspacePath: string) {
     });
     const systemPrompt = render(spec.template, vars);
 
-    const allowedTools = ctx.tools.filter((t) => {
-      for (const entry of spec!.toolNames) {
-        if (entry === t.name) return true;
-        if (isMCPServer(entry) && t.name.startsWith(`${entry}.`)) return true;
-      }
-      return false;
-    });
+    const allowedTools = filterToolsByWhitelist(ctx.tools, spec.toolNames);
 
     const agent = new Agent({
       initialState: { model: ctx.model, systemPrompt },

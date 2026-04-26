@@ -169,6 +169,8 @@ export function detectVenue(room: string): string {
 }
 
 export class FeyOpsDB {
+  /** Directory adapter identity — referenced by config.adapters.directory. */
+  readonly name = "feyops";
   private db: Database.Database;
 
   constructor(dbPath: string = "./data/feyops.db") {
@@ -501,6 +503,10 @@ export function createFeyOpsDB(params: { path?: string } = {}): FeyOpsDB {
 
 export const feyOpsDirectoryFactory: DirectoryFactory = {
   name: "feyops",
-  create: (params) => createFeyOpsDB(params as { path?: string }) as unknown as Directory,
+  // FeyOpsDB is structurally compatible with the Directory contract
+  // (only `name` is required; the rest are optional capabilities). The
+  // bookings/people-sync/onboarding modules cast back to FeyOpsDB for
+  // its richer SQL methods.
+  create: (params) => createFeyOpsDB(params as { path?: string }),
 };
 registerDirectory(feyOpsDirectoryFactory);

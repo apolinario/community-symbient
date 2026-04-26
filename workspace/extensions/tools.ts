@@ -70,8 +70,8 @@ export default function feyToolset(deps: ToolDeps): AgentTool[] {
   // known-groups path are deployment specifics, not framework concerns.
   if (deps.chatAdapter) {
     tools.push(
-      createSendDMTool(deps.chatAdapter, deps.memory, deps.workspacePath),
-      createSendGroupMessageTool(deps.chatAdapter, deps.memory, deps.workspacePath),
+      createSendDMTool({ adapter: deps.chatAdapter, memory: deps.memory, workspacePath: deps.workspacePath }),
+      createSendGroupMessageTool({ adapter: deps.chatAdapter, memory: deps.memory, workspacePath: deps.workspacePath }),
     );
   }
 

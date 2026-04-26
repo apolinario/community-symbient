@@ -32,29 +32,38 @@ export interface Booking {
   [key: string]: unknown;
 }
 
+/**
+ * Directory contract — only `name` is required. Every other method is
+ * optional so adapters can implement just the surface they need (a
+ * SQLite-backed directory with bookings, vs. a flat `people/*.md`
+ * directory with no booking concept). Framework code that wants a
+ * specific capability checks for the method first
+ * (e.g. `if (typeof dir.findByPhone === "function") ...`); deployments
+ * that depend on a specific adapter cast to its concrete type.
+ */
 export interface Directory {
   readonly name: string;
 
   /** Find a member by name (fuzzy match). Returns null if not found. */
-  findByName(name: string): Promise<Member | null>;
+  findByName?(name: string): Promise<Member | null>;
 
   /** Find a member by phone. Returns null if not found. */
-  findByPhone(phone: string): Promise<Member | null>;
+  findByPhone?(phone: string): Promise<Member | null>;
 
   /** List all members. May be expensive — callers should paginate/filter themselves. */
   listMembers?(): Promise<Member[]>;
 
   /** Bookings filtered by date range (inclusive ISO strings). */
-  getBookings(from?: string, to?: string): Promise<Booking[]>;
+  getBookings?(from?: string, to?: string): Promise<Booking[]>;
 
   /** Convenience: guests currently on-site for the given ISO date. */
-  currentGuests(onDate: string): Promise<Booking[]>;
+  currentGuests?(onDate: string): Promise<Booking[]>;
 
   /** Convenience: guests arriving on the given date. */
-  arrivalsOn(date: string): Promise<Booking[]>;
+  arrivalsOn?(date: string): Promise<Booking[]>;
 
   /** Convenience: guests departing on the given date. */
-  departuresOn(date: string): Promise<Booking[]>;
+  departuresOn?(date: string): Promise<Booking[]>;
 }
 
 export interface DirectoryFactory {

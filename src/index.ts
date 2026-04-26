@@ -73,8 +73,8 @@ async function main() {
 
   // Tiny LLM (time parsing, temporal rewrites, image descriptions).
   // Optional — falls back to the main LLM if tinyModel/tinyBaseUrl aren't set.
-  const { initTinyLLM } = await import("./core/tiny-llm.js");
-  initTinyLLM(
+  const { configureTinyLLM } = await import("./core/tiny-llm.js");
+  configureTinyLLM(
     config.llm.tinyBaseUrl ?? config.llm.baseUrl ?? "",
     config.llm.tinyModel ?? config.llm.model,
   );

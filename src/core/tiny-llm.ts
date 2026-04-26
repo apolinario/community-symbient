@@ -11,10 +11,14 @@ let _model = "";
 let _baseUrl = "";
 
 /** Call once at startup. Both fields required. */
-export function initTinyLLM(baseUrl: string, model: string) {
+export function configureTinyLLM(baseUrl: string, model: string): void {
   _baseUrl = baseUrl;
   _model = model;
 }
+
+/** @deprecated Renamed to configureTinyLLM for verb consistency with the
+ *  other configure*() startup wirings. */
+export const initTinyLLM = configureTinyLLM;
 
 export function getTinyModel() { return _model; }
 export function getTinyBaseUrl() { return _baseUrl; }

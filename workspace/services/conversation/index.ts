@@ -13,7 +13,7 @@ import type { ModuleContext } from "../../../src/core/types.js";
 import type { InboundMessage } from "../../../src/core/types.js";
 import type { ChatAdapter } from "../../../src/adapters/chat/types.js";
 import { Agent } from "@mariozechner/pi-agent-core";
-import { isMCPServer } from "../../../src/mcp/bridge.js";
+import { filterToolsByWhitelist } from "../../../src/mcp/bridge.js";
 import { parseFrontmatter } from "../../../src/modules/load-modules.js";
 import { parseSections, render } from "../../../src/core/prompt-template.js";
 import { standardVars } from "../../../src/core/prompt-vars.js";
@@ -198,16 +198,11 @@ export function createConversationModule(bridge: ChatAdapter, workspacePath?: st
       initialState: { model: ctx.model, systemPrompt },
       getApiKey: () => ctx.apiKey,
     });
-    // Filter tools to conversation.md whitelist
+    // Filter tools to the conversation.md whitelist. Empty whitelist =
+    // spec didn't load → fall back to all tools so the bot stays usable.
     const allowedTools = conversationToolNames.length > 0
-      ? ctx.tools.filter((t: any) => {
-          for (const entry of conversationToolNames) {
-            if (entry === t.name) return true;
-            if (isMCPServer(entry) && t.name.startsWith(`${entry}.`)) return true;
-          }
-          return false;
-        })
-      : ctx.tools; // fallback to all tools if config not loaded
+      ? filterToolsByWhitelist(ctx.tools, conversationToolNames)
+      : ctx.tools;
     agent.setTools(allowedTools);
 
     // Seed with recent exchanges
@@ -521,15 +516,9 @@ async function handleModuleNudge(
     getApiKey: () => ctx.apiKey,
   });
 
-  // Give conversation its filtered tools
+  // Give conversation its filtered tools (same fallback as the main path).
   const allowedTools = conversationToolNames.length > 0
-    ? ctx.tools.filter((t: any) => {
-        for (const entry of conversationToolNames) {
-          if (entry === t.name) return true;
-          if (isMCPServer(entry) && t.name.startsWith(`${entry}.`)) return true;
-        }
-        return false;
-      })
+    ? filterToolsByWhitelist(ctx.tools, conversationToolNames)
     : ctx.tools;
   agent.setTools(allowedTools);
 

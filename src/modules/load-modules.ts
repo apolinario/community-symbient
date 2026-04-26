@@ -9,6 +9,12 @@
  * Module-specific output handlers live in `workspace/extensions/handlers.js`
  * (loaded separately via extension-loader). Core only ships the default
  * handler (log-to-memory).
+ *
+ * Modules named `conversation` are skipped — the framework registers a
+ * built-in conversation module via register-builtins.ts that owns the
+ * chat-adapter wiring; the .md file is still read by chat-reactor for
+ * its template/tool-whitelist, but it doesn't enter the orchestrator
+ * twice.
  */
 
 import { readdir, readFile } from "node:fs/promises";

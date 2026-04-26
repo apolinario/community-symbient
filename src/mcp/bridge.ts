@@ -82,6 +82,24 @@ export function isMCPServer(name: string): boolean {
   return serverNames.has(name);
 }
 
+/**
+ * Filter a tool list to only the entries matching a whitelist. Whitelist
+ * entries are matched as either an exact tool name (`"search"`) or an
+ * MCP-server name (`"radio"` matches `radio.*`). An empty whitelist
+ * returns an empty list — callers that want "all tools by default"
+ * should check whitelist.length themselves.
+ */
+export function filterToolsByWhitelist<T extends { name: string }>(tools: T[], whitelist: string[]): T[] {
+  if (whitelist.length === 0) return [];
+  return tools.filter((t) => {
+    for (const entry of whitelist) {
+      if (entry === t.name) return true;
+      if (isMCPServer(entry) && t.name.startsWith(`${entry}.`)) return true;
+    }
+    return false;
+  });
+}
+
 /** Convert an MCP tool into a Pi AgentTool. Named as "server.toolname". */
 function mcpToolToAgentTool(serverName: string, tool: ServerToolInfo): AgentTool {
   const qualifiedName = `${serverName}.${tool.name}`;

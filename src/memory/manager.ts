@@ -439,6 +439,14 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
    * that logic in a workspace extension or context provider, and call
    * `setState()` to activate the state.
    */
+  /**
+   * Return currently-active states.
+   *
+   * Side effect: states whose `expires` timestamp has passed are marked
+   * `active: false` on disk during this call. The mutation is incidental
+   * (lazy expiry) — separate it out by calling `expireStaleStates()` first
+   * if you need a pure read.
+   */
   async getActiveStates(): Promise<Array<{ name: string; context: string | null }>> {
     const states: Array<{ name: string; context: string | null }> = [];
     const stateDir = join(this.workspacePath, "state");
@@ -451,6 +459,7 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
           const data = JSON.parse(await readFile(join(stateDir, file), "utf-8"));
           if (!data.active) continue;
           if (data.expires && new Date(data.expires).getTime() < now) {
+            // Lazy expiry — write the disabled flag and skip in this scan.
             data.active = false;
             await writeFile(join(stateDir, file), JSON.stringify(data), "utf-8");
             continue;

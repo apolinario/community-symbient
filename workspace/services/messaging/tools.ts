@@ -31,7 +31,14 @@ async function loadImageAsDataUrl(workspacePath: string, relPath: string): Promi
   return `data:${mime};base64,${buffer.toString("base64")}`;
 }
 
-export function createSendDMTool(adapter: ChatAdapter, memory: MemoryManager, workspacePath: string): AgentTool {
+export interface MessagingDeps {
+  adapter: ChatAdapter;
+  memory: MemoryManager;
+  workspacePath: string;
+}
+
+export function createSendDMTool(deps: MessagingDeps): AgentTool {
+  const { adapter, memory, workspacePath } = deps;
   return {
     name: "send_dm",
     description: "Send a direct message to someone, optionally with an image attachment. Person is resolved from their profile (phone or signal-uuid).",
@@ -70,7 +77,8 @@ export function createSendDMTool(adapter: ChatAdapter, memory: MemoryManager, wo
   };
 }
 
-export function createSendGroupMessageTool(adapter: ChatAdapter, memory: MemoryManager, workspacePath: string): AgentTool {
+export function createSendGroupMessageTool(deps: MessagingDeps): AgentTool {
+  const { adapter, memory, workspacePath } = deps;
   // Friendly-name → group-id table loaded once from workspace/community/known-groups.md.
   const knownGroups = new Map<string, string>();
   let loaded = false;

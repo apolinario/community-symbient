@@ -232,7 +232,15 @@ export interface SymbientConfig {
     port: number;
   };
   llm: {
-    provider: "anthropic" | "openai" | "ollama";
+    /**
+     * Provider identifier — informational only. The framework currently
+     * always speaks the OpenAI-completions API regardless of this value;
+     * route to a different backend by pointing `baseUrl` at it (e.g.
+     * Ollama or LM Studio expose the same shape locally). Pre-defined
+     * names ("anthropic" | "openai" | "ollama") are accepted for
+     * convenience; any string is allowed.
+     */
+    provider: "anthropic" | "openai" | "ollama" | (string & {});
     model: string;
     apiKey?: string;
     baseUrl?: string;

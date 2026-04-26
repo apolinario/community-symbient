@@ -15,7 +15,7 @@
 
 import type { ModuleContext } from "../core/types.js";
 import { Agent } from "@mariozechner/pi-agent-core";
-import { isMCPServer } from "../mcp/bridge.js";
+import { filterToolsByWhitelist } from "../mcp/bridge.js";
 import { render } from "../core/prompt-template.js";
 import { standardVars } from "../core/prompt-vars.js";
 import { recordEvent } from "../core/event-log.js";
@@ -127,17 +127,12 @@ export function createAgentModule(spec: ModuleSpec) {
       return;
     }
 
-    // Filter tools to only what this module is allowed
-    // Supports: "radio" → all tools from that MCP server (radio.*)
-    //           "radio.get_status" → specific MCP tool
-    //           "search_memory" → exact match (local tool)
-    const allowedTools = ctx.tools.filter((t) => {
-      for (const entry of spec.toolNames) {
-        if (entry === t.name) return true;
-        if (isMCPServer(entry) && t.name.startsWith(`${entry}.`)) return true;
-      }
-      return false;
-    });
+    // Filter tools to the module's whitelist. Whitelist entries are
+    // either exact tool names ("search") or MCP server names ("radio"
+    // matches radio.*). An empty whitelist disables every tool — modules
+    // that want all tools simply omit the filter, but here we honour
+    // spec.toolNames literally.
+    const allowedTools = filterToolsByWhitelist(ctx.tools, spec.toolNames);
 
     // Build system prompt: render the module's Handlebars template with standard vars.
     // The md file is responsible for whatever preamble, memory context, and instructions
