@@ -24,8 +24,16 @@ async function processCalendarItems(ctx: ModuleContext): Promise<void> {
   const content = await ctx.memory.readFile("radio/calendar.json");
   if (!content) return;
 
-  let cal: any;
-  try { cal = JSON.parse(content); } catch { return; }
+  // Malformed calendar.json shouldn't crash the cycle — radio-calendar
+  // is hot-edited by the executive; a half-written save is recoverable
+  // on the next save.
+  let cal: { upcoming?: Array<{ at: number; done?: boolean; intent?: string }> };
+  try {
+    cal = JSON.parse(content);
+  } catch (err) {
+    ctx.log(`processCalendarItems: failed to parse radio/calendar.json: ${(err as Error).message}`);
+    return;
+  }
 
   const now = Date.now();
   const due = (cal.upcoming || []).filter((u: any) => u.at <= now && !u.done);

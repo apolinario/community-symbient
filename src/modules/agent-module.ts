@@ -21,6 +21,61 @@ import { standardVars } from "../core/prompt-vars.js";
 import { recordEvent } from "../core/event-log.js";
 import { renderContextBlocks, type ContextDecl } from "../core/context-providers.js";
 
+// --- Subscription-callback helpers ---
+
+interface ToolCall {
+  name: string;
+  args: unknown;
+  result?: string;
+}
+
+/**
+ * Detect repeated identical tool calls within one cycle and abort the
+ * agent when the same {tool, args} fires three times in a row. The
+ * counter resets whenever the call signature changes.
+ */
+function createLoopDetector(abort: () => void, log: (msg: string) => void) {
+  let lastSig = "";
+  let repeats = 0;
+  return (toolName: string, args: unknown) => {
+    const sig = `${toolName}:${JSON.stringify(args)}`;
+    if (sig === lastSig) {
+      repeats++;
+      if (repeats >= 2) {
+        log(`Loop detected: ${toolName} called ${repeats + 1} times with same args, aborting`);
+        abort();
+      }
+    } else {
+      lastSig = sig;
+      repeats = 0;
+    }
+  };
+}
+
+/**
+ * Pull text out of a Pi tool-execution-end event.result.content array.
+ * Falls back to JSON.stringify when the shape is unfamiliar.
+ */
+function extractResultText(result: { content?: Array<{ text?: string }> } | undefined): string {
+  return result?.content?.map((c) => c.text || "").join("") || JSON.stringify(result);
+}
+
+/**
+ * Attach a tool result to the most recent in-cycle call of that name that
+ * doesn't have one yet. Returns the matched call (or undefined). This lets
+ * handlers correlate args↔result even when a tool fires multiple times
+ * within the same cycle.
+ */
+function correlateToolResult(toolCalls: ToolCall[], toolName: string, resultText: string): ToolCall | undefined {
+  for (let i = toolCalls.length - 1; i >= 0; i--) {
+    if (toolCalls[i].name === toolName && toolCalls[i].result === undefined) {
+      toolCalls[i].result = resultText;
+      return toolCalls[i];
+    }
+  }
+  return undefined;
+}
+
 export interface ModuleSpec {
   name: string;
   /** Raw markdown body, used as the relevance query to qmd when assembling
@@ -65,7 +120,8 @@ export function createAgentModule(spec: ModuleSpec) {
     let memoryContext: string;
     try {
       memoryContext = await ctx.memory.assembleConversationContext(spec.prompt);
-      ctx.log(`Context (${memoryContext.length} chars):\n${memoryContext}`);
+      ctx.log(`Context assembled (${memoryContext.length} chars)`);
+      ctx.logDebug(`Context body:\n${memoryContext}`);
     } catch (err) {
       ctx.log(`Context assembly failed: ${err}`);
       return;
@@ -103,52 +159,42 @@ export function createAgentModule(spec: ModuleSpec) {
     let output = "";
     let agentError = "";
     const toolTrace: string[] = [];
-    const toolCalls: Array<{ name: string; args: any; result?: string }> = [];
-    let lastToolCall = "";
-    let repeatCount = 0;
+    const toolCalls: Array<{ name: string; args: unknown; result?: string }> = [];
+    const detectLoop = createLoopDetector(() => agent.abort(), ctx.log);
+
     agent.subscribe((event) => {
-      if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-        output += event.assistantMessageEvent.delta;
-      }
-      if (event.type === "tool_execution_start") {
-        toolTrace.push(`${event.toolName}(${JSON.stringify(event.args).slice(0, 100)})`);
-        toolCalls.push({ name: event.toolName, args: event.args });
-        ctx.log(`Tool: ${event.toolName}(${JSON.stringify(event.args)})`);
-
-        // Detect loops: same tool+args called repeatedly
-        const callSig = `${event.toolName}:${JSON.stringify(event.args)}`;
-        if (callSig === lastToolCall) {
-          repeatCount++;
-          if (repeatCount >= 2) {
-            ctx.log(`Loop detected: ${event.toolName} called ${repeatCount + 1} times with same args, aborting`);
-            agent.abort();
+      switch (event.type) {
+        case "message_update":
+          if (event.assistantMessageEvent.type === "text_delta") {
+            output += event.assistantMessageEvent.delta;
           }
-        } else {
-          lastToolCall = callSig;
-          repeatCount = 0;
+          return;
+
+        case "tool_execution_start":
+          toolTrace.push(`${event.toolName}(${JSON.stringify(event.args).slice(0, 100)})`);
+          toolCalls.push({ name: event.toolName, args: event.args });
+          ctx.log(`Tool: ${event.toolName}(${JSON.stringify(event.args)})`);
+          detectLoop(event.toolName, event.args);
+          return;
+
+        case "tool_execution_end": {
+          const resultText = extractResultText(event.result);
+          ctx.log(`Result: ${event.toolName} → ${resultText}`);
+          const matchingCall = correlateToolResult(toolCalls, event.toolName, resultText);
+          recordEvent({
+            type: "tool_call",
+            module: spec.name,
+            tool: event.toolName,
+            args: matchingCall?.args,
+            ok: !event.isError,
+            result: resultText.slice(0, 500),
+          });
+          return;
         }
-      }
-      if (event.type === "tool_execution_end") {
-        const resultText = event.result?.content?.map((c: any) => c.text || "").join("") || JSON.stringify(event.result);
-        ctx.log(`Result: ${event.toolName} → ${resultText}`);
 
-        // Attach the result to the most recent matching call without a result yet,
-        // so handlers can correlate args ↔ result. Multiple calls to the same tool
-        // in one cycle each get their own result.
-        const matchingCall = [...toolCalls].reverse().find(tc => tc.name === event.toolName && tc.result === undefined);
-        if (matchingCall) matchingCall.result = resultText;
-
-        recordEvent({
-          type: "tool_call",
-          module: spec.name,
-          tool: event.toolName,
-          args: matchingCall?.args,
-          ok: !event.isError,
-          result: resultText.slice(0, 500),
-        });
-      }
-      if (event.type === "agent_end") {
-        ctx.log(`Agent ended, messages: ${event.messages.length}`);
+        case "agent_end":
+          ctx.log(`Agent ended, messages: ${event.messages.length}`);
+          return;
       }
     });
 
@@ -205,7 +251,8 @@ export function createAgentModule(spec: ModuleSpec) {
     }
 
     const promptText = seedParts.join("\n\n") || "Begin.";
-    ctx.log(`Seed prompt (${promptText.length} chars, ${allowedTools.length} tools):\n${promptText}`);
+    ctx.log(`Seed prompt (${promptText.length} chars, ${allowedTools.length} tools)`);
+    ctx.logDebug(`Seed prompt body:\n${promptText}`);
     try {
       await agent.prompt(promptText);
       await agent.waitForIdle();

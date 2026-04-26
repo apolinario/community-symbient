@@ -39,7 +39,12 @@ export interface ModuleContext {
   tools: import("@mariozechner/pi-agent-core").AgentTool[];
   /** API key for LLM provider. */
   apiKey: string;
+  /** Default log channel (info level). Surfaces in dashboard SSE + stdout. */
   log: (msg: string) => void;
+  /** Verbose channel for full context dumps and prompt bodies. Suppressed
+   *  unless LOG_LEVEL=debug. Use for content the operator only wants when
+   *  actively debugging — never the default cycle line. */
+  logDebug: (msg: string) => void;
   signal: AbortSignal;
 }
 

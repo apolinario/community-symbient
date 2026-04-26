@@ -131,7 +131,8 @@ async function main() {
   // Directory adapter — config-driven via the registry. Deployments
   // without a member/booking source set config.adapters.directory to null;
   // modules that declare `requires: ["directory"]` are then skipped at
-  // launch time with a warning.
+  // launch time with a warning. An unknown adapter name is a config
+  // error — fail loudly at startup instead of running with no directory.
   let directory: Directory | undefined;
   const dirSel = config.adapters?.directory;
   if (dirSel === null || dirSel === undefined) {
@@ -139,11 +140,12 @@ async function main() {
   } else {
     const factory = getDirectory(dirSel.adapter);
     if (!factory) {
-      console.error(`Unknown directory adapter "${dirSel.adapter}" — register via workspace/extensions/adapters/directory/`);
-    } else {
-      directory = await factory.create(dirSel.params ?? {});
-      console.log(`Directory: ${dirSel.adapter}`);
+      throw new Error(
+        `Unknown directory adapter "${dirSel.adapter}" — register via workspace/extensions/adapters/directory/ or set config.adapters.directory to null.`,
+      );
     }
+    directory = await factory.create(dirSel.params ?? {});
+    console.log(`Directory: ${dirSel.adapter}`);
   }
 
   // MQTT bus — created early so tools can reference it
@@ -153,7 +155,8 @@ async function main() {
   );
 
   // Chat adapter — config-driven. Set config.adapters.chat to pick a
-  // transport, or `null` for CLI/headless deployments with no chat surface.
+  // transport, or `null` for CLI/headless deployments. An unknown
+  // adapter name is a config error — fail loudly at startup.
   let chatAdapter: ChatAdapter | undefined;
   const chatSel = config.adapters?.chat;
   if (chatSel === null || chatSel === undefined) {
@@ -161,11 +164,12 @@ async function main() {
   } else {
     const factory = getChatAdapter(chatSel.adapter);
     if (!factory) {
-      console.error(`Unknown chat adapter "${chatSel.adapter}" — register via workspace/extensions/adapters/chat/`);
-    } else {
-      chatAdapter = factory.create(chatSel.params ?? {});
-      console.log(`Chat: ${chatSel.adapter}`);
+      throw new Error(
+        `Unknown chat adapter "${chatSel.adapter}" — register via workspace/extensions/adapters/chat/ or set config.adapters.chat to null.`,
+      );
     }
+    chatAdapter = factory.create(chatSel.params ?? {});
+    console.log(`Chat: ${chatSel.adapter}`);
   }
 
   configureAttachmentServices({

@@ -105,28 +105,46 @@ function mcpToolToAgentTool(serverName: string, tool: ServerToolInfo): AgentTool
     label: tool.name,
     parameters,
     execute: async (_id, params) => {
-      // Try once, reconnect on failure, retry once
+      // Try once; on failure, attempt to reconnect and retry once. The
+      // outer `for` shape is intentional — we want exactly two attempts
+      // with a reconnect between them.
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           if (!runtime) throw new Error("MCP not initialized");
-          const args = params && Object.keys(params).length > 0 ? params : undefined;
+          const argsRecord = params as Record<string, unknown> | undefined;
+          const args = argsRecord && Object.keys(argsRecord).length > 0 ? argsRecord : undefined;
           const result = await runtime.callTool(serverName, tool.name, { args });
-          const content = (result as any)?.content;
+          const content = (result as { content?: Array<{ text?: string }> })?.content;
           if (Array.isArray(content)) {
-            const text = content.map((c: any) => c.text || "").join("\n");
+            const text = content.map((c) => c.text || "").join("\n");
             return { content: [{ type: "text", text }], details: {} };
           }
           return { content: [{ type: "text", text: JSON.stringify(result) }], details: {} };
         } catch (err) {
           if (attempt === 0) {
             console.log(`[mcp] ${serverName}.${tool.name} failed, reconnecting...`);
-            try { await reconnectMCP(); } catch { /* reconnect failed */ }
+            try {
+              await reconnectMCP();
+            } catch (reconnectErr) {
+              console.error(`[mcp] reconnect failed: ${(reconnectErr as Error).message}`);
+            }
             continue;
           }
-          return { content: [{ type: "text", text: `MCP error (${serverName}.${tool.name}): ${err}` }], details: {} };
+          // Surface the failure to the agent: the AgentTool result shape
+          // supports `isError`, which the agent can reason about instead
+          // of treating the error message as a successful response.
+          return {
+            content: [{ type: "text", text: `MCP error (${serverName}.${tool.name}): ${(err as Error).message}` }],
+            details: {},
+            isError: true,
+          };
         }
       }
-      return { content: [{ type: "text", text: `MCP error: unreachable` }], details: {} };
+      return {
+        content: [{ type: "text", text: `MCP error: ${serverName}.${tool.name} unreachable after retry` }],
+        details: {},
+        isError: true,
+      };
     },
   };
 }

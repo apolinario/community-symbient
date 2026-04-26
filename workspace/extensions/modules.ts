@@ -112,7 +112,13 @@ export default function feySetup(deps: WorkspaceModulesDeps): unknown[] {
 async function ensureCoderWatches(): Promise<void> {
   const raw = await readFile(join(process.cwd(), "config", "feyblet.json"), "utf-8").catch(() => null);
   if (!raw) return;
-  const cfg = JSON.parse(raw);
+  let cfg: { coder?: { reviewer?: string } } | null = null;
+  try {
+    cfg = JSON.parse(raw);
+  } catch (err) {
+    console.warn(`[ensureCoderWatches] failed to parse config/feyblet.json: ${(err as Error).message}`);
+    return;
+  }
   const reviewer = cfg?.coder?.reviewer;
   if (!reviewer) return;
 

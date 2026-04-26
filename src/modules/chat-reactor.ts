@@ -20,12 +20,16 @@ import type { ChatAdapter } from "../adapters/chat/types.js";
 import { Agent } from "@mariozechner/pi-agent-core";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { existsSync } from "node:fs";
 import { render, parseSections } from "../core/prompt-template.js";
 import { standardVars } from "../core/prompt-vars.js";
 import { recordEvent } from "../core/event-log.js";
 import { isMCPServer } from "../mcp/bridge.js";
 import { parseFrontmatter } from "./load-modules.js";
 import { symbientDisplayName } from "../core/symbient-name.js";
+import { createLogger } from "../core/logger.js";
+
+const log = createLogger("chat-reactor");
 
 export function createChatReactor(bridge: ChatAdapter, workspacePath: string) {
   const inbox: InboundMessage[] = [];
@@ -33,8 +37,13 @@ export function createChatReactor(bridge: ChatAdapter, workspacePath: string) {
 
   let spec: { template: string; sections: Record<string, string>; toolNames: string[] } | null = null;
   async function loadSpec(): Promise<typeof spec> {
+    const modulePath = join(workspacePath, "modules", "conversation.md");
+    // Distinguish "module not present" (silent) from "module present but
+    // unreadable / malformed frontmatter" (logged). Both return null so
+    // the chat reactor stays alive, but the diagnostic isn't lost.
+    if (!existsSync(modulePath)) return null;
     try {
-      const raw = await readFile(join(workspacePath, "modules", "conversation.md"), "utf-8");
+      const raw = await readFile(modulePath, "utf-8");
       const { fields, body } = parseFrontmatter(raw);
       const { body: template, sections } = parseSections(body);
       return {
@@ -42,7 +51,8 @@ export function createChatReactor(bridge: ChatAdapter, workspacePath: string) {
         sections,
         toolNames: Array.isArray(fields.tools) ? fields.tools : [],
       };
-    } catch {
+    } catch (err) {
+      log.error(`Failed to load workspace/modules/conversation.md: ${(err as Error).message}`);
       return null;
     }
   }

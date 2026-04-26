@@ -253,7 +253,48 @@ export function createNudgeModuleTool(bus: MQTTBus, senderName: string): AgentTo
 
 // --- Schedule (messages to future self) ---
 
+interface ScheduleEntry {
+  id: string;
+  prompt: string;
+  context?: string | null;
+  when?: number;
+  cron?: string;
+  nextRun?: number;
+  expires?: string | null;
+  target?: string;
+  created?: string;
+  done?: boolean;
+}
+
+/**
+ * Tiny JSON-backed store for `workspace/tasks/scheduled.json`. Centralises
+ * the load-mutate-save scaffolding so every schedule operation goes through
+ * the same code path.
+ */
+function scheduleStore(workspacePath: string) {
+  return {
+    async load(): Promise<{ path: string; items: ScheduleEntry[] }> {
+      const fs = await import("node:fs/promises");
+      const path = await import("node:path");
+      const filePath = path.join(workspacePath, "tasks", "scheduled.json");
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+      let items: ScheduleEntry[] = [];
+      try {
+        items = JSON.parse(await fs.readFile(filePath, "utf-8"));
+      } catch {
+        // Missing or empty file is normal; treat as empty schedule.
+      }
+      return { path: filePath, items };
+    },
+    async save(filePath: string, items: ScheduleEntry[]): Promise<void> {
+      const fs = await import("node:fs/promises");
+      await fs.writeFile(filePath, JSON.stringify(items, null, 2), "utf-8");
+    },
+  };
+}
+
 export function createScheduleTool(workspacePath: string): AgentTool {
+  const store = scheduleStore(workspacePath);
   return {
     name: "schedule",
     description: "Schedule an action for your future self. When the time comes, the action is delivered to a module that wakes up and executes it. Use `cron` for recurring patterns (preferred) or `when` for one-shot times.",
@@ -267,21 +308,13 @@ export function createScheduleTool(workspacePath: string): AgentTool {
       target: Type.Optional(Type.String({ description: "Module to wake up when this fires. Omit to use the deployment's default (typically 'conversation')." })),
     }),
     execute: async (_id, params) => {
-      const fs = await import("node:fs/promises");
-      const path = await import("node:path");
-
       if (!params.when && !params.cron) {
         return { content: [{ type: "text", text: "Provide either `when` (one-shot) or `cron` (recurring)." }], details: {} };
       }
 
-      const schedulePath = path.join(workspacePath, "tasks", "scheduled.json");
-      await fs.mkdir(path.dirname(schedulePath), { recursive: true });
-
-      let schedule: any[] = [];
-      try { schedule = JSON.parse(await fs.readFile(schedulePath, "utf-8")); } catch {}
+      const { path: schedulePath, items: schedule } = await store.load();
 
       if (params.cron) {
-        // Validate cron expression
         try {
           const { Cron } = await import("croner");
           const job = new Cron(params.cron);
@@ -297,7 +330,7 @@ export function createScheduleTool(workspacePath: string): AgentTool {
             if (t) expiresTime = new Date(t).toISOString();
           }
 
-          const entry: Record<string, unknown> = {
+          const entry: ScheduleEntry = {
             id: `sched-${Date.now()}`,
             cron: params.cron,
             nextRun: next.getTime(),
@@ -310,7 +343,7 @@ export function createScheduleTool(workspacePath: string): AgentTool {
           if (params.target) entry.target = params.target;
 
           schedule.push(entry);
-          await fs.writeFile(schedulePath, JSON.stringify(schedule, null, 2), "utf-8");
+          await store.save(schedulePath, schedule);
 
           const nextStr = next.toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
           return { content: [{ type: "text", text: `Cron scheduled (${params.cron}), next run: ${nextStr}. Action: "${params.prompt.slice(0, 100)}"` }], details: {} };
@@ -326,7 +359,7 @@ export function createScheduleTool(workspacePath: string): AgentTool {
         return { content: [{ type: "text", text: `Could not parse time: "${params.when}". Try ISO datetime, "tomorrow 10:00", etc.` }], details: {} };
       }
 
-      const entry: Record<string, unknown> = {
+      const entry: ScheduleEntry = {
         id: `sched-${Date.now()}`,
         when: atTime,
         prompt: params.prompt,
@@ -337,7 +370,7 @@ export function createScheduleTool(workspacePath: string): AgentTool {
       if (params.target) entry.target = params.target;
 
       schedule.push(entry);
-      await fs.writeFile(schedulePath, JSON.stringify(schedule, null, 2), "utf-8");
+      await store.save(schedulePath, schedule);
 
       const whenStr = new Date(atTime).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
       return { content: [{ type: "text", text: `Scheduled for ${whenStr}: "${params.prompt.slice(0, 100)}"` }], details: {} };
@@ -346,30 +379,25 @@ export function createScheduleTool(workspacePath: string): AgentTool {
 }
 
 export function createListScheduleTool(workspacePath: string): AgentTool {
+  const store = scheduleStore(workspacePath);
   return {
     name: "list_schedule",
     description: "View your scheduled future messages",
     label: "List Schedule",
     parameters: Type.Object({}),
     execute: async () => {
-      const fs = await import("node:fs/promises");
-      const path = await import("node:path");
-      const schedulePath = path.join(workspacePath, "tasks", "scheduled.json");
-
-      let schedule: any[] = [];
-      try { schedule = JSON.parse(await fs.readFile(schedulePath, "utf-8")); } catch {}
-
-      const pending = schedule.filter((s: any) => !s.done);
+      const { items: schedule } = await store.load();
+      const pending = schedule.filter((s) => !s.done);
       if (pending.length === 0) {
         return { content: [{ type: "text", text: "No scheduled items." }], details: {} };
       }
 
-      const lines = pending.map((s: any) => {
+      const lines = pending.map((s) => {
         if (s.cron) {
           const nextStr = s.nextRun ? new Date(s.nextRun).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }) : "computing...";
           return `[${s.id}] cron: ${s.cron} (next: ${nextStr}): ${s.prompt.slice(0, 100)}`;
         }
-        const when = new Date(s.when).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
+        const when = s.when ? new Date(s.when).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }) : "(no time)";
         return `[${s.id}] ${when}: ${s.prompt.slice(0, 100)}`;
       });
 
@@ -379,6 +407,7 @@ export function createListScheduleTool(workspacePath: string): AgentTool {
 }
 
 export function createCancelScheduleTool(workspacePath: string): AgentTool {
+  const store = scheduleStore(workspacePath);
   return {
     name: "cancel_scheduled",
     description: "Cancel a scheduled item by ID",
@@ -387,18 +416,12 @@ export function createCancelScheduleTool(workspacePath: string): AgentTool {
       id: Type.String({ description: "The schedule entry ID to cancel" }),
     }),
     execute: async (_id, params) => {
-      const fs = await import("node:fs/promises");
-      const path = await import("node:path");
-      const schedulePath = path.join(workspacePath, "tasks", "scheduled.json");
-
-      let schedule: any[] = [];
-      try { schedule = JSON.parse(await fs.readFile(schedulePath, "utf-8")); } catch {}
-
-      const entry = schedule.find((s: any) => s.id === params.id);
+      const { path: schedulePath, items: schedule } = await store.load();
+      const entry = schedule.find((s) => s.id === params.id);
       if (!entry) return { content: [{ type: "text", text: `Not found: ${params.id}` }], details: {} };
 
       entry.done = true;
-      await fs.writeFile(schedulePath, JSON.stringify(schedule, null, 2), "utf-8");
+      await store.save(schedulePath, schedule);
       return { content: [{ type: "text", text: `Cancelled: ${entry.prompt.slice(0, 80)}` }], details: {} };
     },
   };

@@ -16,6 +16,9 @@
  */
 
 import type { ModuleContext } from "./types.js";
+import { createLogger } from "./logger.js";
+
+const log = createLogger("prompt-vars");
 
 export type HelperFn = (ctx?: ModuleContext, ...args: unknown[]) => unknown | Promise<unknown>;
 
@@ -97,6 +100,7 @@ export async function standardVars(
     try {
       vars[name] = await fn(ctx);
     } catch (err) {
+      log.warn(`helper '${name}' failed: ${(err as Error)?.message ?? err}`);
       vars[name] = "";
     }
   }

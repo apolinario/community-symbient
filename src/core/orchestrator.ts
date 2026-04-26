@@ -127,6 +127,7 @@ export class Orchestrator {
       tools: this.piTools,
       apiKey: this.piApiKey,
       log: (msg: string) => modLog.info(msg),
+      logDebug: (msg: string) => modLog.debug(msg),
       signal,
     };
 

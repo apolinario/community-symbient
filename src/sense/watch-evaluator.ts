@@ -25,9 +25,15 @@ import { queryEvents, type Event } from "../core/event-log.js";
 import { loadWatches, removeWatch, getWatchState, setWatchState, type Watch, type WatchTrigger } from "../core/watches.js";
 import { getAction } from "../core/action-registry.js";
 import { compileCondition } from "../core/condition-eval.js";
+import { createLogger } from "../core/logger.js";
+
+const log = createLogger("watch-evaluator");
 
 export function createWatchEvaluatorModule() {
   const compiledFilters = new Map<string, (event: Record<string, unknown>) => boolean>();
+  // Watch ids whose `where` expression failed to compile or run — log
+  // once per watch to avoid drowning the log on every event.
+  const reportedFailures = new Set<string>();
 
   // Track last processed event timestamp per watch (for `always` trigger).
   // Persisting this in watch-state would be cleaner across restarts, but keeping
@@ -62,13 +68,21 @@ export function createWatchEvaluatorModule() {
       try {
         fn = compileCondition(watch.on.where);
         compiledFilters.set(watch.id, fn);
-      } catch {
+      } catch (err) {
+        if (!reportedFailures.has(watch.id)) {
+          log.error(`Watch ${watch.id} where-expression failed to compile (${(err as Error).message}): ${watch.on.where}`);
+          reportedFailures.add(watch.id);
+        }
         return false;
       }
     }
     try {
       return fn(evt as Record<string, unknown>);
-    } catch {
+    } catch (err) {
+      if (!reportedFailures.has(watch.id)) {
+        log.error(`Watch ${watch.id} where-expression threw at runtime (${(err as Error).message}): ${watch.on.where}`);
+        reportedFailures.add(watch.id);
+      }
       return false;
     }
   }

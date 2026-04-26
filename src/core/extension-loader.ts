@@ -73,99 +73,99 @@ async function importAllInDir(dirPath: string): Promise<Array<{ file: string; ex
 }
 
 /**
- * Load `workspace/extensions/helpers.{js,mjs,ts}` if present and register
- * each exported function as a Handlebars helper. No-op if the file is missing.
+ * Generalised single-file loader: scans `workspace/extensions/<subdir>.{js,mjs,ts}`,
+ * iterates the named exports, validates each entry, and registers it via the
+ * supplied `register` callback. Returns the names that registered successfully.
+ * No-op when the file is missing.
  */
-export async function loadWorkspaceHelpers(workspacePath: string): Promise<string[]> {
-  const basePath = join(workspacePath, "extensions", "helpers");
+async function loadSingleFile<T>(
+  workspacePath: string,
+  subdir: string,
+  validate: (entry: unknown, name: string) => entry is T,
+  register: (name: string, value: T) => void,
+): Promise<string[]> {
+  const basePath = join(workspacePath, "extensions", subdir);
   const exports = await importIfExists(basePath);
   if (!exports) return [];
 
   const registered: string[] = [];
-  for (const [name, fn] of Object.entries(exports)) {
-    if (typeof fn !== "function") {
-      log.error(`Skipping '${name}' in helpers — not a function`);
-      continue;
-    }
-    registerHelper(name, fn as HelperFn);
+  for (const [name, value] of Object.entries(exports)) {
+    if (!validate(value, name)) continue;
+    register(name, value);
     registered.push(name);
   }
   return registered;
+}
+
+const isFunctionEntry = (subdir: string) =>
+  (entry: unknown, name: string): entry is (...args: unknown[]) => unknown => {
+    if (typeof entry === "function") return true;
+    log.error(`Skipping '${name}' in ${subdir} — not a function`);
+    return false;
+  };
+
+const isProviderEntry = (entry: unknown, name: string): entry is ContextProvider => {
+  if (entry && typeof (entry as ContextProvider).execute === "function") return true;
+  log.error(`Skipping '${name}' in providers — missing execute()`);
+  return false;
+};
+
+/**
+ * Load `workspace/extensions/helpers.{js,mjs,ts}` if present and register
+ * each exported function as a Handlebars helper. No-op if file is missing.
+ */
+export async function loadWorkspaceHelpers(workspacePath: string): Promise<string[]> {
+  return loadSingleFile<HelperFn>(
+    workspacePath,
+    "helpers",
+    isFunctionEntry("helpers") as (e: unknown, n: string) => e is HelperFn,
+    registerHelper,
+  );
 }
 
 /**
  * Load `workspace/extensions/handlers.{js,mjs,ts}` if present and register
- * each exported function as a module output handler, keyed by module name.
- * No-op if the file is missing.
+ * each exported function as a module output handler keyed by module name.
+ * No-op if file is missing.
  */
 export async function loadWorkspaceHandlers(workspacePath: string): Promise<string[]> {
-  const basePath = join(workspacePath, "extensions", "handlers");
-  const exports = await importIfExists(basePath);
-  if (!exports) return [];
-
-  const registered: string[] = [];
-  for (const [name, fn] of Object.entries(exports)) {
-    if (typeof fn !== "function") {
-      log.error(`Skipping '${name}' in handlers — not a function`);
-      continue;
-    }
-    registerModuleHandler(name, fn as ModuleHandler);
-    registered.push(name);
-  }
-  return registered;
+  return loadSingleFile<ModuleHandler>(
+    workspacePath,
+    "handlers",
+    isFunctionEntry("handlers") as (e: unknown, n: string) => e is ModuleHandler,
+    registerModuleHandler,
+  );
 }
 
 /**
  * Load `workspace/extensions/providers.{js,mjs,ts}` if present and register
- * each exported ContextProvider under the key it was exported as. No-op if
- * the file is missing.
+ * each exported ContextProvider under its export name. No-op if file is missing.
  *
- * Deployments use this to add custom `source: my-thing` context provider
- * blocks to their modules' frontmatter — e.g. a weather-forecast provider,
- * a custom sensor-history provider, etc. The `events` provider always
- * works for any event type a deployment emits via `recordEvent()`, so
- * most custom context just needs a custom event type, not a new provider.
+ * Deployments use this for custom `source: my-thing` context providers in
+ * module frontmatter — weather forecasts, sensor histories, etc. The built-in
+ * `events` provider already handles arbitrary event types emitted via
+ * `recordEvent()`, so most custom context only needs a new event type, not a
+ * new provider.
  */
 export async function loadWorkspaceProviders(workspacePath: string): Promise<string[]> {
-  const basePath = join(workspacePath, "extensions", "providers");
-  const exports = await importIfExists(basePath);
-  if (!exports) return [];
-
-  const registered: string[] = [];
-  for (const [name, provider] of Object.entries(exports)) {
-    if (!provider || typeof (provider as ContextProvider).execute !== "function") {
-      log.error(`Skipping '${name}' in providers — missing execute()`);
-      continue;
-    }
-    registerProvider(name, provider as ContextProvider);
-    registered.push(name);
-  }
-  return registered;
+  return loadSingleFile<ContextProvider>(workspacePath, "providers", isProviderEntry, registerProvider);
 }
 
 /**
  * Load `workspace/extensions/actions.{js,mjs,ts}` if present and register
  * each exported function as a watch action kind. No-op if file is missing.
  *
- * Built-in kinds (dm/group/broadcast) nudge conversation/radio modules.
- * Deployments add things like `webhook`, `email`, `sms` without touching
- * core — a watch then references `"kind": "webhook"` in its action JSON.
+ * Built-in kinds (dm/group/nudge) cover the common cases. Deployments add
+ * `webhook`, `email`, `sms`, etc. — a watch then references
+ * `"kind": "webhook"` in its action JSON.
  */
 export async function loadWorkspaceActions(workspacePath: string): Promise<string[]> {
-  const basePath = join(workspacePath, "extensions", "actions");
-  const exports = await importIfExists(basePath);
-  if (!exports) return [];
-
-  const registered: string[] = [];
-  for (const [kind, fn] of Object.entries(exports)) {
-    if (typeof fn !== "function") {
-      log.error(`Skipping '${kind}' in actions — not a function`);
-      continue;
-    }
-    registerAction(kind, fn as ActionHandler);
-    registered.push(kind);
-  }
-  return registered;
+  return loadSingleFile<ActionHandler>(
+    workspacePath,
+    "actions",
+    isFunctionEntry("actions") as (e: unknown, n: string) => e is ActionHandler,
+    registerAction,
+  );
 }
 
 /**
