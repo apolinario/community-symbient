@@ -11,11 +11,10 @@
  *   (`/api/module/<name>` + `/module/<name>` HTML)
  */
 
-import http from "node:http";
-import fs from "node:fs";
-import { readFile, readdir, stat } from "node:fs/promises";
-import path from "node:path";
-const { join } = path;
+import { createServer, type ServerResponse } from "node:http";
+import { appendFile, mkdirSync, readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { parseFrontmatter } from "../modules/load-modules.js";
 import type { Orchestrator } from "../core/orchestrator.js";
 import type { MemoryManager } from "../memory/manager.js";
@@ -46,14 +45,14 @@ const PORT = Number(process.env.DASHBOARD_PORT) || 3333;
 
 // Log persistence + SSE streaming
 const LOG_BUFFER_SIZE = 500;
-const sseClients = new Set<http.ServerResponse>();
+const sseClients = new Set<ServerResponse>();
 let logFilePath: string | null = null;
 
 /** Read last N log lines from disk. */
 function readRecentLogs(n: number = LOG_BUFFER_SIZE): string[] {
   if (!logFilePath) return [];
   try {
-    const lines = fs.readFileSync(logFilePath, "utf-8").split("\n").filter(Boolean);
+    const lines = readFileSync(logFilePath, "utf-8").split("\n").filter(Boolean);
     return lines.slice(-n).map((l: string) => { try { return JSON.parse(l); } catch { return l; } });
   } catch { return []; }
 }
@@ -64,7 +63,7 @@ export function pushLogLine(line: string): void {
     client.write(`data: ${JSON.stringify(line)}\n\n`);
   }
   if (logFilePath) {
-    fs.appendFile(logFilePath, JSON.stringify(line) + "\n", () => {});
+    appendFile(logFilePath, JSON.stringify(line) + "\n", () => {});
   }
 }
 
@@ -80,9 +79,9 @@ export function startDashboard(
   memoryRef = memory;
   workspaceRef = workspacePath;
   logFilePath = join(workspacePath, "logs", "dashboard.jsonl");
-  try { fs.mkdirSync(path.dirname(logFilePath), { recursive: true }); } catch {}
+  try { mkdirSync(dirname(logFilePath), { recursive: true }); } catch {}
 
-  const server = http.createServer(async (req, res) => {
+  const server = createServer(async (req, res) => {
     const url = new URL(req.url || "/", `http://localhost:${PORT}`);
 
     if (url.pathname === "/api/name") {

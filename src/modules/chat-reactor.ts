@@ -72,7 +72,7 @@ export function createChatReactor(bridge: ChatAdapter, workspacePath: string) {
     });
     const systemPrompt = render(spec.template, vars);
 
-    const allowedTools = ctx.tools.filter((t: any) => {
+    const allowedTools = ctx.tools.filter((t) => {
       for (const entry of spec!.toolNames) {
         if (entry === t.name) return true;
         if (isMCPServer(entry) && t.name.startsWith(`${entry}.`)) return true;

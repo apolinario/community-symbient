@@ -17,6 +17,8 @@ import { MQTTBus } from "./mqtt-bus.js";
 import { createLLMClient } from "./llm.js";
 import { createLogger } from "./logger.js";
 
+const orchLog = createLogger("orchestrator");
+
 export class Orchestrator {
   private modules = new Map<string, RegisteredModule>();
   private running = false;
@@ -48,7 +50,7 @@ export class Orchestrator {
     }
     // Add new ones
     this.piTools.push(...newMcpTools);
-    console.log(`[orchestrator] MCP tools refreshed: ${newMcpTools.map((t: any) => t.name).join(", ")}`);
+    orchLog.info(`MCP tools refreshed: ${newMcpTools.map((t: { name: string }) => t.name).join(", ")}`);
   }
 
   register(config: ModuleConfig, fn: ModuleFunction): void {
@@ -85,7 +87,6 @@ export class Orchestrator {
     this.abortController = new AbortController();
     const { signal } = this.abortController;
 
-    const orchLog = createLogger("orchestrator");
     orchLog.info(`Starting ${this.modules.size} modules...`);
 
     // Launch all modules concurrently
@@ -100,7 +101,7 @@ export class Orchestrator {
   }
 
   async stop(): Promise<void> {
-    createLogger("orchestrator").info("Stopping...");
+    orchLog.info("Stopping...");
     this.abortController.abort();
   }
 
@@ -110,7 +111,12 @@ export class Orchestrator {
     signal: AbortSignal,
   ): Promise<void> {
     const modLog = createLogger(name);
-    const llm = createLLMClient(this.config.llm, mod.config.model);
+    // Bind a per-module LLM client. mod.config.model overrides config.llm.model
+    // when set; createLLMClient then honours per-call overrides on top of that.
+    const llmConfig = mod.config.model
+      ? { ...this.config.llm, model: mod.config.model }
+      : this.config.llm;
+    const llm = createLLMClient(llmConfig);
 
     const ctx: ModuleContext = {
       config: mod.config,

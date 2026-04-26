@@ -29,9 +29,12 @@ import { registerModuleHandler, type ModuleHandler } from "./handler-registry.js
 import { registerProvider, type ContextProvider } from "./context-providers.js";
 import { registerAction, type ActionHandler } from "./action-registry.js";
 import { registerChatAdapter, registerSensor, registerDirectory } from "./adapter-registry.js";
+import { createLogger } from "./logger.js";
 import type { ChatAdapterFactory } from "../adapters/chat/types.js";
 import type { SensorFactory } from "../adapters/sensor/types.js";
 import type { DirectoryFactory } from "../adapters/directory/types.js";
+
+const log = createLogger("extension-loader");
 
 const CANDIDATE_EXTENSIONS = [".js", ".mjs", ".ts"];
 
@@ -44,7 +47,7 @@ async function importIfExists(basePath: string): Promise<Record<string, unknown>
       const exports = (mod.default ?? mod) as Record<string, unknown>;
       return exports;
     } catch (err) {
-      console.error(`[extension-loader] Failed to import ${fullPath}: ${err}`);
+      log.error(`Failed to import ${fullPath}: ${err}`);
       return null;
     }
   }
@@ -63,7 +66,7 @@ async function importAllInDir(dirPath: string): Promise<Array<{ file: string; ex
       const exports = (mod.default ?? mod) as Record<string, unknown>;
       results.push({ file, exports });
     } catch (err) {
-      console.error(`[extension-loader] Failed to import ${fullPath}: ${err}`);
+      log.error(`Failed to import ${fullPath}: ${err}`);
     }
   }
   return results;
@@ -81,7 +84,7 @@ export async function loadWorkspaceHelpers(workspacePath: string): Promise<strin
   const registered: string[] = [];
   for (const [name, fn] of Object.entries(exports)) {
     if (typeof fn !== "function") {
-      console.error(`[extension-loader] Skipping '${name}' in helpers — not a function`);
+      log.error(`Skipping '${name}' in helpers — not a function`);
       continue;
     }
     registerHelper(name, fn as HelperFn);
@@ -103,7 +106,7 @@ export async function loadWorkspaceHandlers(workspacePath: string): Promise<stri
   const registered: string[] = [];
   for (const [name, fn] of Object.entries(exports)) {
     if (typeof fn !== "function") {
-      console.error(`[extension-loader] Skipping '${name}' in handlers — not a function`);
+      log.error(`Skipping '${name}' in handlers — not a function`);
       continue;
     }
     registerModuleHandler(name, fn as ModuleHandler);
@@ -131,7 +134,7 @@ export async function loadWorkspaceProviders(workspacePath: string): Promise<str
   const registered: string[] = [];
   for (const [name, provider] of Object.entries(exports)) {
     if (!provider || typeof (provider as ContextProvider).execute !== "function") {
-      console.error(`[extension-loader] Skipping '${name}' in providers — missing execute()`);
+      log.error(`Skipping '${name}' in providers — missing execute()`);
       continue;
     }
     registerProvider(name, provider as ContextProvider);
@@ -156,7 +159,7 @@ export async function loadWorkspaceActions(workspacePath: string): Promise<strin
   const registered: string[] = [];
   for (const [kind, fn] of Object.entries(exports)) {
     if (typeof fn !== "function") {
-      console.error(`[extension-loader] Skipping '${kind}' in actions — not a function`);
+      log.error(`Skipping '${kind}' in actions — not a function`);
       continue;
     }
     registerAction(kind, fn as ActionHandler);
@@ -182,7 +185,7 @@ async function loadFactoriesFromDir<F extends { name: string }>(
   for (const { file, exports } of entries) {
     const factory = exports.default ?? exports;
     if (!validate(factory)) {
-      console.error(`[extension-loader] Skipping ${subdir}/${file} — missing expected fields`);
+      log.error(`Skipping ${subdir}/${file} — missing expected fields`);
       continue;
     }
     register(factory);
@@ -198,12 +201,17 @@ const isSensorFactory = (x: unknown): x is SensorFactory =>
 const isDirectoryFactory = (x: unknown): x is DirectoryFactory =>
   !!x && typeof (x as any).name === "string" && typeof (x as any).create === "function";
 
-export const loadWorkspaceChatAdapters = (ws: string) =>
-  loadFactoriesFromDir(ws, "adapters/chat", registerChatAdapter, isChatFactory);
-export const loadWorkspaceSensors = (ws: string) =>
-  loadFactoriesFromDir(ws, "sensors", registerSensor, isSensorFactory);
-export const loadWorkspaceDirectories = (ws: string) =>
-  loadFactoriesFromDir(ws, "adapters/directory", registerDirectory, isDirectoryFactory);
+export async function loadWorkspaceChatAdapters(workspacePath: string): Promise<string[]> {
+  return loadFactoriesFromDir(workspacePath, "adapters/chat", registerChatAdapter, isChatFactory);
+}
+
+export async function loadWorkspaceSensors(workspacePath: string): Promise<string[]> {
+  return loadFactoriesFromDir(workspacePath, "sensors", registerSensor, isSensorFactory);
+}
+
+export async function loadWorkspaceDirectories(workspacePath: string): Promise<string[]> {
+  return loadFactoriesFromDir(workspacePath, "adapters/directory", registerDirectory, isDirectoryFactory);
+}
 
 /**
  * Load `workspace/extensions/tools.{js,mjs,ts}` if present. The default
@@ -221,7 +229,7 @@ export async function loadWorkspaceToolsFactory(
   if (!exports) return null;
   const factory = exports.default ?? exports;
   if (typeof factory !== "function") {
-    console.error(`[extension-loader] workspace/extensions/tools — default export must be a function`);
+    log.error(`workspace/extensions/tools — default export must be a function`);
     return null;
   }
   return factory as (deps: unknown) => unknown[];
@@ -245,7 +253,7 @@ export async function loadWorkspaceModulesFactory(
   if (!exports) return null;
   const factory = exports.default ?? exports;
   if (typeof factory !== "function") {
-    console.error(`[extension-loader] workspace/extensions/modules — default export must be a function`);
+    log.error(`workspace/extensions/modules — default export must be a function`);
     return null;
   }
   return factory as (deps: unknown) => unknown[];

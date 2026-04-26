@@ -30,14 +30,14 @@ export type ModuleFunction = (ctx: ModuleContext) => Promise<void>;
 
 export interface ModuleContext {
   config: ModuleConfig;
-  memory: MemoryReader & MemoryWriter;
+  memory: MemoryAccess;
   messages: MessageClient;
   llm: LLMClient;
-  /** Pi SDK model for creating Agents with tool calling */
-  model: any;
-  /** Pi Agent tools available to all modules */
-  tools: any[];
-  /** API key for LLM provider */
+  /** Pi SDK model for creating Agents with tool calling. */
+  model: import("@mariozechner/pi-ai").Model<import("@mariozechner/pi-ai").Api>;
+  /** Pi Agent tools available to all modules. */
+  tools: import("@mariozechner/pi-agent-core").AgentTool[];
+  /** API key for LLM provider. */
   apiKey: string;
   log: (msg: string) => void;
   signal: AbortSignal;
@@ -53,7 +53,15 @@ export interface ModuleHandle {
 
 // --- Memory ---
 
-export interface MemoryReader {
+/**
+ * Read + write surface for the symbient's markdown memory. Modules and
+ * extensions get this interface via `ModuleContext.memory`. The split
+ * between read-only and write-only consumers wasn't load-bearing and
+ * added intersection ceremony at the most-imported seam — re-split if a
+ * pure read-only consumer ever appears.
+ */
+export interface MemoryAccess {
+  // --- Reads ---
   /** Read a file relative to the workspace root. */
   readFile(relPath: string): Promise<string | null>;
   /** Read today's daily log. */
@@ -77,12 +85,11 @@ export interface MemoryReader {
   /**
    * Conversation variant — augments the base context with relevance-ranked
    * memory chunks for the given message (currently routes through the
-   * search backend declared in `config.qmd`).
+   * search backend declared in `services.search`).
    */
   assembleConversationContext(message: string, personName?: string, phone?: string): Promise<string>;
-}
 
-export interface MemoryWriter {
+  // --- Writes ---
   /** Append an entry to today's daily log. */
   appendLog(entry: string): Promise<void>;
   /** Write/overwrite a file relative to workspace root. */
@@ -90,6 +97,11 @@ export interface MemoryWriter {
   /** Append to a file relative to workspace root. */
   appendFile(relPath: string, content: string): Promise<void>;
 }
+
+/** @deprecated alias for `MemoryAccess`. Kept while callers migrate. */
+export type MemoryReader = MemoryAccess;
+/** @deprecated alias for `MemoryAccess`. Kept while callers migrate. */
+export type MemoryWriter = MemoryAccess;
 
 // --- Messaging (MQTT-based inter-module communication) ---
 

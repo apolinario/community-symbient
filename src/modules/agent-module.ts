@@ -75,7 +75,7 @@ export function createAgentModule(spec: ModuleSpec) {
     // Supports: "radio" → all tools from that MCP server (radio.*)
     //           "radio.get_status" → specific MCP tool
     //           "search_memory" → exact match (local tool)
-    const allowedTools = ctx.tools.filter((t: any) => {
+    const allowedTools = ctx.tools.filter((t) => {
       for (const entry of spec.toolNames) {
         if (entry === t.name) return true;
         if (isMCPServer(entry) && t.name.startsWith(`${entry}.`)) return true;

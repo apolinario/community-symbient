@@ -10,7 +10,7 @@ import { Type } from "@mariozechner/pi-ai";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { MemoryManager } from "../memory/manager.js";
 import type { MQTTBus } from "../core/mqtt-bus.js";
-import { recordEvent, queryEvents } from "../core/event-log.js";
+import { queryEvents } from "../core/event-log.js";
 import { symbientName, symbientDisplayName } from "../core/symbient-name.js";
 import { getSearchBackend } from "../core/search.js";
 
