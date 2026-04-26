@@ -41,8 +41,8 @@ function parseHeuristic(input: string): number | null {
   if (relMatch) {
     const n = parseInt(relMatch[1]);
     const unit = relMatch[2][0];
-    const ms = unit === "m" ? n * 60000 : unit === "h" ? n * 3600000 : unit === "d" ? n * 86400000 : n * 604800000;
-    return Date.now() + ms;
+    const unitMs: Record<string, number> = { m: 60000, h: 3600000, d: 86400000, w: 604800000 };
+    return Date.now() + n * (unitMs[unit] ?? unitMs.w);
   }
 
   // "at HH:MM" (today, or tomorrow if past)

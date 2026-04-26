@@ -157,7 +157,10 @@ async function refreshModules() {
     const mods = await res.json();
     modulesEl.innerHTML = mods.map(m => {
       const isRecent = m.lastRun && (Date.now() - new Date(m.lastRun).getTime() < m.intervalMs * 1.5);
-      const statusClass = !m.active ? 'inactive' : isRecent ? 'recent' : 'active';
+      let statusClass;
+      if (!m.active) statusClass = 'inactive';
+      else if (isRecent) statusClass = 'recent';
+      else statusClass = 'active';
       return `<a href="/module/${m.name}" class="card">
         <div class="status ${statusClass}"></div>
         <div class="name">${m.name}</div>

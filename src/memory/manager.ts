@@ -72,6 +72,20 @@ export interface PersonMeta {
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
+/** Render a "[X days ago]" suffix from a YYYY-MM-DD date in the file path. */
+function ageLabelForFile(file: string): string {
+  const dateMatch = file.match(/(\d{4}-\d{2}-\d{2})/);
+  if (!dateMatch) return "";
+  const fileDate = new Date(dateMatch[1]);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const daysAgo = Math.floor((today.getTime() - fileDate.getTime()) / 86400000);
+  if (daysAgo === 0) return " [today]";
+  if (daysAgo === 1) return " [yesterday]";
+  if (daysAgo < 7) return ` [${daysAgo} days ago]`;
+  if (daysAgo < 30) return ` [${Math.floor(daysAgo / 7)} weeks ago]`;
+  return ` [${Math.floor(daysAgo / 30)} months ago]`;
+}
+
 export class MemoryManager implements MemoryReader, MemoryWriter {
   private peopleCache: PersonMeta[] | null = null;
   private peopleCacheTime = 0;
@@ -377,34 +391,27 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
       });
 
       if (filtered.length > 0) {
-        const blocks = await Promise.all(filtered.map(async (r) => {
-          let ageLabel = "";
-          const dateMatch = r.file.match(/(\d{4}-\d{2}-\d{2})/);
-          if (dateMatch) {
-            const fileDate = new Date(dateMatch[1]);
-            const today = new Date(); today.setHours(0, 0, 0, 0);
-            const daysAgo = Math.floor((today.getTime() - fileDate.getTime()) / 86400000);
-            if (daysAgo === 0) ageLabel = " [today]";
-            else if (daysAgo === 1) ageLabel = " [yesterday]";
-            else if (daysAgo < 7) ageLabel = ` [${daysAgo} days ago]`;
-            else if (daysAgo < 30) ageLabel = ` [${Math.floor(daysAgo / 7)} weeks ago]`;
-            else ageLabel = ` [${Math.floor(daysAgo / 30)} months ago]`;
-          }
-          let block = `### ${r.title} (${r.file})${ageLabel}\n${r.snippet}`;
-          const personMatch = r.file.match(/people\/([^/]+)\.md$/);
-          if (personMatch) {
-            for (const extra of await this.callPersonEnrichers(personMatch[1])) {
-              block += `\n\n${extra}`;
-            }
-          }
-          return block;
-        }));
+        const blocks = await Promise.all(filtered.map((r) => this.formatMemoryHit(r)));
         const contextBlock = blocks.join("\n\n");
         parts.push(`<relevant-memory>\nRelated context from memory:\n\n${contextBlock}\n</relevant-memory>`);
       }
     }
 
     return parts.join("\n\n");
+  }
+
+  /** Render one search hit as a markdown block, with an age label and any
+   *  per-person enrichments. Pulled out of assembleConversationContext to
+   *  keep that method's nesting flat. */
+  private async formatMemoryHit(r: SearchHit): Promise<string> {
+    let block = `### ${r.title} (${r.file})${ageLabelForFile(r.file)}\n${r.snippet}`;
+    const personMatch = r.file.match(/people\/([^/]+)\.md$/);
+    if (personMatch) {
+      for (const extra of await this.callPersonEnrichers(personMatch[1])) {
+        block += `\n\n${extra}`;
+      }
+    }
+    return block;
   }
 
   /**

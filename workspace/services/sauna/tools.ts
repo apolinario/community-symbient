@@ -33,7 +33,10 @@ export function createCheckSaunaTool(memory: MemoryManager): AgentTool {
         else trend = ", holding steady";
       }
 
-      const status = temp > 70 ? "hot — ready to use" : temp > 40 ? "warming up" : "cold";
+      let status: string;
+      if (temp > 70) status = "hot — ready to use";
+      else if (temp > 40) status = "warming up";
+      else status = "cold";
 
       return {
         content: [{ type: "text", text: `Sauna: ${temp}°C (${status}${trend}). ${readings.length} readings today.` }],

@@ -105,7 +105,9 @@ function Timeline({ bookings, rooms, startDate, visibleDays, referenceDate }) {
   const isSunday = (date) => date.getDay() === 0  // Canonical departure day
 
   // Calculate cell width based on visible days
-  const cellWidth = visibleDays > 60 ? 18 : visibleDays > 30 ? 24 : 32
+  let cellWidth = 32
+  if (visibleDays > 60) cellWidth = 18
+  else if (visibleDays > 30) cellWidth = 24
 
   return (
     <div className="timeline">
@@ -137,7 +139,7 @@ function Timeline({ bookings, rooms, startDate, visibleDays, referenceDate }) {
             {Object.entries(groupedRooms).map(([venue, venueRooms]) => (
               <div key={venue} className="venue-group">
                 <div className={`venue-header venue-${venue}`}>
-                  {venue === 'chateau' ? 'Chateau' : venue === 'gite' ? 'Gite' : venue.charAt(0).toUpperCase() + venue.slice(1)}
+                  {venue.charAt(0).toUpperCase() + venue.slice(1)}
                   <span className="venue-count">({venueRooms.length})</span>
                 </div>
                 {venueRooms.map(room => {
@@ -204,7 +206,7 @@ function Timeline({ bookings, rooms, startDate, visibleDays, referenceDate }) {
           <div key={venue} className="legend-item">
             <span className={`legend-color venue-${venue}-bg`} />
             <span className="legend-label">
-              {venue === 'chateau' ? 'Chateau' : venue === 'gite' ? 'Gite' : venue.charAt(0).toUpperCase() + venue.slice(1)}
+              {venue.charAt(0).toUpperCase() + venue.slice(1)}
             </span>
           </div>
         ))}

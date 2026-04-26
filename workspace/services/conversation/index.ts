@@ -83,7 +83,9 @@ export function createConversationModule(bridge: ChatAdapter, workspacePath?: st
 
     // --- ALWAYS observe: log every message to memory ---
     const SEASON_GROUP = "aX/mc0Cl/SsJQp6ngVqbBL/NYJi0FanGsqn7HMo9Lw4=";
-    const groupTag = msg.groupId === SEASON_GROUP ? ", season" : msg.groupId ? ", group" : "";
+    let groupTag = "";
+    if (msg.groupId === SEASON_GROUP) groupTag = ", season";
+    else if (msg.groupId) groupTag = ", group";
 
     // Track known groups so the feyblet can look them up when needed
     if (msg.groupId && msg.groupName) {

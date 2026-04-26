@@ -1,5 +1,8 @@
 import { useMemo, useState } from 'react'
 
+const SOURCE_LABELS = { amenitiz: 'Amenitiz', ooi: 'Blocked', admin: 'Admin' }
+const STATUS_LABELS = { current: 'Here Now', upcoming: 'Upcoming', departed: 'Departed' }
+
 function GuestList({ bookings, referenceDate, onEdit, onDelete }) {
   const [sortBy, setSortBy] = useState('checkIn')
   const [sortDir, setSortDir] = useState('asc')
@@ -88,7 +91,7 @@ function GuestList({ bookings, referenceDate, onEdit, onDelete }) {
                 <td>{booking.room}</td>
                 <td>
                   <span className={`venue-badge venue-${booking.venue}`}>
-                    {booking.venue === 'chateau' ? 'Chateau' : booking.venue === 'gite' ? 'Gite' : booking.venue.charAt(0).toUpperCase() + booking.venue.slice(1)}
+                    {booking.venue.charAt(0).toUpperCase() + booking.venue.slice(1)}
                   </span>
                 </td>
                 <td>{formatDate(booking.checkIn)}</td>
@@ -96,12 +99,12 @@ function GuestList({ bookings, referenceDate, onEdit, onDelete }) {
                 <td className="nights">{nights}</td>
                 <td>
                   <span className={`source-badge source-${booking.source}`}>
-                    {booking.source === 'amenitiz' ? 'Amenitiz' : booking.source === 'ooi' ? 'Blocked' : 'Admin'}
+                    {SOURCE_LABELS[booking.source] ?? booking.source}
                   </span>
                 </td>
                 <td>
                   <span className={`status-badge status-${status}`}>
-                    {status === 'current' ? 'Here Now' : status === 'upcoming' ? 'Upcoming' : 'Departed'}
+                    {STATUS_LABELS[status] ?? status}
                   </span>
                 </td>
                 <td className="actions-cell">

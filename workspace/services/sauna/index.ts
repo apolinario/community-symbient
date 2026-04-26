@@ -155,9 +155,12 @@ function describeTemperature(
   previous: number | null,
   timestamp: Date,
 ): string {
-  const trend = previous !== null
-    ? current > previous + 2 ? "rising" : current < previous - 2 ? "cooling" : "steady"
-    : null;
+  let trend: string | null = null;
+  if (previous !== null) {
+    if (current > previous + 2) trend = "rising";
+    else if (current < previous - 2) trend = "cooling";
+    else trend = "steady";
+  }
 
   const age = Date.now() - timestamp.getTime();
   const stale = age > 10 * 60 * 1000; // older than 10 minutes

@@ -8,6 +8,14 @@ import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { FeyOpsDB } from "./db.js";
 import type { MemoryManager } from "../../../src/memory/manager.js";
 
+/** Render a booking's stay-status relative to a YYYY-MM-DD reference date. */
+function bookingStatusLabel(b: { checkin: string; checkout: string }, today: string): string {
+  if (b.checkout <= today) return "departed";
+  if (b.checkin <= today) return "HERE NOW";
+  const days = Math.ceil((new Date(b.checkin).getTime() - new Date(today).getTime()) / 86400000);
+  return `arriving in ${days} day${days === 1 ? "" : "s"}`;
+}
+
 export function createLookupPersonTool(db: FeyOpsDB, memory: MemoryManager): AgentTool {
   return {
     name: "lookup_person",
@@ -35,13 +43,7 @@ export function createLookupPersonTool(db: FeyOpsDB, memory: MemoryManager): Age
           const bookings = matched.filter((b) => b.guest === guest);
           parts.push(`**${guest}**`);
           for (const b of bookings) {
-            let status: string;
-            if (b.checkout <= today) status = "departed";
-            else if (b.checkin <= today) status = "HERE NOW";
-            else {
-              const days = Math.ceil((new Date(b.checkin).getTime() - new Date(today).getTime()) / 86400000);
-              status = `arriving in ${days} day${days === 1 ? "" : "s"}`;
-            }
+            const status = bookingStatusLabel(b, today);
             parts.push(`  ${b.room} (${b.venue}): ${b.checkin} → ${b.checkout} — ${status}`);
           }
         }

@@ -44,6 +44,46 @@ function dailyLogPath(wsPath: string, date: Date): string {
   return join(wsPath, "memory", `${date.toISOString().slice(0, 10)}.md`);
 }
 
+/**
+ * Classify one season-log line as fresh-today, stale-today, or
+ * stale-yesterday and push it into the right bucket. Pulled out of the
+ * season-today provider's loop so the `if/match/if/if` ladder lives in
+ * one named place instead of three nesting levels.
+ */
+function classifySeasonLine(
+  t: string,
+  ctx: { todayISO: string; yesterdayISO: string; nowHour: number },
+  fresh: string[],
+  stale: Array<{ text: string; datetime: string; relativeAge: string }>,
+): void {
+  if (t.includes(ctx.todayISO)) {
+    const tm = t.match(/\*\*\d{4}-\d{2}-\d{2}\s+(\d{2}):(\d{2}):\*\*/);
+    const hoursAgo = tm ? ctx.nowHour - parseInt(tm[1]) : 0;
+    if (tm && hoursAgo > 2) {
+      stale.push({ text: t, datetime: `${ctx.todayISO} ${tm[1]}:${tm[2]}`, relativeAge: `${hoursAgo}h ago` });
+      return;
+    }
+    fresh.push(t);
+    return;
+  }
+  if (t.includes(ctx.yesterdayISO)) {
+    const tm = t.match(/\*\*\d{4}-\d{2}-\d{2}\s+(\d{2}):(\d{2}):\*\*/);
+    const time = tm ? `${tm[1]}:${tm[2]}` : "00:00";
+    stale.push({ text: t, datetime: `${ctx.yesterdayISO} ${time}`, relativeAge: "yesterday" });
+  }
+}
+
+/** Compare a fresh sauna reading against the last logged one and label
+ *  the trend. Returns "" when there are no prior readings. */
+function saunaTrendFromReadings(temp: number, readings: RegExpMatchArray | null | undefined): string {
+  if (!readings || readings.length === 0) return "";
+  const last = readings[readings.length - 1].match(/(\d+\.?\d*)°C/)?.[1];
+  const prev = parseFloat(last || "0");
+  if (temp > prev + 2) return " and heating up";
+  if (temp < prev - 2) return " and cooling down";
+  return " and holding steady";
+}
+
 // --- Providers ---
 
 const houseStatusProvider: ContextProvider = {
@@ -90,13 +130,7 @@ const saunaProvider: ContextProvider = {
         if (typeof temp === "number") {
           const log = await safeRead(dailyLogPath(workspacePathOf(ctx), new Date()));
           const readings = log?.match(/\*\[Sauna\]\*.*?(\d+\.?\d*)°C/g);
-          let trend = "";
-          if (readings && readings.length > 0) {
-            const prev = parseFloat(readings[readings.length - 1].match(/(\d+\.?\d*)°C/)?.[1] || "0");
-            if (temp > prev + 2) trend = " and heating up";
-            else if (temp < prev - 2) trend = " and cooling down";
-            else trend = " and holding steady";
-          }
+          const trend = saunaTrendFromReadings(temp, readings);
           return `Sauna: ${temp}°C${trend} (live)`;
         }
       }
@@ -127,21 +161,7 @@ const seasonTodayProvider: ContextProvider = {
       for (const line of content.split("\n")) {
         const t = line.trim();
         if (!t) continue;
-        if (t.includes(todayISO)) {
-          const tm = t.match(/\*\*\d{4}-\d{2}-\d{2}\s+(\d{2}):(\d{2}):\*\*/);
-          if (tm) {
-            const hoursAgo = nowHour - parseInt(tm[1]);
-            if (hoursAgo > 2) {
-              stale.push({ text: t, datetime: `${todayISO} ${tm[1]}:${tm[2]}`, relativeAge: `${hoursAgo}h ago` });
-              continue;
-            }
-          }
-          fresh.push(t);
-        } else if (t.includes(yesterdayISO)) {
-          const tm = t.match(/\*\*\d{4}-\d{2}-\d{2}\s+(\d{2}):(\d{2}):\*\*/);
-          const time = tm ? `${tm[1]}:${tm[2]}` : "00:00";
-          stale.push({ text: t, datetime: `${yesterdayISO} ${time}`, relativeAge: "yesterday" });
-        }
+        classifySeasonLine(t, { todayISO, yesterdayISO, nowHour }, fresh, stale);
       }
       const rewritten = stale.length > 0 ? await rewriteStaleEntries(stale) : [];
       if (fresh.length > 0 || rewritten.length > 0) {

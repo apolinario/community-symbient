@@ -18,6 +18,63 @@ export function configureRadioTools(options: { ttsUrl?: string; workspacePath?: 
   if (options.workspacePath) workspacePath = options.workspacePath;
 }
 
+/**
+ * Spin up a one-shot HTTP server that hands the WAV to the radio Pi
+ * exactly once, kicks the MCP play_url action, and resolves after a
+ * 30s timeout. Pulled out of the broadcast tool so the broadcast
+ * `execute` body isn't four arrows deep.
+ */
+async function serveAudioOnce(opts: {
+  http: typeof import("node:http");
+  port: number;
+  audioUrl: string;
+  audioBuffer: Buffer;
+  tmpName: string;
+}): Promise<void> {
+  const { http, port, audioUrl, audioBuffer } = opts;
+  return new Promise<void>((resolve) => {
+    let served = false;
+    const server = http.createServer((_req, res) => {
+      served = true;
+      broadcastLog.info(`Pi fetched WAV (${audioBuffer.length} bytes)`);
+      res.writeHead(200, { "Content-Type": "audio/wav", "Content-Length": audioBuffer.length.toString() });
+      res.end(audioBuffer);
+    });
+    server.listen(port, () => {
+      broadcastLog.info(`Serving on ${audioUrl}`);
+      callMCPTool("radio", "ai_mic", { action: "play_url", url: audioUrl })
+        .then((r) => broadcastLog.info(`MCP accepted: ${r.slice(0, 100)}`))
+        .catch((e) => broadcastLog.error(`MCP error: ${e}`));
+    });
+    setTimeout(() => {
+      server.close();
+      if (served) broadcastLog.info("Success — WAV served and played");
+      else broadcastLog.warn("Timeout — Pi never fetched the WAV");
+      resolve();
+    }, 30000);
+  });
+}
+
+/**
+ * Parse a free-form "in 5m" / "in 2h" / "at 18:30" / ISO timestamp into
+ * an epoch-ms target. Falls back to "10 minutes from now" if unparseable.
+ */
+function parseAtSpec(atStr: string): number {
+  const inMatch = atStr.match(/^in\s+(\d+)\s*(m|h)/i);
+  if (inMatch) {
+    const unitMs = inMatch[2].startsWith("h") ? 3600000 : 60000;
+    return Date.now() + parseInt(inMatch[1]) * unitMs;
+  }
+  const atMatch = atStr.match(/^at\s+(\d{1,2}):(\d{2})/i);
+  if (atMatch) {
+    const now = new Date();
+    let t = new Date(now.getFullYear(), now.getMonth(), now.getDate(), parseInt(atMatch[1]), parseInt(atMatch[2])).getTime();
+    if (t < Date.now()) t += 86400000;
+    return t;
+  }
+  return Date.parse(atStr) || Date.now() + 600000;
+}
+
 export function createRadioBroadcastTool(): AgentTool {
   return {
     name: "radio_broadcast",
@@ -93,30 +150,7 @@ export function createRadioBroadcastTool(): AgentTool {
         const myIp = process.env.HOST_IP || "192.168.10.130";
         const audioUrl = `http://${myIp}:${port}/${tmpName}`;
 
-        await new Promise<void>((resolve, reject) => {
-          let served = false;
-          const server = http.createServer((req, res) => {
-            served = true;
-            broadcastLog.info(`Pi fetched WAV (${audioBuffer.length} bytes)`);
-            res.writeHead(200, { "Content-Type": "audio/wav", "Content-Length": audioBuffer.length.toString() });
-            res.end(audioBuffer);
-          });
-          server.listen(port, () => {
-            broadcastLog.info(`Serving on ${audioUrl}`);
-            callMCPTool("radio", "ai_mic", { action: "play_url", url: audioUrl })
-              .then((r) => broadcastLog.info(`MCP accepted: ${r.slice(0, 100)}`))
-              .catch((e) => broadcastLog.error(`MCP error: ${e}`));
-          });
-          setTimeout(() => {
-            server.close();
-            if (served) {
-              broadcastLog.info("Success — WAV served and played");
-            } else {
-              broadcastLog.warn("Timeout — Pi never fetched the WAV");
-            }
-            resolve();
-          }, 30000);
-        });
+        await serveAudioOnce({ http, port, audioUrl, audioBuffer, tmpName });
 
         // Clean up
         setTimeout(() => fs.unlink(tmpPath).catch(() => {}), 60000);
@@ -264,19 +298,7 @@ export function createRadioCalendarTool(): AgentTool {
 
         case "add_upcoming": {
           if (!params.upcoming) return { content: [{ type: "text", text: "Provide upcoming broadcast details." }], details: {} };
-          let atTime: number;
-          const atStr = params.upcoming.at;
-          const inMatch = atStr.match(/^in\s+(\d+)\s*(m|h)/i);
-          const atMatch = atStr.match(/^at\s+(\d{1,2}):(\d{2})/i);
-          if (inMatch) {
-            atTime = Date.now() + parseInt(inMatch[1]) * (inMatch[2].startsWith("h") ? 3600000 : 60000);
-          } else if (atMatch) {
-            const now = new Date();
-            atTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), parseInt(atMatch[1]), parseInt(atMatch[2])).getTime();
-            if (atTime < Date.now()) atTime += 86400000;
-          } else {
-            atTime = Date.parse(atStr) || Date.now() + 600000;
-          }
+          const atTime = parseAtSpec(params.upcoming.at);
 
           cal.upcoming.push({
             id: `cal-${Date.now()}`,

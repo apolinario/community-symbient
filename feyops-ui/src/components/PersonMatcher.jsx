@@ -229,11 +229,16 @@ function UnmatchedRow({ guest, people, suggestions, onMatch, onSkip }) {
         <span className="guest-meta">{guest.count} booking{guest.count > 1 ? 's' : ''} ({guest.sources})</span>
       </button>
       <div className="match-options">
-        {allOptions.map(s => (
-          <button key={s.slug} className={`match-btn ${s.score >= 90 ? 'high' : s.score >= 50 ? 'medium' : 'low'}`} onClick={() => onMatch(guest.guest, s.slug)} title={s.slug}>
-            {s.name} {s.score >= 90 ? '\u2713' : ''}
-          </button>
-        ))}
+        {allOptions.map(s => {
+          let scoreClass = 'low'
+          if (s.score >= 90) scoreClass = 'high'
+          else if (s.score >= 50) scoreClass = 'medium'
+          return (
+            <button key={s.slug} className={`match-btn ${scoreClass}`} onClick={() => onMatch(guest.guest, s.slug)} title={s.slug}>
+              {s.name} {s.score >= 90 ? '\u2713' : ''}
+            </button>
+          )
+        })}
         {expanded && (
           <input
             type="text"

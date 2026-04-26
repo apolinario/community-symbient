@@ -235,7 +235,7 @@ function App() {
         <div className="header-actions">
           <div className="sync-status">
             <span className={`sync-dot ${loading ? 'loading' : ''}`}></span>
-            <span>{loading ? 'Syncing...' : `Synced ${lastSync ? formatTime(lastSync) : ''}`}</span>
+            <span>{loading ? 'Syncing...' : (lastSync ? `Synced ${formatTime(lastSync)}` : 'Synced')}</span>
           </div>
           <button className="btn" onClick={() => window.print()}>Print</button>
           <button className="btn" onClick={exportCSV}>Export CSV</button>
@@ -304,27 +304,36 @@ function App() {
         </div>
 
         <div className="filter-group">
-          {['all', 'chateau', 'cottage', 'ferme', 'gite', 'glamping', 'dorm', 'van', 'offsite'].map(v => (
-            <button key={v} className={`filter-chip ${venueFilter === v ? 'active' : ''}`} onClick={() => setVenueFilter(v)}>
-              {v === 'all' ? 'All' : v === 'gite' ? 'Gite' : v.charAt(0).toUpperCase() + v.slice(1)}
-            </button>
-          ))}
+          {['all', 'chateau', 'cottage', 'ferme', 'gite', 'glamping', 'dorm', 'van', 'offsite'].map(v => {
+            const label = v === 'all' ? 'All' : v.charAt(0).toUpperCase() + v.slice(1)
+            return (
+              <button key={v} className={`filter-chip ${venueFilter === v ? 'active' : ''}`} onClick={() => setVenueFilter(v)}>
+                {label}
+              </button>
+            )
+          })}
         </div>
 
         <div className="source-filter">
-          {['all', 'amenitiz', 'ooi', 'admin'].map(s => (
-            <button key={s} className={`filter-chip source-chip ${sourceFilter === s ? 'active' : ''}`} onClick={() => setSourceFilter(s)}>
-              {s === 'all' ? 'All Sources' : s === 'amenitiz' ? 'Amenitiz' : s === 'ooi' ? 'Blocked/OOI' : 'Admin'}
-            </button>
-          ))}
+          {['all', 'amenitiz', 'ooi', 'admin'].map(s => {
+            const labels = { all: 'All Sources', amenitiz: 'Amenitiz', ooi: 'Blocked/OOI', admin: 'Admin' }
+            return (
+              <button key={s} className={`filter-chip source-chip ${sourceFilter === s ? 'active' : ''}`} onClick={() => setSourceFilter(s)}>
+                {labels[s]}
+              </button>
+            )
+          })}
         </div>
 
         <div className="view-tabs">
-          {['timeline', 'guests', 'venues'].map(v => (
-            <button key={v} className={`view-tab ${view === v ? 'active' : ''}`} onClick={() => setView(v)}>
-              {v === 'timeline' ? 'Timeline' : v === 'guests' ? 'Guest List' : 'By Venue'}
-            </button>
-          ))}
+          {['timeline', 'guests', 'venues'].map(v => {
+            const labels = { timeline: 'Timeline', guests: 'Guest List', venues: 'By Venue' }
+            return (
+              <button key={v} className={`view-tab ${view === v ? 'active' : ''}`} onClick={() => setView(v)}>
+                {labels[v]}
+              </button>
+            )
+          })}
         </div>
       </div>
 

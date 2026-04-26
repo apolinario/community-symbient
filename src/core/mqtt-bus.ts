@@ -98,6 +98,37 @@ export class MQTTBus {
     if (idx !== -1) ws.splice(idx, 1);
   }
 
+  /**
+   * Take the next queued message or block until one arrives. Extracted
+   * out of the receive() closure so the timer/waiter wiring isn't
+   * three-deep inside an arrow.
+   */
+  private awaitMessage(
+    moduleName: string,
+    queue: ModuleMessage[],
+    waiters: Array<(msg: ModuleMessage) => void>,
+    timeoutMs?: number,
+  ): Promise<ModuleMessage | null> {
+    return new Promise<ModuleMessage | null>((resolve) => {
+      if (queue.length > 0) {
+        resolve(queue.shift()!);
+        return;
+      }
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const waiter = (msg: ModuleMessage) => {
+        if (timer) clearTimeout(timer);
+        resolve(msg);
+      };
+      waiters.push(waiter);
+      if (timeoutMs !== undefined) {
+        timer = setTimeout(() => {
+          this.removeWaiter(moduleName, waiter);
+          resolve(null);
+        }, timeoutMs);
+      }
+    });
+  }
+
   clientFor(moduleName: string): MessageClient {
     // Slots are created up-front and never removed for the lifetime of this
     // client — closure can capture the arrays directly.
@@ -114,28 +145,7 @@ export class MQTTBus {
         this.client?.publish(topic, JSON.stringify(msg), { qos: 2 });
       },
 
-      receive: (timeoutMs?: number) => {
-        return new Promise<ModuleMessage | null>((resolve) => {
-          if (queue.length > 0) {
-            resolve(queue.shift()!);
-            return;
-          }
-
-          let timer: ReturnType<typeof setTimeout> | undefined;
-          const waiter = (msg: ModuleMessage) => {
-            if (timer) clearTimeout(timer);
-            resolve(msg);
-          };
-          waiters.push(waiter);
-
-          if (timeoutMs !== undefined) {
-            timer = setTimeout(() => {
-              this.removeWaiter(moduleName, waiter);
-              resolve(null);
-            }, timeoutMs);
-          }
-        });
-      },
+      receive: (timeoutMs?: number) => this.awaitMessage(moduleName, queue, waiters, timeoutMs),
 
       pending: () => queue.length,
     };

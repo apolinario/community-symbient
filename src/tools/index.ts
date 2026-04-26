@@ -84,18 +84,51 @@ export function createSearchMemoryTool(): AgentTool {
 
 // --- Chat History (queries the structured event log) ---
 
+/** Pull the counterparty name from a chat_message event — `to` for outbound, `from` for inbound. */
+function counterpartyOf(evt: Record<string, unknown>): string | null {
+  const field = evt.direction === "out" ? evt.to : evt.from;
+  return typeof field === "string" ? field : null;
+}
+
+/**
+ * Tally counterparties from a list of DM chat_message events and return
+ * a "Recent DM contacts" tool response. Lifted out of chat_history so
+ * the per-person branch isn't crowded by the contacts-listing branch.
+ */
+function listDmContacts(
+  events: Array<Record<string, unknown>>,
+  self: string,
+): { content: Array<{ type: "text"; text: string }>; details: Record<string, never> } {
+  const contacts = new Map<string, number>();
+  for (const evt of events) {
+    const counterparty = counterpartyOf(evt);
+    if (!counterparty || counterparty === self) continue;
+    contacts.set(counterparty, (contacts.get(counterparty) || 0) + 1);
+  }
+  if (contacts.size === 0) {
+    return { content: [{ type: "text", text: "No DM contacts in the recent window." }], details: {} };
+  }
+  const sorted = [...contacts.entries()].sort((a, b) => b[1] - a[1]);
+  const list = sorted.map(([name, n]) => `${name} (${n} messages)`).join("\n");
+  return {
+    content: [{
+      type: "text",
+      text: `Recent DM contacts:\n${list}\n\nCall chat_history with a person name to see their conversation.`,
+    }],
+    details: {},
+  };
+}
+
 /**
  * Format a chat_message event as a single line. Direction-aware:
  *   [HH:mm] in  Alice: hi
  *   [HH:mm] out → Alice: hi back
  */
-function formatChatLine(evt: Record<string, unknown>, self: string): string {
+function formatChatLine(evt: Record<string, unknown>, _self: string): string {
   const ts = typeof evt.ts === "number" ? new Date(evt.ts) : new Date();
   const time = ts.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   const direction = evt.direction === "out" ? "out →" : "in  ←";
-  const counterparty = evt.direction === "out"
-    ? (typeof evt.to === "string" ? evt.to : "?")
-    : (typeof evt.from === "string" ? evt.from : "?");
+  const counterparty = counterpartyOf(evt) ?? "?";
   const text = typeof evt.text === "string" ? evt.text : "(no text)";
   return `[${time}] ${direction} ${counterparty}: ${text}`;
 }
@@ -129,29 +162,7 @@ export function createChatHistoryTool(memory: MemoryManager): AgentTool {
           return { content: [{ type: "text", text: "No DM events found in the event log." }], details: {} };
         }
 
-        if (!params.person) {
-          // List contacts: count messages per counterparty.
-          const contacts = new Map<string, number>();
-          for (const evt of events) {
-            const counterparty = evt.direction === "out"
-              ? (typeof evt.to === "string" ? evt.to : null)
-              : (typeof evt.from === "string" ? evt.from : null);
-            if (!counterparty || counterparty === self) continue;
-            contacts.set(counterparty, (contacts.get(counterparty) || 0) + 1);
-          }
-          if (contacts.size === 0) {
-            return { content: [{ type: "text", text: "No DM contacts in the recent window." }], details: {} };
-          }
-          const sorted = [...contacts.entries()].sort((a, b) => b[1] - a[1]);
-          const list = sorted.map(([name, n]) => `${name} (${n} messages)`).join("\n");
-          return {
-            content: [{
-              type: "text",
-              text: `Recent DM contacts:\n${list}\n\nCall chat_history with a person name to see their conversation.`,
-            }],
-            details: {},
-          };
-        }
+        if (!params.person) return listDmContacts(events, self);
 
         // Resolve the requested name through the memory manager so nicknames
         // / aliases match. Then build a set of name candidates to compare
@@ -272,6 +283,18 @@ interface ScheduleEntry {
  * the load-mutate-save scaffolding so every schedule operation goes through
  * the same code path.
  */
+/**
+ * Parse a free-form expires string ("2026-05-01", "in 3w", etc.) into an
+ * ISO timestamp, or return null if the input is empty or unparseable.
+ * Extracted from createScheduleTool so the cron branch stays flat.
+ */
+async function resolveExpiresIso(expires: unknown): Promise<string | null> {
+  if (!expires || typeof expires !== "string") return null;
+  const { parseTime } = await import("../core/time-parser.js");
+  const t = await parseTime(expires);
+  return t ? new Date(t).toISOString() : null;
+}
+
 function scheduleStore(workspacePath: string) {
   return {
     async load(): Promise<{ path: string; items: ScheduleEntry[] }> {
@@ -324,12 +347,7 @@ export function createScheduleTool(workspacePath: string): AgentTool {
             return { content: [{ type: "text", text: `Cron "${params.cron}" has no upcoming runs.` }], details: {} };
           }
 
-          let expiresTime: string | null = null;
-          if (params.expires) {
-            const { parseTime } = await import("../core/time-parser.js");
-            const t = await parseTime(params.expires);
-            if (t) expiresTime = new Date(t).toISOString();
-          }
+          const expiresTime = await resolveExpiresIso(params.expires);
 
           const entry: ScheduleEntry = {
             id: `sched-${Date.now()}`,

@@ -96,12 +96,11 @@ ${batchPrompt}`,
       if (result) {
         for (const line of result.split("\n")) {
           const m = line.match(/^(\d+)\.\s*([YN])/i);
-          if (m) {
-            const idx = parseInt(m[1]) - 1;
-            if (idx >= 0 && idx < ambiguous.length && m[2].toUpperCase() === "Y") {
-              validated.add(ambiguous[idx].lineIndex);
-            }
-          }
+          if (!m) continue;
+          const idx = parseInt(m[1]) - 1;
+          if (idx < 0 || idx >= ambiguous.length) continue;
+          if (m[2].toUpperCase() !== "Y") continue;
+          validated.add(ambiguous[idx].lineIndex);
         }
       } else {
         // LLM failed — accept all ambiguous candidates (better to over-annotate than miss)
