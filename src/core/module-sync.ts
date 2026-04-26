@@ -17,7 +17,7 @@ import type { ModuleContext } from "./types.js";
 import type { Orchestrator } from "./orchestrator.js";
 import { readdir, readFile, rename, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { parseFrontmatter, parseInterval } from "../modules/load-modules.js";
+import { parseFrontmatter, parseInterval } from "./frontmatter.js";
 import { createAgentModule } from "../modules/agent-module.js";
 import { parseSections } from "./prompt-template.js";
 import { getModuleHandler, defaultModuleHandler } from "./handler-registry.js";
@@ -60,14 +60,16 @@ export function createModuleSyncModule(orchestrator: Orchestrator, workspacePath
         const content = await readFile(filePath, "utf-8");
         const { fields, body } = parseFrontmatter(content);
 
-        const interval = typeof fields.interval === "string" ? parseInterval(fields.interval) : (fields.interval || 60000);
-        const toolNames: string[] = Array.isArray(fields.tools) ? fields.tools : [];
+        const interval = typeof fields.interval === "string"
+          ? parseInterval(fields.interval)
+          : (typeof fields.interval === "number" ? fields.interval : 60_000);
+        const toolNames: string[] = Array.isArray(fields.tools) ? fields.tools.filter((t): t is string => typeof t === "string") : [];
         const startActive = fields.startActive !== false;
-        const runImmediately = fields.runImmediately as boolean | undefined;
-        const follows = fields.follows as string | undefined;
+        const runImmediately = typeof fields.runImmediately === "boolean" ? fields.runImmediately : undefined;
+        const follows = typeof fields.follows === "string" ? fields.follows : undefined;
 
         // Check expiry
-        if (fields.expires) {
+        if (typeof fields.expires === "string") {
           const expiresDate = new Date(fields.expires);
           if (!isNaN(expiresDate.getTime()) && expiresDate.getTime() < Date.now()) {
             // Expired — move to disabled
@@ -98,7 +100,9 @@ export function createModuleSyncModule(orchestrator: Orchestrator, workspacePath
         };
 
         // Declarative context blocks from frontmatter.
-        const contextDecl = Array.isArray(fields.context) ? fields.context : undefined;
+        const contextDecl = Array.isArray(fields.context)
+          ? (fields.context as Array<{ source: string; [k: string]: unknown }>)
+          : undefined;
 
         const fn = createAgentModule({
           name,

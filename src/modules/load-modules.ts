@@ -13,36 +13,19 @@
 
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { load as yamlLoad } from "js-yaml";
 import type { ModuleConfig, ModuleFunction } from "../core/types.js";
 import { createAgentModule } from "./agent-module.js";
 import { getModuleHandler, defaultModuleHandler } from "../core/handler-registry.js";
 import { parseSections } from "../core/prompt-template.js";
+import { parseFrontmatter, parseInterval } from "../core/frontmatter.js";
+
+// Re-exports kept so existing callers (chat-reactor, module-sync,
+// memory/manager, dashboard/server) keep working through the migration.
+export { parseFrontmatter, parseInterval };
 
 interface ParsedModule {
   config: ModuleConfig;
   fn: ModuleFunction;
-}
-
-/** Parse interval strings like "3h", "10m", "500ms". Default: 1 min. */
-export function parseInterval(s: string): number {
-  const match = s.match(/^(\d+)\s*(ms|s|m|h)$/);
-  if (!match) return 60000;
-  const n = parseInt(match[1]);
-  switch (match[2]) {
-    case "ms": return n;
-    case "s": return n * 1000;
-    case "m": return n * 60 * 1000;
-    case "h": return n * 60 * 60 * 1000;
-    default: return n;
-  }
-}
-
-export function parseFrontmatter(content: string): { fields: Record<string, any>; body: string } {
-  const match = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
-  if (!match) return { fields: {}, body: content };
-  const fields = (yamlLoad(match[1]) as Record<string, any>) ?? {};
-  return { fields, body: match[2].trim() };
 }
 
 export async function loadModuleConfigs(workspacePath: string): Promise<ParsedModule[]> {
@@ -62,12 +45,14 @@ export async function loadModuleConfigs(workspacePath: string): Promise<ParsedMo
     const content = await readFile(join(modulesDir, file), "utf-8");
     const { fields, body } = parseFrontmatter(content);
 
-    const name = fields.name || file.replace(".md", "");
-    const interval = typeof fields.interval === "string" ? parseInterval(fields.interval) : (fields.interval || 60000);
-    const toolNames: string[] = Array.isArray(fields.tools) ? fields.tools : [];
+    const name = (typeof fields.name === "string" ? fields.name : file.replace(".md", ""));
+    const interval = typeof fields.interval === "string"
+      ? parseInterval(fields.interval)
+      : (typeof fields.interval === "number" ? fields.interval : 60_000);
+    const toolNames: string[] = Array.isArray(fields.tools) ? fields.tools.filter((t): t is string => typeof t === "string") : [];
     const startActive = fields.startActive !== false; // default true
-    const follows = fields.follows as string | undefined;
-    const runImmediately = fields.runImmediately as boolean | undefined;
+    const follows = typeof fields.follows === "string" ? fields.follows : undefined;
+    const runImmediately = typeof fields.runImmediately === "boolean" ? fields.runImmediately : undefined;
 
     // Skip conversation — it has special handling (Signal bridge)
     if (name === "conversation") continue;
@@ -80,7 +65,9 @@ export async function loadModuleConfigs(workspacePath: string): Promise<ParsedMo
     const handler = getModuleHandler(name) ?? defaultModuleHandler;
 
     // Declarative context blocks from frontmatter (`context:` array of provider declarations).
-    const contextDecl = Array.isArray(fields.context) ? fields.context : undefined;
+    const contextDecl = Array.isArray(fields.context)
+      ? (fields.context as Array<{ source: string; [k: string]: unknown }>)
+      : undefined;
 
     modules.push({
       config: { name, intervalMs: interval, startActive, follows, runImmediately, description: template.split("\n")[0] },

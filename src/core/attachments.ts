@@ -25,12 +25,20 @@ export function configureAttachmentServices(options: {
   attachmentBaseUrl?: string;
   /** Whisper-compatible /v1/audio/transcriptions endpoint. */
   whisperUrl?: string;
+  /** Workspace root. Attachments are written under `<workspacePath>/media/`. */
+  workspacePath?: string;
 }): void {
   attachmentBaseUrl = options.attachmentBaseUrl ?? "";
   whisperUrl = options.whisperUrl ?? "";
+  if (options.workspacePath) {
+    mediaDir = join(options.workspacePath, "media");
+  }
 }
 
-const MEDIA_DIR = join(process.cwd(), "workspace", "media");
+// Resolved at startup via configureAttachmentServices(). The cwd-based
+// fallback only fires if a deployment forgets to wire it — keeps the
+// module functional but a deliberate config call is the supported path.
+let mediaDir = join(process.cwd(), "workspace", "media");
 
 export interface Attachment {
   id: string;
@@ -49,7 +57,7 @@ export async function processAttachments(
   attachments: Attachment[],
   fromLabel: string,
 ): Promise<ProcessedAttachments> {
-  await mkdir(MEDIA_DIR, { recursive: true });
+  await mkdir(mediaDir, { recursive: true });
 
   const result: ProcessedAttachments = { images: [], transcriptions: [], logs: [] };
 
@@ -60,7 +68,7 @@ export async function processAttachments(
 
       const ext = att.contentType.split("/")[1]?.split(";")[0] || "bin";
       const filename = `${new Date().toISOString().slice(0, 10)}-${fromLabel.replace(/\s+/g, "-").toLowerCase()}-${Date.now()}.${ext}`;
-      await writeFile(join(MEDIA_DIR, filename), buffer);
+      await writeFile(join(mediaDir, filename), buffer);
 
       if (att.contentType.startsWith("image/")) {
         await processImage(buffer, att.contentType, filename, fromLabel, result);

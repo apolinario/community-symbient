@@ -175,6 +175,7 @@ async function main() {
   configureAttachmentServices({
     whisperUrl: config.services?.whisper?.url as string | undefined,
     attachmentBaseUrl: chatAdapter?.getAttachmentBaseUrl?.() ?? undefined,
+    workspacePath: config.workspacePath,
   });
 
   // MCP servers — declared in config.mcp_servers. Tools auto-discovered at startup.

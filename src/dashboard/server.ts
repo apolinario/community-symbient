@@ -15,7 +15,7 @@ import { createServer, type ServerResponse } from "node:http";
 import { appendFile, mkdirSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { parseFrontmatter } from "../modules/load-modules.js";
+import { parseFrontmatter } from "../core/frontmatter.js";
 import type { Orchestrator } from "../core/orchestrator.js";
 import type { MemoryManager } from "../memory/manager.js";
 

@@ -30,7 +30,10 @@ export function registerBuiltIns(config: SymbientConfig): void {
 
   registerBuiltInModule("schedule-checker", {
     config: { name: "schedule-checker", intervalMs: 60_000, startActive: true, description: "Fires due scheduled items via MQTT nudge" },
-    factory: () => createScheduleCheckerModule({ defaultTarget: scheduledTarget }),
+    factory: (deps) => createScheduleCheckerModule({
+      defaultTarget: scheduledTarget,
+      workspacePath: deps.workspacePath,
+    }),
   });
 
   registerBuiltInModule("watch-evaluator", {

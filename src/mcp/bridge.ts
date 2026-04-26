@@ -11,6 +11,9 @@
 import { createRuntime, type Runtime, type ServerToolInfo } from "mcporter";
 import { Type } from "@mariozechner/pi-ai";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
+import { createLogger } from "../core/logger.js";
+
+const log = createLogger("mcp");
 
 export interface MCPServerConfig {
   name: string;
@@ -29,7 +32,7 @@ export function onMCPReconnect(cb: (tools: AgentTool[]) => void) {
 
 /** Reconnect to all MCP servers — closes existing connections, re-discovers tools. */
 export async function reconnectMCP(): Promise<AgentTool[]> {
-  console.log("[mcp] Reconnecting...");
+  log.info("Reconnecting...");
   await closeMCP();
   const tools = await initMCP(_servers);
   if (_onReconnect) _onReconnect(tools);
@@ -58,14 +61,14 @@ export async function initMCP(servers: MCPServerConfig[]): Promise<AgentTool[]> 
         for (const tool of mcpTools) {
           allTools.push(mcpToolToAgentTool(server.name, tool));
         }
-        console.log(`MCP [${server.name}]: ${mcpTools.length} tools discovered`);
+        log.info(`[${server.name}]: ${mcpTools.length} tools discovered`);
         break;
       } catch (err) {
         if (attempt < 2) {
-          console.log(`MCP [${server.name}]: attempt ${attempt + 1} failed, retrying in 5s...`);
+          log.warn(`[${server.name}]: attempt ${attempt + 1} failed, retrying in 5s...`);
           await new Promise(r => setTimeout(r, 5000));
         } else {
-          console.error(`MCP [${server.name}]: failed to connect after 3 attempts — ${err}`);
+          log.error(`[${server.name}]: failed to connect after 3 attempts — ${err}`);
         }
       }
     }
@@ -122,11 +125,11 @@ function mcpToolToAgentTool(serverName: string, tool: ServerToolInfo): AgentTool
           return { content: [{ type: "text", text: JSON.stringify(result) }], details: {} };
         } catch (err) {
           if (attempt === 0) {
-            console.log(`[mcp] ${serverName}.${tool.name} failed, reconnecting...`);
+            log.warn(`${serverName}.${tool.name} failed, reconnecting...`);
             try {
               await reconnectMCP();
             } catch (reconnectErr) {
-              console.error(`[mcp] reconnect failed: ${(reconnectErr as Error).message}`);
+              log.error(`reconnect failed: ${(reconnectErr as Error).message}`);
             }
             continue;
           }

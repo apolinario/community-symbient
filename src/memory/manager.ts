@@ -21,8 +21,11 @@ import { join, dirname } from "node:path";
 import type { MemoryReader, MemoryWriter } from "../core/types.js";
 import { slugify } from "../core/slugify.js";
 import { symbientName } from "../core/symbient-name.js";
-import { parseFrontmatter } from "../modules/load-modules.js";
+import { parseFrontmatter } from "../core/frontmatter.js";
 import { getSearchBackend, type SearchHit } from "../core/search.js";
+import { createLogger } from "../core/logger.js";
+
+const log = createLogger("memory");
 
 /**
  * Optional deployment-provided hook into context assembly. Handles the
@@ -214,7 +217,7 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     for (const listener of this.appendListeners) {
       Promise.resolve()
         .then(() => listener(entry, now))
-        .catch((err) => console.warn("[memory] onAppend listener failed:", (err as Error)?.message || err));
+        .catch((err) => log.warn(`onAppend listener failed: ${(err as Error)?.message || err}`));
     }
   }
 

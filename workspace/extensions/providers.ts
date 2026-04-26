@@ -12,12 +12,14 @@
  * Another community writes their own providers.js with their own blocks.
  */
 
-import type { ContextProvider } from "../../src/core/context-providers.js";
-import type { ModuleContext } from "../../src/core/types.js";
+import {
+  symbientDisplayName,
+  annotateContextLines,
+  type ContextProvider,
+  type ModuleContext,
+} from "../../src/core/extensions-api.js";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { symbientDisplayName } from "../../src/core/symbient-name.js";
-import { annotateContextLines } from "../../src/memory/time-annotate.js";
 import type { FeyOpsDB } from "../services/feyops/db.js";
 
 // Holds runtime refs needed by the providers. Populated by workspace/

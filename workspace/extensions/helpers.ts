@@ -6,7 +6,7 @@
  * conversation.md, radio.md).
  */
 
-import type { HelperFn } from "../../src/core/prompt-vars.js";
+import type { HelperFn } from "../../src/core/extensions-api.js";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 

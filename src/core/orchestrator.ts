@@ -11,8 +11,8 @@ import type {
   ModuleContext,
   ModuleHandle,
   SymbientConfig,
+  MemoryAccess,
 } from "./types.js";
-import { MemoryManager } from "../memory/manager.js";
 import { MQTTBus } from "./mqtt-bus.js";
 import { createLLMClient } from "./llm.js";
 import { createLogger } from "./logger.js";
@@ -30,7 +30,7 @@ export class Orchestrator {
 
   constructor(
     private config: SymbientConfig,
-    private memory: MemoryManager,
+    private memory: MemoryAccess,
     private bus: MQTTBus,
   ) {}
 

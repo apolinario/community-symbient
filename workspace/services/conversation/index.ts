@@ -13,7 +13,6 @@ import type { ModuleContext } from "../../../src/core/types.js";
 import type { InboundMessage } from "../../../src/core/types.js";
 import type { ChatAdapter } from "../../../src/adapters/chat/types.js";
 import { Agent } from "@mariozechner/pi-agent-core";
-import { completeText } from "../../../src/core/llm.js";
 import { isMCPServer } from "../../../src/mcp/bridge.js";
 import { parseFrontmatter } from "../../../src/modules/load-modules.js";
 import { parseSections, render } from "../../../src/core/prompt-template.js";
@@ -30,23 +29,31 @@ const SILENT_GROUPS = new Set(
   (process.env.FEYBLET_SILENT_GROUPS || "").split(",").filter(Boolean),
 );
 
-// Load tool whitelist and prompt template from conversation.md at startup.
-// The body is a Handlebars template; subsections (## directAddressRetry, etc.) are
-// split out for use in specific places like the empty-response retry prompt.
+// Tool whitelist and prompt template loaded from conversation.md on first
+// cycle (lazy — avoids top-level await + process.cwd() at import time).
 let conversationToolNames: string[] = [];
 let conversationTemplate = "";
 let conversationSections: Record<string, string> = {};
-try {
-  const md = await readFile(join(process.cwd(), "workspace", "modules", "conversation.md"), "utf-8");
-  const { fields, body } = parseFrontmatter(md);
-  conversationToolNames = Array.isArray(fields.tools) ? fields.tools : [];
-  const { body: template, sections } = parseSections(body);
-  conversationTemplate = template;
-  conversationSections = sections;
-} catch {}
+let conversationSpecLoaded = false;
 
-export function createConversationModule(bridge: ChatAdapter) {
+async function ensureConversationSpec(workspacePath: string): Promise<void> {
+  if (conversationSpecLoaded) return;
+  conversationSpecLoaded = true;
+  try {
+    const md = await readFile(join(workspacePath, "modules", "conversation.md"), "utf-8");
+    const { fields, body } = parseFrontmatter(md);
+    conversationToolNames = Array.isArray(fields.tools) ? fields.tools.filter((t): t is string => typeof t === "string") : [];
+    const { body: template, sections } = parseSections(body);
+    conversationTemplate = template;
+    conversationSections = sections;
+  } catch {
+    // Missing conversation.md is fine — the module degrades to bare default behaviour.
+  }
+}
+
+export function createConversationModule(bridge: ChatAdapter, workspacePath?: string) {
   const inbox: InboundMessage[] = [];
+  const ws = workspacePath ?? join(process.cwd(), "workspace");
   const groupBuffer: Array<{ from: string; text: string; timestamp: Date }> = [];
   const MAX_GROUP_BUFFER = 30;
 
@@ -55,6 +62,8 @@ export function createConversationModule(bridge: ChatAdapter) {
   });
 
   return async function conversation(ctx: ModuleContext): Promise<void> {
+    await ensureConversationSpec(ws);
+
     // Check for inter-module messages (nudges from executive, radio, etc.)
     const moduleMsg = await ctx.messages.receive(100);
     if (moduleMsg) {
@@ -62,7 +71,7 @@ export function createConversationModule(bridge: ChatAdapter) {
 
       // Handle nudges that require conversation to act as an agent
       if (moduleMsg.content.startsWith("send_dm:") || moduleMsg.content.startsWith("send_group:") || moduleMsg.content.startsWith("request:")) {
-        await handleModuleNudge(ctx, moduleMsg, bridge);
+        await handleModuleNudge(ctx, moduleMsg);
         return; // Don't process inbox this cycle
       }
     }
@@ -433,21 +442,6 @@ function extractRecentExchanges(
   return messages.slice(-maxExchanges);
 }
 
-async function updatePersonFile(ctx: ModuleContext, name: string): Promise<void> {
-  const { slugify } = await import("../../core/slugify.js");
-  const safeName = slugify(name);
-  const path = `people/${safeName}.md`;
-  const existing = await ctx.memory.readFile(path);
-
-  if (!existing) {
-    const now = new Date().toISOString().slice(0, 10);
-    await ctx.memory.writeFile(
-      path,
-      `---\nname: ${name}\nfirst-encountered: ${now}\n---\n\n# ${name}\n`,
-    );
-  }
-}
-
 async function detectAndLogSeason(
   ctx: ModuleContext,
   text: string,
@@ -511,8 +505,11 @@ Output ONLY the classification line, nothing else.`,
 async function handleModuleNudge(
   ctx: ModuleContext,
   moduleMsg: { from: string; content: string },
-  bridge: ChatAdapter,
 ): Promise<void> {
+  // The chat adapter isn't passed in: nudges resolve through the
+  // workspace's send_dm / send_group_message tools (which the agent
+  // picks up from the registered tool list) rather than bypassing the
+  // tool layer.
   ctx.log(`Handling nudge from ${moduleMsg.from}: ${moduleMsg.content.slice(0, 120)}`);
 
   // Assemble context for the agent

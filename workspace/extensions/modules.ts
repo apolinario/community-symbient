@@ -16,11 +16,14 @@
  */
 
 import type { MemoryManager } from "../../src/memory/manager.js";
-import type { Directory } from "../../src/adapters/directory/types.js";
-import type { ChatAdapter } from "../../src/adapters/chat/types.js";
-import { registerBuiltInModule } from "../../src/core/module-factories.js";
-import { loadWatches, addWatch } from "../../src/core/watches.js";
-import { createLLMClient } from "../../src/core/llm.js";
+import {
+  registerBuiltInModule,
+  loadWatches,
+  addWatch,
+  createLLMClient,
+  type Directory,
+  type ChatAdapter,
+} from "../../src/core/extensions-api.js";
 import type { FeyOpsDB } from "../services/feyops/db.js";
 import { createFeyEnricher } from "../services/feyops/enricher.js";
 import { configureFeyProviders } from "./providers.js";
@@ -63,7 +66,7 @@ export default function feySetup(deps: WorkspaceModulesDeps): unknown[] {
 
   registerBuiltInModule("conversation", {
     config: { name: "conversation", intervalMs: 500, startActive: true },
-    factory: (d) => createConversationModule(d.chatAdapter!),
+    factory: (d) => createConversationModule(d.chatAdapter!, d.workspacePath),
     requires: ["chatAdapter"],
     note: "Feÿ chat handler: group triage, direct-address retry, attachment processing, inter-module nudges",
   });

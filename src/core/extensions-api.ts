@@ -54,12 +54,12 @@ export type { Event, QueryFilter } from "./event-log.js";
 export { rewriteStaleEntries, computeAge, isStale } from "./temporal-rewrite.js";
 export { annotateContextLines } from "../memory/time-annotate.js";
 
-// Module context type (for handler/provider signatures)
-export type { ModuleContext } from "./types.js";
+// Module context + access types for handler/provider signatures.
+export type { ModuleContext, MemoryAccess } from "./types.js";
 
-// Adapter interfaces — deployments implement these to plug in custom chat
-// transports, sensors, and directories (via workspace/extensions/adapters/
-// and workspace/extensions/sensors/).
+// Adapter interfaces + registries — deployments implement these to plug
+// in custom chat transports, sensors, and directories (via
+// workspace/extensions/adapters/ and workspace/extensions/sensors/).
 //
 // Outputs (broadcast, email, webhook, etc.) are intentionally NOT a framework
 // interface: they're just modules using tools. To add a broadcast capability,
@@ -69,3 +69,44 @@ export type { ModuleContext } from "./types.js";
 export type { ChatAdapter, ChatAdapterFactory, ChatMessageHandler } from "../adapters/chat/types.js";
 export type { Sensor, SensorFactory } from "../adapters/sensor/types.js";
 export type { Directory, DirectoryFactory, Member, Booking } from "../adapters/directory/types.js";
+export {
+  registerChatAdapter,
+  registerSensor,
+  registerDirectory,
+  getChatAdapter,
+  getSensor,
+  getDirectory,
+} from "./adapter-registry.js";
+
+// Action registry — register custom watch action kinds (webhook, email,
+// SMS, etc.) keyed by `kind`.
+export { registerAction, getAction, listActions } from "./action-registry.js";
+export type { ActionHandler, ActionContext } from "./action-registry.js";
+
+// Built-in module registry — for deployment extensions that want to
+// register code-driven modules alongside the framework's built-ins.
+export { registerBuiltInModule, getBuiltInModule, listBuiltInModules } from "./module-factories.js";
+export type { ModuleDeps, BuiltInModule } from "./module-factories.js";
+
+// Watch storage — register, list, remove, and query persistent watches.
+export { addWatch, removeWatch, loadWatches, getWatchState } from "./watches.js";
+export type { Watch, WatchFilter, WatchAction, WatchTrigger } from "./watches.js";
+
+// LLM client factory — extensions that need a text-only completion
+// client (summarisers, classifiers, hooks) build one via createLLMClient
+// rather than wiring the Pi SDK directly.
+export { createLLMClient } from "./llm.js";
+export type { LLMClient } from "./types.js";
+
+// Symbient identity — for log prefixes, search collection names, and
+// any other place an extension needs to refer to "this symbient".
+export { symbientName, symbientDisplayName } from "./symbient-name.js";
+
+// Frontmatter parsing — for extensions that want to read .md files with
+// the same YAML conventions the framework uses for module/people files.
+export { parseFrontmatter, parseInterval } from "./frontmatter.js";
+
+// Module handler signature, plus base config types in case extensions
+// want to type their own handler factories.
+export type { ModuleConfig, ModuleFunction, ModuleHandle } from "./types.js";
+export type { InboundMessage, OutboundMessage, MessageSender, Attachment, Mention } from "./types.js";

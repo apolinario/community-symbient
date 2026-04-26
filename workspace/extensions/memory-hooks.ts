@@ -14,7 +14,7 @@
 import { writeFile, readFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { MemoryManager } from "../../src/memory/manager.js";
-import type { LLMClient } from "../../src/core/types.js";
+import type { LLMClient } from "../../src/core/extensions-api.js";
 
 const SUMMARY_SYSTEM_PROMPT =
   "Summarize this day's log into one short paragraph (3-5 sentences). " +

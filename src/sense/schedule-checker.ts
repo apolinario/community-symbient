@@ -36,10 +36,13 @@ interface ScheduleItem {
   expires?: string | null;
 }
 
-export function createScheduleCheckerModule(opts: { defaultTarget?: string } = {}) {
+export function createScheduleCheckerModule(opts: { defaultTarget?: string; workspacePath?: string } = {}) {
   const defaultTarget = opts.defaultTarget ?? "conversation";
   return async function scheduleChecker(ctx: ModuleContext): Promise<void> {
-    const schedulePath = join(process.cwd(), "workspace", "tasks", "scheduled.json");
+    // Prefer the workspace passed in at registration time. Fall back to
+    // process.cwd()-derived only if the deployment forgot to wire it.
+    const root = opts.workspacePath ?? join(process.cwd(), "workspace");
+    const schedulePath = join(root, "tasks", "scheduled.json");
 
     let schedule: ScheduleItem[];
     try {

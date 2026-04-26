@@ -25,7 +25,7 @@ import { render, parseSections } from "../core/prompt-template.js";
 import { standardVars } from "../core/prompt-vars.js";
 import { recordEvent } from "../core/event-log.js";
 import { isMCPServer } from "../mcp/bridge.js";
-import { parseFrontmatter } from "./load-modules.js";
+import { parseFrontmatter } from "../core/frontmatter.js";
 import { symbientDisplayName } from "../core/symbient-name.js";
 import { createLogger } from "../core/logger.js";
 

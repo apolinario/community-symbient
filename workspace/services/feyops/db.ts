@@ -489,8 +489,11 @@ export class FeyOpsDB {
  * cast it back to FeyOpsDB when they need the rich API. Generic consumers
  * use it through the Directory interface.
  */
-import { registerDirectory } from "../../../src/core/adapter-registry.js";
-import type { DirectoryFactory, Directory } from "../../../src/adapters/directory/types.js";
+import {
+  registerDirectory,
+  type DirectoryFactory,
+  type Directory,
+} from "../../../src/core/extensions-api.js";
 
 export function createFeyOpsDB(params: { path?: string } = {}): FeyOpsDB {
   return new FeyOpsDB(params.path ?? "./data/feyops.db");
