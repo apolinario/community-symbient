@@ -41,6 +41,82 @@ async function getModuleFiles(workspace: string, name: string): Promise<string[]
   return files;
 }
 
+/**
+ * Load every dashboard-relevant file for a module: its own .md, anything
+ * declared in `dashboardFiles: [...]`, and the per-module debug context
+ * if the orchestrator wrote one. Each file's content is trimmed to the
+ * last 5000 chars so the panel doesn't bloat. Files that don't exist
+ * are silently skipped.
+ */
+async function loadModuleDetailFiles(workspace: string, name: string): Promise<Array<{ path: string; content: string }>> {
+  const relPaths = [...(await getModuleFiles(workspace, name)), `debug/${name}-context.md`];
+  const out: Array<{ path: string; content: string }> = [];
+  for (const rel of relPaths) {
+    try {
+      const content = await readFile(join(workspace, rel), "utf-8");
+      const trimmed = content.length > 5000 ? "...\n" + content.slice(-5000) : content;
+      out.push({ path: rel, content: trimmed });
+    } catch {
+      // missing — skip
+    }
+  }
+  return out;
+}
+
+const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Build the regex used to match this module's log entries. Modules can
+ * declare an explicit `dashboardLogTag` in frontmatter; otherwise we
+ * fall back to a heuristic that catches the two common handler-prefix
+ * conventions (`*[<Symbient> <name>]*` and `*[<Capitalized name>...]*`).
+ */
+async function modulePatternFor(workspace: string, name: string): Promise<RegExp> {
+  let dashboardLogTag: string | null = null;
+  try {
+    const raw = await readFile(join(workspace, `modules/${name}.md`), "utf-8");
+    const { fields } = parseFrontmatter(raw);
+    if (typeof fields.dashboardLogTag === "string") dashboardLogTag = fields.dashboardLogTag;
+  } catch {
+    // module .md missing — fall through to heuristic
+  }
+  if (dashboardLogTag) {
+    return new RegExp(`\\*\\[${escapeRegex(dashboardLogTag)}\\]\\*`, "i");
+  }
+  const { symbientDisplayName } = await import("../core/symbient-name.js");
+  const self = symbientDisplayName();
+  const cap = name.charAt(0).toUpperCase() + name.slice(1);
+  return new RegExp(`\\*\\[(?:${escapeRegex(self)}\\s+${escapeRegex(name)}|${escapeRegex(cap)}[^\\]]*)\\]\\*`, "i");
+}
+
+/**
+ * Filter today's daily log to entries this module wrote, returning the
+ * last 10 matched sections joined with blank lines. Returns null when
+ * today's log doesn't exist yet or no entries match.
+ */
+async function filterTodayLogForModule(workspace: string, name: string): Promise<{ path: string; content: string } | null> {
+  const today = new Date().toISOString().slice(0, 10);
+  let log: string;
+  try {
+    log = await readFile(join(workspace, "memory", `${today}.md`), "utf-8");
+  } catch {
+    return null;
+  }
+  const pattern = await modulePatternFor(workspace, name);
+  const sections = log.split(/^(## \d{2}:\d{2}:\d{2})/m);
+  const relevant: string[] = [];
+  let currentHeader = "";
+  for (const section of sections) {
+    if (section.match(/^## \d{2}:\d{2}:\d{2}$/)) {
+      currentHeader = section;
+    } else if (pattern.test(section)) {
+      relevant.push(currentHeader + "\n" + section.trim());
+    }
+  }
+  if (relevant.length === 0) return null;
+  return { path: `memory/${today}.md (${name} entries)`, content: relevant.slice(-10).join("\n\n") };
+}
+
 const PORT = Number(process.env.DASHBOARD_PORT) || 3333;
 
 // Log persistence + SSE streaming
@@ -137,66 +213,9 @@ export function startDashboard(
       const name = decodeURIComponent(moduleMatch[1]);
       res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
 
-      const files: Array<{ path: string; content: string }> = [];
-      const relPaths = await getModuleFiles(workspaceRef, name);
-
-      // Always include the debug context if it exists
-      relPaths.push(`debug/${name}-context.md`);
-
-      for (const rel of relPaths) {
-        try {
-          const content = await readFile(join(workspaceRef, rel), "utf-8");
-          // For large files, take last 5000 chars
-          const trimmed = content.length > 5000 ? "...\n" + content.slice(-5000) : content;
-          files.push({ path: rel, content: trimmed });
-        } catch {}
-      }
-
-      // Also include today's memory log entries written by this module.
-      // The module's frontmatter can declare an explicit `dashboardLogTag`
-      // (the literal `*[Tag]*` prefix the module's handler writes). If
-      // unset, fall back to a heuristic that matches `*[<Symbient> <name>]*`
-      // OR `*[<Capitalized name>...]*` — covers the common conventions
-      // without requiring every module to declare the tag.
-      try {
-        const today = new Date().toISOString().slice(0, 10);
-        const logPath = join(workspaceRef, "memory", `${today}.md`);
-        const log = await readFile(logPath, "utf-8");
-        const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-        let pattern: RegExp;
-        const moduleMdPath = `modules/${name}.md`;
-        let dashboardLogTag: string | null = null;
-        try {
-          const raw = await readFile(join(workspaceRef, moduleMdPath), "utf-8");
-          const { fields } = parseFrontmatter(raw);
-          if (typeof fields.dashboardLogTag === "string") dashboardLogTag = fields.dashboardLogTag;
-        } catch {}
-
-        if (dashboardLogTag) {
-          pattern = new RegExp(`\\*\\[${escapeRe(dashboardLogTag)}\\]\\*`, "i");
-        } else {
-          const { symbientDisplayName } = await import("../core/symbient-name.js");
-          const self = symbientDisplayName();
-          const cap = name.charAt(0).toUpperCase() + name.slice(1);
-          pattern = new RegExp(`\\*\\[(?:${escapeRe(self)}\\s+${escapeRe(name)}|${escapeRe(cap)}[^\\]]*)\\]\\*`, "i");
-        }
-
-        const sections = log.split(/^(## \d{2}:\d{2}:\d{2})/m);
-        const relevant: string[] = [];
-        let currentHeader = "";
-        for (const section of sections) {
-          if (section.match(/^## \d{2}:\d{2}:\d{2}$/)) {
-            currentHeader = section;
-          } else if (pattern.test(section)) {
-            relevant.push(currentHeader + "\n" + section.trim());
-          }
-        }
-
-        if (relevant.length > 0) {
-          files.push({ path: `memory/${today}.md (${name} entries)`, content: relevant.slice(-10).join("\n\n") });
-        }
-      } catch {}
+      const files = await loadModuleDetailFiles(workspaceRef, name);
+      const todayLogEntries = await filterTodayLogForModule(workspaceRef, name);
+      if (todayLogEntries) files.push(todayLogEntries);
 
       const handle = orchestrator.getHandle(name);
       res.end(JSON.stringify({

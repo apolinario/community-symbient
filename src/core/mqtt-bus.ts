@@ -71,10 +71,28 @@ export class MQTTBus {
     });
   }
 
-  clientFor(moduleName: string): MessageClient {
-    if (!this.queues.has(moduleName)) {
-      this.queues.set(moduleName, []);
+  /**
+   * Ensure the per-module queue + waiter list exist. Both `clientFor`
+   * and `waitForMessage` need a queue to push into; calling this once
+   * up-front keeps the initialisation in a named place rather than
+   * scattered get-or-set logic across the public methods.
+   */
+  private ensureModuleSlots(moduleName: string): { queue: ModuleMessage[]; waiters: Array<(msg: ModuleMessage) => void> } {
+    let queue = this.queues.get(moduleName);
+    if (!queue) {
+      queue = [];
+      this.queues.set(moduleName, queue);
     }
+    let waiters = this.waiters.get(moduleName);
+    if (!waiters) {
+      waiters = [];
+      this.waiters.set(moduleName, waiters);
+    }
+    return { queue, waiters };
+  }
+
+  clientFor(moduleName: string): MessageClient {
+    this.ensureModuleSlots(moduleName);
 
     return {
       send: async (targetModule: string, content: string) => {
@@ -133,23 +151,16 @@ export class MQTTBus {
    * Does NOT consume the message — it stays in the queue for receive().
    */
   waitForMessage(moduleName: string): Promise<void> {
+    const { queue, waiters } = this.ensureModuleSlots(moduleName);
     return new Promise((resolve) => {
-      if (!this.queues.has(moduleName)) {
-        this.queues.set(moduleName, []);
-      }
-      // If there's already a message waiting, resolve immediately
-      const queue = this.queues.get(moduleName)!;
+      // If a message is already queued, return immediately.
       if (queue.length > 0) {
         resolve();
         return;
       }
-      // Otherwise, set up a one-shot notification
-      if (!this.waiters.has(moduleName)) {
-        this.waiters.set(moduleName, []);
-      }
-      // We push a special waiter that resolves void and puts the message back
-      this.waiters.get(moduleName)!.push((msg) => {
-        // Put the message back so receive() can get it
+      // Otherwise install a one-shot waiter that re-queues the message
+      // (so the next `receive()` can consume it) and resolves void.
+      waiters.push((msg) => {
         queue.push(msg);
         resolve();
       });
