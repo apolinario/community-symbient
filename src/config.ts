@@ -1,8 +1,9 @@
 /**
  * Configuration loader.
  *
- * Reads from `config/feyblet.json` (or `FEYBLET_CONFIG` env var) and
- * merges over the defaults. Env vars override specific fields.
+ * Reads `config/symbient.json` by default; override the path with the
+ * `SYMBIENT_CONFIG` env var. Env vars override specific fields after the
+ * file is loaded.
  */
 
 import { readFile } from "node:fs/promises";
@@ -10,7 +11,7 @@ import { join, resolve } from "node:path";
 import type { SymbientConfig } from "./core/types.js";
 
 const DEFAULT_CONFIG: SymbientConfig = {
-  name: "feyblet",
+  name: "symbient",
   workspacePath: resolve("workspace"),
   mqtt: {
     brokerUrl: process.env.MQTT_BROKER || "localhost",
@@ -24,22 +25,64 @@ const DEFAULT_CONFIG: SymbientConfig = {
     tinyModel: process.env.LLM_TINY_MODEL,
     tinyBaseUrl: process.env.LLM_TINY_BASE_URL,
   },
-  qmd: { url: process.env.QMD_URL || "http://localhost:8181" },
+  services: {
+    search: { url: process.env.SEARCH_URL || process.env.QMD_URL || "http://localhost:8181" },
+  },
   modules: {},
 };
 
-export async function loadConfig(): Promise<SymbientConfig> {
-  const configPath = process.env.FEYBLET_CONFIG || join("config", "feyblet.json");
-
-  let fileConfig: Partial<SymbientConfig> = {};
+async function readJsonIfExists(path: string): Promise<Partial<SymbientConfig> | null> {
   try {
-    const raw = await readFile(configPath, "utf-8");
-    fileConfig = JSON.parse(raw);
+    const raw = await readFile(path, "utf-8");
+    return JSON.parse(raw);
   } catch {
-    console.log(`No config file at ${configPath}, using defaults + env vars.`);
+    return null;
+  }
+}
+
+export async function loadConfig(): Promise<SymbientConfig> {
+  // SYMBIENT_CONFIG is the canonical env var. FEYBLET_CONFIG is honoured
+  // as a fallback so existing deployments keep working through the rename.
+  const explicitPath = process.env.SYMBIENT_CONFIG || process.env.FEYBLET_CONFIG;
+  const candidates = explicitPath
+    ? [explicitPath]
+    : [join("config", "symbient.json"), join("config", "feyblet.json")];
+
+  let fileConfig: Partial<SymbientConfig> | null = null;
+  let usedPath: string | null = null;
+  for (const path of candidates) {
+    const cfg = await readJsonIfExists(path);
+    if (cfg) {
+      fileConfig = cfg;
+      usedPath = path;
+      break;
+    }
+  }
+  if (!fileConfig) {
+    console.log(`No config file at [${candidates.join(", ")}], using defaults + env vars.`);
+    fileConfig = {};
+  } else if (usedPath) {
+    console.log(`Loaded config from ${usedPath}`);
   }
 
-  return deepMerge(DEFAULT_CONFIG, fileConfig) as SymbientConfig;
+  const merged = deepMerge(DEFAULT_CONFIG, fileConfig) as SymbientConfig;
+
+  // Backward-compat: `config.qmd.url` was the old name for the search
+  // backend URL. If only the legacy field is set, copy it over and warn.
+  const services = merged.services ?? {};
+  const hasSearchUrl = typeof services.search?.url === "string" && services.search.url.length > 0;
+  const legacyQmdUrl = (merged.qmd as { url?: string } | undefined)?.url;
+  if (!hasSearchUrl && legacyQmdUrl) {
+    console.warn(`[config] 'qmd.url' is deprecated — set 'services.search.url' instead. Falling back for now.`);
+    merged.services = { ...services, search: { url: legacyQmdUrl } };
+  }
+  // Also keep config.qmd.url populated from services.search.url so any
+  // call sites still reading the legacy field continue to work for now.
+  if (merged.services?.search?.url && !merged.qmd?.url) {
+    merged.qmd = { url: merged.services.search.url };
+  }
+
+  return merged;
 }
 
 function deepMerge(target: Record<string, any>, source: Record<string, any>): Record<string, any> {

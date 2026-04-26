@@ -2,14 +2,15 @@
  * Sandboxed Pi Agent file tools (read/write/edit/grep/find/ls).
  *
  * Wraps Pi's built-in file tools (read, write, edit, grep, find, ls) with
- * path restrictions so the feyblet can only read within workspace/ and only
- * write to a restricted set of directories.
+ * path restrictions so the symbient can only read within workspace/ and
+ * only write to a deployment-declared set of paths/prefixes.
  *
- * Writable paths (relative to workspace/):
- *   - MEMORY.md         — autobiographical rewrites
- *   - season/           — events, meals, parties, crispy
- *   - people/           — person profiles
- *   - tasks/            — scheduled actions
+ * Default writable paths (overridable via config.workspace.writablePaths):
+ *   - MEMORY.md  — curated long-term memory
+ *   - people/    — per-person profiles
+ *
+ * Deployments with extra writable areas (inner-state, scheduled tasks,
+ * seasonal logs, etc.) extend the list via `config.workspace.writablePaths`.
  */
 
 import { resolve, relative, extname, isAbsolute } from "node:path";
@@ -27,11 +28,8 @@ import {
   createLsTool,
 } from "@mariozechner/pi-coding-agent";
 
-// Paths the feyblet is allowed to write to (relative to workspace)
-const WRITABLE_PREFIXES = [
+const DEFAULT_WRITABLE_PREFIXES = [
   "MEMORY.md",
-  "inner/",
-  "season/",
   "people/",
 ];
 
@@ -44,10 +42,10 @@ const IMAGE_EXTENSIONS: Record<string, string> = {
   ".webp": "image/webp",
 };
 
-function isWritable(absolutePath: string, workspacePath: string): boolean {
+function isWritable(absolutePath: string, workspacePath: string, prefixes: string[]): boolean {
   const rel = relative(workspacePath, resolve(absolutePath));
   if (rel.startsWith("..") || rel === "") return false;
-  return WRITABLE_PREFIXES.some((prefix) => {
+  return prefixes.some((prefix) => {
     if (prefix.endsWith("/")) {
       // Directory prefix: match the dir itself or anything inside it
       const dirName = prefix.slice(0, -1);
@@ -64,23 +62,28 @@ function assertReadable(absolutePath: string, workspacePath: string): void {
   }
 }
 
-function assertWritable(absolutePath: string, workspacePath: string): void {
+function assertWritable(absolutePath: string, workspacePath: string, prefixes: string[]): void {
   assertReadable(absolutePath, workspacePath);
-  if (!isWritable(absolutePath, workspacePath)) {
+  if (!isWritable(absolutePath, workspacePath, prefixes)) {
     const rel = relative(workspacePath, absolutePath);
     throw new Error(
-      `Write denied: ${rel} is not in a writable directory. Writable paths: ${WRITABLE_PREFIXES.join(", ")}`
+      `Write denied: ${rel} is not in a writable directory. Writable paths: ${prefixes.join(", ")}`
     );
   }
 }
 
 /**
- * Create all sandboxed Pi tools for the feyblet workspace.
+ * Create all sandboxed Pi tools for the symbient workspace.
  * Read tools can access anything under workspace/.
- * Write/edit tools are restricted to WRITABLE_PREFIXES.
+ * Write/edit tools are restricted to writablePrefixes (defaults to
+ * MEMORY.md + people/; deployments extend via config.workspace.writablePaths).
  */
-export function createSandboxedPiTools(workspacePath: string): AgentTool[] {
+export function createSandboxedPiTools(
+  workspacePath: string,
+  writablePrefixes: string[] = DEFAULT_WRITABLE_PREFIXES,
+): AgentTool[] {
   const ws = resolve(workspacePath);
+  const prefixes = writablePrefixes;
 
   // Read — full workspace access, images supported
   const piRead = createReadTool(ws, {
@@ -140,15 +143,15 @@ export function createSandboxedPiTools(workspacePath: string): AgentTool[] {
   const piWrite = createWriteTool(ws, {
     operations: {
       writeFile: async (absolutePath, content) => {
-        assertWritable(absolutePath, ws);
+        assertWritable(absolutePath, ws, prefixes);
         await writeFile(absolutePath, content, "utf-8");
       },
       mkdir: async (dir) => {
-        // Pi's createWriteTool calls mkdir(dirname(path)) before every write
-        // to ensure parent dirs exist. For files at workspace root (e.g.
-        // MEMORY.md), dirname is the workspace itself — assertWritable
-        // would reject it because relative("","")==="". Enforce only the
-        // sandbox boundary here; the writeFile path still gets assertWritable.
+        // Pi's createWriteTool calls mkdir(dirname(path)) before every write.
+        // For files at the workspace root, dirname IS the workspace — and
+        // `relative(ws, ws) === ""`, which a writability check would reject.
+        // Enforce only the sandbox boundary here; the writeFile path still
+        // runs assertWritable for the actual file.
         assertReadable(dir, ws);
         await mkdir(dir, { recursive: true });
       },
@@ -156,9 +159,8 @@ export function createSandboxedPiTools(workspacePath: string): AgentTool[] {
   });
 
   // Strengthen write's description: writes are full-file replace, which
-  // destroys any existing content. Use `edit` for existing files; reserve
-  // `write` for creating new ones (or for files whose whole purpose is
-  // rewrite, like MEMORY.md in the autobiographical module).
+  // destroys any existing content. Reserve it for new files or files
+  // designed to be fully regenerated each cycle.
   const write: AgentTool = {
     ...piWrite,
     description:
@@ -177,11 +179,11 @@ export function createSandboxedPiTools(workspacePath: string): AgentTool[] {
         return readFile(absolutePath);
       },
       writeFile: async (absolutePath, content) => {
-        assertWritable(absolutePath, ws);
+        assertWritable(absolutePath, ws, prefixes);
         await writeFile(absolutePath, content, "utf-8");
       },
       access: async (absolutePath) => {
-        assertWritable(absolutePath, ws);
+        assertWritable(absolutePath, ws, prefixes);
         await access(absolutePath, constants.R_OK | constants.W_OK);
       },
     },

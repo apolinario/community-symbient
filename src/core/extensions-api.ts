@@ -11,7 +11,7 @@
  *
  *   import { recordEvent, queryEvents } from "../../src/core/extensions-api.js";
  *   // or, once the framework is packaged:
- *   // import { recordEvent } from "feyblet-framework";
+ *   // import { recordEvent } from "symbient-framework";
  *
  *   export default {
  *     "weather-forecast": {

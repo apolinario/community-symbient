@@ -1,6 +1,12 @@
 {
   "name": "feyblet",
   "workspacePath": "./workspace",
+  "workspace": {
+    "writablePaths": ["inner/", "season/"]
+  },
+  "scheduling": {
+    "defaultTarget": "executive"
+  },
   "adapters": {
     "chat": {
       "adapter": "signal",

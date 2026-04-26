@@ -1,7 +1,8 @@
 ---
 name: conversation
 interval: 500ms
-tools: [search, read, grep, find, chat_history, send_dm, send_group_message]
+tools: [search, read, grep, find, chat_history]
+dashboardLogTag: "Symbient conversation"
 ---
 
 It is {{currentDateTime}}.

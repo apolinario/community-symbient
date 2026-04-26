@@ -208,12 +208,10 @@ export const loadWorkspaceDirectories = (ws: string) =>
 /**
  * Load `workspace/extensions/tools.{js,mjs,ts}` if present. The default
  * export must be a function `(deps) => AgentTool[]`. Framework calls it
- * with the deployment's deps object and mixes the returned tools into
- * the global tool list.
- *
- * This is how a deployment plugs in community-specific tools (e.g. Feÿ's
- * radio_broadcast, check_sauna) without the framework knowing about them.
- * Returns the factory function or null if the file is missing.
+ * with the deployment's deps and mixes the returned tools into the
+ * global tool list — the seam for community-specific capabilities
+ * (broadcast, sensor reads, PMS lookups, etc.). Returns the factory
+ * function or null if the file is missing.
  */
 export async function loadWorkspaceToolsFactory(
   workspacePath: string,
@@ -234,9 +232,10 @@ export async function loadWorkspaceToolsFactory(
  * export must be a factory `(deps) => BuiltInModule[]` that returns an
  * array of deployment-provided code-driven modules (not markdown-driven).
  *
- * Deployments with Feÿ-specific modules — bookings, people-sync,
- * onboarding, etc. — declare them here alongside their factory functions.
- * Framework has no knowledge of them; the workspace owns them.
+ * This is where deployments declare their bespoke code-driven modules
+ * (anything that needs more than what a markdown module can express)
+ * alongside their factory functions. Framework has no knowledge of them;
+ * the workspace owns them.
  */
 export async function loadWorkspaceModulesFactory(
   workspacePath: string,
@@ -277,5 +276,6 @@ export async function loadAllExtensions(workspacePath: string): Promise<{
   return { helpers, handlers, providers, actions, chatAdapters, sensors, directories };
 }
 
-// Re-export the directory scanner for later phases that need it.
+// Exposed for callers that want to scan a workspace subdir with the same
+// import + default-export conventions used by the loaders above.
 export { importAllInDir };

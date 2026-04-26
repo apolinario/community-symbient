@@ -3,17 +3,21 @@
  *
  * Keyed by module name. Handlers decide what to do with the agent's
  * final text output + tool call trace. The cognitive modules
- * (thinking, desire, magi, autobiographical, prompt-modifier) use the
- * agent's `write`/`edit` tools to persist reflections to files; the
- * handler's job here is to log the cycle completion and notify
+ * (thinking, desire, magi, autobiographical) use the agent's
+ * `write` / `edit` tools to persist reflections to files; the handler's
+ * job here is to log cycle completion to the daily log and notify
  * downstream modules via `ctx.messages.send`.
+ *
+ * The log-prefix convention `*[Symbient <module>]*` lines up with each
+ * module's `dashboardLogTag` frontmatter — keeps the dashboard's
+ * per-module log filter accurate. Edit one and edit the other.
  */
 
 export default {
   thinking: async (ctx, output, _trace, toolCalls) => {
     const wrote = toolCalls?.some((tc) => tc.name === "write");
     if (wrote) {
-      await ctx.memory.appendLog(`*[${ctx.config.name} thinking]*\n${output}`);
+      await ctx.memory.appendLog(`*[Symbient thinking]*\n${output}`);
       await ctx.messages.send("conversation", "inner_state_updated");
     }
   },
@@ -21,7 +25,7 @@ export default {
   desire: async (ctx, output, _trace, toolCalls) => {
     const wrote = toolCalls?.some((tc) => tc.name === "write");
     if (wrote) {
-      await ctx.memory.appendLog(`*[${ctx.config.name} desire]* ${output}`);
+      await ctx.memory.appendLog(`*[Symbient desire]* ${output}`);
       await ctx.messages.send("conversation", `desire:${output}`);
     } else {
       ctx.log("No current desires.");
@@ -31,7 +35,7 @@ export default {
   magi: async (ctx, output, _trace, toolCalls) => {
     const wrote = toolCalls?.some((tc) => tc.name === "write");
     if (wrote) {
-      await ctx.memory.appendLog(`*[${ctx.config.name} magi]*\n${output}`);
+      await ctx.memory.appendLog(`*[Symbient magi]*\n${output}`);
     }
   },
 
@@ -43,19 +47,5 @@ export default {
     } else if (output?.trim()) {
       await ctx.memory.appendLog("*[Autobiographical reflection]*");
     }
-  },
-
-  "prompt-modifier": async (ctx, output) => {
-    if (output.includes("NO_CHANGES") || output.trim() === "NO_CHANGES") {
-      ctx.log("No changes to SOUL.md needed.");
-      return;
-    }
-    await ctx.memory.writeFile("SOUL.md", output);
-    await ctx.memory.appendFile(
-      "inner/prompt-changes.md",
-      `\n## ${new Date().toISOString()}\n\nSOUL.md modified by prompt-modifier.\n`,
-    );
-    await ctx.memory.appendLog("*[SOUL.md modified by prompt-modifier]*");
-    ctx.log("SOUL.md updated.");
   },
 };

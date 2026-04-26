@@ -2,10 +2,10 @@
  * Sensor — pluggable input source.
  *
  * A sensor polls some external signal and produces structured events via
- * `recordEvent()`. The Feÿ sauna is one sensor (reading temperature from
- * Google Sheets). Other deployments might have:
- *   - HTTP sensors (polling a weather API, a door-lock status endpoint)
- *   - MQTT sensors (subscribing to home-automation topics)
+ * `recordEvent()`. Examples:
+ *   - HTTP sensors (weather APIs, door-lock status, IoT endpoints)
+ *   - MQTT sensors (home-automation topics)
+ *   - Spreadsheet sensors (a shared sheet acting as a sensor log)
  *   - File sensors (watching a log file for new lines)
  *   - Arbitrary JS sensors in workspace/extensions/sensors/*.js
  *

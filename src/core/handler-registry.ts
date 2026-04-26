@@ -25,7 +25,7 @@ export type ModuleHandler = (
   ctx: ModuleContext,
   output: string,
   toolTrace: string[],
-  toolCalls?: Array<{ name: string; args: any }>,
+  toolCalls?: Array<{ name: string; args: any; result?: string }>,
 ) => Promise<void>;
 
 const registry = new Map<string, ModuleHandler>();

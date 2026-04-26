@@ -11,8 +11,8 @@
  *     the watch's type (regardless of window) to determine if the
  *     condition is currently true. Compare to `lastMatched` stored in
  *     per-watch state. Fire only on the transition.
- *     Used for threshold alerts — "sauna hits 82°C" should fire once,
- *     not every reading while the sauna stays hot.
+ *     Used for threshold alerts — e.g. "fire once when temp ≥ 30°C",
+ *     not once per sensor reading while the condition stays true.
  *
  * The distinction matters: thresholds want *state tracking* (did we cross
  * the boundary?), while firehoses want *event processing* (here's another
@@ -114,10 +114,10 @@ export function createWatchEvaluatorModule() {
     let shouldFire = false;
     if (trigger === "crossing_up") {
       // Fire when condition is true and wasn't recently confirmed true. First
-      // observation (prev undefined) counts — e.g. "notify when sauna hits 82"
-      // registered while already hot should alert immediately, and then stay
-      // silent until the sauna cools and re-heats. `prev !== true` instead of
-      // `prev === false` is what makes the initial fire work.
+      // observation (prev undefined) counts — e.g. a "notify above 30°C" watch
+      // registered while already above 30 alerts immediately, then stays
+      // silent until the value drops and rises again. `prev !== true` instead
+      // of `prev === false` is what makes the initial fire work.
       shouldFire = currentlyMatches && prev !== true;
     } else if (trigger === "crossing_down") {
       shouldFire = !currentlyMatches && prev === true;

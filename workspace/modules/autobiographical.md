@@ -1,8 +1,10 @@
 ---
 name: autobiographical
 interval: 6h
+runImmediately: true
 tools: [search, read, write, edit, grep, find, lookup_person, check_bookings, chat_history]
 startActive: true
+dashboardFiles: [MEMORY.md]
 context:
   - source: recent-days
     count: 7

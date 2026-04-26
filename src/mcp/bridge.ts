@@ -44,7 +44,7 @@ export async function initMCP(servers: MCPServerConfig[]): Promise<AgentTool[]> 
       name: s.name,
       command: { kind: "http" as const, url: new URL(s.url) },
     })),
-    clientInfo: { name: "feyblet", version: "0.1" },
+    clientInfo: { name: "symbient", version: "0.1" },
   });
 
   const allTools: AgentTool[] = [];

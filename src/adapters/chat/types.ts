@@ -20,7 +20,7 @@ import type { InboundMessage, OutboundMessage } from "../../core/types.js";
 export type ChatMessageHandler = (msg: InboundMessage) => Promise<void> | void;
 
 export interface ChatAdapter {
-  /** Adapter identity — shown in logs and referenced from config.yaml. */
+  /** Adapter identity — shown in logs and referenced from the deployment config. */
   readonly name: string;
 
   /** Connect and start receiving messages. Resolves once the transport is live. */
@@ -32,11 +32,18 @@ export interface ChatAdapter {
   /** Send a message (DM or group). `groupId` present = group; otherwise DM to `to`. */
   send(msg: OutboundMessage): Promise<void>;
 
-  /** Register a handler for incoming messages. Called multiple times supported. */
+  /** Register a handler for incoming messages. Multiple handlers supported. */
   onMessage(handler: ChatMessageHandler): void;
 
   /** Optional: show a "typing" indicator. No-op if unsupported. */
   sendTyping?(to: string, groupId?: string): Promise<void>;
+
+  /**
+   * Optional: REST endpoint where attachment binaries can be fetched as
+   * `${baseUrl}/v1/attachments/{id}`. Adapters whose transport doesn't
+   * expose attachments via REST return null (or omit the method).
+   */
+  getAttachmentBaseUrl?(): string | null;
 }
 
 /**

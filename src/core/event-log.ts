@@ -2,8 +2,8 @@
  * Event Log — append-only JSONL stream of structured events.
  *
  * Events are the machine-readable counterpart to the markdown daily logs.
- * They back "recent X" queries: recent broadcasts, recent tool calls,
- * recent sauna readings, recent chat messages, etc. The context provider
+ * They back "recent X" queries: recent tool calls, recent chat messages,
+ * recent sensor readings, recent broadcasts, etc. The context provider
  * system (src/core/context-providers.ts) uses this as its query engine.
  *
  * Storage layout: `workspace/logs/YYYY-MM-DD.jsonl`, one event per line.
@@ -15,8 +15,9 @@
  * Design notes:
  *   - Writes are fire-and-forget (errors logged, not thrown) so that
  *     instrumentation never breaks the calling code.
- *   - Reads span daily files based on `days` filter; one small buffered
- *     scan per day is fine for the Feÿ volume.
+ *   - Reads span daily files based on `days` filter; one buffered scan
+ *     per day is the intended granularity. For very high event volumes,
+ *     swap in an indexed store via the same recordEvent/queryEvents API.
  *   - The markdown logs stay as the human-facing record. This layer is
  *     purely for structured queries.
  */

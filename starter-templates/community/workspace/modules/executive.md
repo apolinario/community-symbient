@@ -1,8 +1,10 @@
 ---
 name: executive
 interval: 1h
+runImmediately: true
 startActive: true
 tools: [search, read, grep, find, web_search, schedule, list_schedule, cancel_scheduled, register_watch, list_watches, cancel_watch, nudge_module, create_module, disable_module, list_modules]
+dashboardLogTag: "Symbient executive"
 context:
   - source: current-time
     tag: current-time

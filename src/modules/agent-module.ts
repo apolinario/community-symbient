@@ -2,75 +2,30 @@
  * Generic Agent Module — creates a Pi Agent from a markdown config file.
  *
  * Each module in workspace/modules/*.md defines:
- * - name, interval, tool whitelist (in YAML frontmatter)
- * - Goal/prompt (in markdown body)
+ * - frontmatter: name, interval, tool whitelist, optional `context:` providers
+ * - body: a Handlebars template rendered as the system prompt
+ * - optional `## section` H2 headings: named sub-prompts available to the
+ *   handler and to the template's conditionals
  *
- * The agent gets SOUL.md + MEMORY.md + the module's own prompt,
- * plus a filtered set of tools based on the whitelist.
- *
- * This replaces separate TypeScript files for thinking, desire, magi, etc.
- * Module behavior is now editable by changing markdown files.
+ * The agent receives the rendered system prompt plus a filtered set of
+ * tools (whitelist match against this module's `tools:` field). Output
+ * goes to the registered handler for this module name (default: append
+ * to today's daily log).
  */
 
 import type { ModuleContext } from "../core/types.js";
 import { Agent } from "@mariozechner/pi-agent-core";
-import { completeText } from "../core/llm.js";
 import { isMCPServer } from "../mcp/bridge.js";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { join, dirname } from "node:path";
 import { render } from "../core/prompt-template.js";
 import { standardVars } from "../core/prompt-vars.js";
 import { recordEvent } from "../core/event-log.js";
 import { renderContextBlocks, type ContextDecl } from "../core/context-providers.js";
 
-const PLAY_HISTORY_PATH = join(process.cwd(), "workspace", "radio", "play-history.csv");
-
-async function trackPlay(args: any, result: string): Promise<void> {
-  // Skip if result is an error
-  if (result.includes("MCP error") || result.includes("Error")) return;
-
-  const url = args?.url || "";
-  // Try to extract title from the result (now_playing or title field)
-  const titleMatch = result.match(/"(?:now_playing|title)":\s*"([^"]+)"/);
-  const title = titleMatch?.[1] || url || "";
-
-  // Skip if we have no meaningful data
-  if (!title && !url) return;
-
-  await mkdir(dirname(PLAY_HISTORY_PATH), { recursive: true });
-
-  // Read existing CSV, find existing row for this title, increment count
-  let csv = "";
-  try { csv = await readFile(PLAY_HISTORY_PATH, "utf-8"); } catch {}
-  if (!csv) csv = "title,count,last_played\n";
-
-  const lines = csv.split("\n");
-  const header = lines[0];
-  const rows = lines.slice(1).filter(Boolean);
-
-  const safeTitle = title.replace(/"/g, '""');
-  const now = new Date().toISOString();
-  let found = false;
-
-  const updated = rows.map((row) => {
-    const match = row.match(/^"([^"]*(?:""[^"]*)*)",(\d+),/);
-    if (match && match[1] === safeTitle) {
-      found = true;
-      return `"${safeTitle}",${parseInt(match[2]) + 1},"${now}"`;
-    }
-    return row;
-  });
-
-  if (!found) {
-    updated.push(`"${safeTitle}",1,"${now}"`);
-  }
-
-  await writeFile(PLAY_HISTORY_PATH, header + "\n" + updated.join("\n") + "\n", "utf-8");
-}
-
 export interface ModuleSpec {
   name: string;
-  /** Raw markdown body (including any `## section` subsections). Used only as a fallback/legacy path. */
+  /** Raw markdown body, used as the relevance query to qmd when assembling
+   *  per-cycle context (so search picks up memories related to whatever
+   *  the module is about). The Handlebars-rendered version is `template`. */
   prompt: string;
   /** Markdown body with `## section` subsections stripped. Rendered as Handlebars if it contains `{{...}}`. */
   template: string;
@@ -79,7 +34,7 @@ export interface ModuleSpec {
   /** Declarative context blocks from the md's `context:` frontmatter — rendered into the seed user-prompt. */
   contextDecl?: ContextDecl[];
   toolNames: string[];
-  outputHandler: (ctx: ModuleContext, output: string, toolTrace: string[], toolCalls?: Array<{ name: string; args: any }>) => Promise<void>;
+  outputHandler: (ctx: ModuleContext, output: string, toolTrace: string[], toolCalls?: Array<{ name: string; args: any; result?: string }>) => Promise<void>;
 }
 
 /**
@@ -148,7 +103,7 @@ export function createAgentModule(spec: ModuleSpec) {
     let output = "";
     let agentError = "";
     const toolTrace: string[] = [];
-    const toolCalls: Array<{ name: string; args: any }> = [];
+    const toolCalls: Array<{ name: string; args: any; result?: string }> = [];
     let lastToolCall = "";
     let repeatCount = 0;
     agent.subscribe((event) => {
@@ -177,9 +132,12 @@ export function createAgentModule(spec: ModuleSpec) {
         const resultText = event.result?.content?.map((c: any) => c.text || "").join("") || JSON.stringify(event.result);
         ctx.log(`Result: ${event.toolName} → ${resultText}`);
 
-        // Record tool_call event for queryability. The matching tool_execution_start
-        // pushed the {name, args} onto toolCalls — find it so we have the args handy.
-        const matchingCall = toolCalls.find(tc => tc.name === event.toolName);
+        // Attach the result to the most recent matching call without a result yet,
+        // so handlers can correlate args ↔ result. Multiple calls to the same tool
+        // in one cycle each get their own result.
+        const matchingCall = [...toolCalls].reverse().find(tc => tc.name === event.toolName && tc.result === undefined);
+        if (matchingCall) matchingCall.result = resultText;
+
         recordEvent({
           type: "tool_call",
           module: spec.name,
@@ -188,11 +146,6 @@ export function createAgentModule(spec: ModuleSpec) {
           ok: !event.isError,
           result: resultText.slice(0, 500),
         });
-
-        // Track played songs — args come from the matching tool_execution_start
-        if (event.toolName === "radio.play_music" && !event.isError) {
-          trackPlay(matchingCall?.args, resultText).catch(() => {});
-        }
       }
       if (event.type === "agent_end") {
         ctx.log(`Agent ended, messages: ${event.messages.length}`);
@@ -212,9 +165,9 @@ export function createAgentModule(spec: ModuleSpec) {
     // Two preprocessor steps then a generic provider loop:
     //   1. Scheduled-action mode: if any nudge carries `type: "scheduled_action"`,
     //      enter focused mode — inject a scheduled-actions block and skip the
-    //      module's declared context providers. This implements the executive's
-    //      two-mode behavior generically (any module can opt in just by reading
-    //      those nudges).
+    //      module's declared context providers. Any module that's set as a
+    //      schedule target (via the `schedule` tool's `target` param or
+    //      `scheduling.defaultTarget` in config) opts in by reading those nudges.
     //   2. Generic context providers: render each entry in `spec.contextDecl`.
     //   3. Remaining nudges (non-scheduled) get injected as a <module-nudges> block.
     const seedParts: string[] = [];

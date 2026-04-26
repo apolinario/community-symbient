@@ -20,6 +20,7 @@ import type { Directory } from "../../src/adapters/directory/types.js";
 import type { ChatAdapter } from "../../src/adapters/chat/types.js";
 import { registerBuiltInModule } from "../../src/core/module-factories.js";
 import { loadWatches, addWatch } from "../../src/core/watches.js";
+import { createLLMClient } from "../../src/core/llm.js";
 import type { FeyOpsDB } from "../services/feyops/db.js";
 import { createFeyEnricher } from "../services/feyops/enricher.js";
 import { configureFeyProviders } from "./providers.js";
@@ -29,6 +30,8 @@ import { createBookingsModule } from "../services/bookings/index.js";
 import { createPeopleSyncModule } from "../services/people-sync/index.js";
 import { createOnboardingModule } from "../services/onboarding/index.js";
 import { createRadioModule } from "../services/radio/index.js";
+import { createQmdIndexModule } from "../services/qmd-index/index.js";
+import { attachDailySummarizer } from "./memory-hooks.js";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -37,6 +40,7 @@ export interface WorkspaceModulesDeps {
   directory?: Directory;
   chatAdapter?: ChatAdapter;
   workspacePath: string;
+  llm: ReturnType<typeof createLLMClient>;
   [key: string]: unknown;
 }
 
@@ -51,6 +55,9 @@ export default function feySetup(deps: WorkspaceModulesDeps): unknown[] {
     }));
     configureFeyProviders({ feyopsDb });
   }
+
+  // --- Memory append-listener: rebuild daily summaries via LLM ---
+  attachDailySummarizer(deps.memory, deps.llm);
 
   // --- Register deployment-specific modules ---
 
@@ -67,7 +74,7 @@ export default function feySetup(deps: WorkspaceModulesDeps): unknown[] {
   });
 
   registerBuiltInModule("bookings", {
-    config: { name: "bookings", intervalMs: 30 * 60_000, startActive: true, description: "FeyOps arrivals/departures" },
+    config: { name: "bookings", intervalMs: 30 * 60_000, startActive: true, runImmediately: true, description: "FeyOps arrivals/departures" },
     factory: (d) => createBookingsModule(d.directory as unknown as FeyOpsDB),
     requires: ["directory"],
   });
@@ -87,6 +94,14 @@ export default function feySetup(deps: WorkspaceModulesDeps): unknown[] {
   registerBuiltInModule("radio-calendar", {
     config: { name: "radio-calendar", intervalMs: 5 * 60_000, startActive: true, description: "Process scheduled radio calendar items" },
     factory: () => createRadioModule(),
+  });
+
+  registerBuiltInModule("qmd-index", {
+    config: { name: "qmd-index", intervalMs: 30_000, startActive: true, description: "qmd BM25 every 30s, vectors every 5min" },
+    factory: () => createQmdIndexModule({
+      bunPath: process.env.BUN_PATH || "/home/plantoidz/.bun/bin/bun",
+      cliPath: process.env.QMD_CLI || "/home/plantoidz/pi/qmd/dist/cli/qmd.js",
+    }),
   });
 
   ensureCoderWatches().catch((err) => console.error(`coder watch registration failed: ${err}`));

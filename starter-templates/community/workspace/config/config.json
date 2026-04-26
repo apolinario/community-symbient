@@ -1,7 +1,18 @@
 {
   "name": "symbient",
   "workspacePath": "./starter-templates/community/workspace",
-  "qmd": { "url": "http://localhost:8181" },
+  "workspace": {
+    "writablePaths": ["inner/"]
+  },
+  "scheduling": {
+    "defaultTarget": "executive"
+  },
+  "services": {
+    "search": {
+      "backend": "qmd-http",
+      "url": "http://localhost:8181"
+    }
+  },
   "mqtt": {
     "brokerUrl": "localhost",
     "port": 1883
@@ -26,11 +37,11 @@
     "directory": null
   },
   "enabled_modules": [
-    "qmd-index",
     "schedule-checker",
     "watch-evaluator",
     "module-sync",
-    "conversation"
+    "conversation",
+    "qmd-index"
   ],
   "modules": {
     "thinking": { "intervalMs": 1800000 },

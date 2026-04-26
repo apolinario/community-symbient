@@ -9,8 +9,8 @@
  * watch-evaluator polls the event log every ~10s and checks each watch's
  * filter against the new events. Crossing triggers (crossing_up, crossing_down)
  * fire only on the *transition*, not every matching event — useful for
- * threshold conditions like "sauna hits 82°C" (you want one DM, not one per
- * reading while it stays hot).
+ * threshold conditions like "alert when temperature crosses 30°C" (one
+ * fire on the way up, not one per reading while it stays hot).
  *
  * Watches are persisted in `workspace/state/watches.json`. Per-watch state
  * (used for crossing semantics) lives alongside in `workspace/state/watch-state.json`.

@@ -2,6 +2,7 @@
 name: conversation
 interval: 500ms
 tools: [search, read, grep, find, chat_history, register_watch, list_watches, cancel_watch]
+dashboardLogTag: "Symbient conversation"
 ---
 
 It is {{currentDateTime}}.

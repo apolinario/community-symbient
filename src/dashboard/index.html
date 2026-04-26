@@ -33,21 +33,6 @@
   .log-line { white-space: pre-wrap; word-break: break-all; }
   .log-line .ts { color: #4b5563; }
   .log-line .tag { font-weight: bold; }
-  .log-line .tag-signal { color: #3b82f6; }
-  .log-line .tag-radio { color: #f59e0b; }
-  .log-line .tag-radio-dj { color: #f97316; }
-  .log-line .tag-radio-commentary { color: #fb923c; }
-  .log-line .tag-conversation { color: #8b5cf6; }
-  .log-line .tag-sauna { color: #ef4444; }
-  .log-line .tag-thinking { color: #06b6d4; }
-  .log-line .tag-desire { color: #ec4899; }
-  .log-line .tag-magi { color: #a855f7; }
-  .log-line .tag-bookings { color: #10b981; }
-  .log-line .tag-qmd-index { color: #6b7280; }
-  .log-line .tag-people-sync { color: #14b8a6; }
-  .log-line .tag-people-enrich { color: #14b8a6; }
-  .log-line .tag-executive { color: #f59e0b; }
-  .log-line .tag-orchestrator { color: #d4d4d4; }
   .log-line .error { color: #ef4444; }
   .log-line .tool { color: #eab308; }
   .log-line .broadcast { color: #22c55e; }
@@ -63,7 +48,7 @@
 </head>
 <body>
 
-<h1>feyblet <span id="states"></span> <span id="connection-status" class="pill disconnected">connecting...</span></h1>
+<h1 id="symbient-title">symbient <span id="states"></span> <span id="connection-status" class="pill disconnected">connecting...</span></h1>
 
 <h2>Modules</h2>
 <div id="modules" class="grid"></div>
@@ -87,16 +72,25 @@ const modulesEl = document.getElementById('modules');
 const connEl = document.getElementById('connection-status');
 let allLines = [];
 
+// Stable per-tag color: hash the tag name to a hue, render in HSL.
+// No hardcoded module list — every tag (built-in or workspace-defined)
+// gets a consistent color derived from its name.
+function tagColor(tag) {
+  let h = 0;
+  for (let i = 0; i < tag.length; i++) h = (h * 31 + tag.charCodeAt(i)) >>> 0;
+  return `hsl(${h % 360}, 65%, 65%)`;
+}
+
 function formatLogLine(raw) {
   const m = raw.match(/^(\d{2}:\d{2}:\d{2})\s+\[([^\]]+)\]\s*([\s\S]*)/);
   if (!m) return `<div class="log-line">${esc(raw)}</div>`;
   const [, ts, tag, msg] = m;
-  const tagClass = `tag-${tag.replace(/\s+/g, '-')}`;
   let msgClass = '';
   if (msg.includes('ERROR') || msg.includes('error') || msg.includes('failed')) msgClass = 'error';
   else if (msg.includes('Tool:')) msgClass = 'tool';
   else if (msg.includes('broadcast') || msg.includes('Broadcasting')) msgClass = 'broadcast';
-  return `<div class="log-line"><span class="ts">${ts}</span> <span class="tag ${tagClass}">[${tag}]</span> <span class="${msgClass}">${esc(msg)}</span></div>`;
+  const color = tagColor(tag);
+  return `<div class="log-line"><span class="ts">${ts}</span> <span class="tag" style="color:${color}">[${esc(tag)}]</span> <span class="${msgClass}">${esc(msg)}</span></div>`;
 }
 
 function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\\n/g,'\n'); }
@@ -200,6 +194,17 @@ async function refreshStates() {
 }
 refreshStates();
 setInterval(refreshStates, 10000);
+
+// Symbient name — fetched once at startup
+fetch('/api/name')
+  .then(r => r.json())
+  .then(d => {
+    if (!d?.name) return;
+    document.title = d.name;
+    const titleEl = document.getElementById('symbient-title');
+    if (titleEl && titleEl.firstChild) titleEl.firstChild.nodeValue = d.name + ' ';
+  })
+  .catch(() => {});
 </script>
 </body>
 </html>

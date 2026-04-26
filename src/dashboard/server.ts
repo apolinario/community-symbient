@@ -1,12 +1,14 @@
 /**
- * Symbient Dashboard — real-time monitoring UI.
+ * Symbient Dashboard — real-time monitoring UI on port 3333.
  *
- * - Live log streaming via SSE
- * - Module status (active, last run, interval)
- * - Signal connection status
- * - Radio / sauna / bookings at a glance
- *
- * Runs on port 3333 alongside the main process.
+ * Surfaces:
+ * - Live log streaming via SSE (`/api/logs`)
+ * - Module status: name, active flag, last run, interval (`/api/modules`)
+ * - Active states from workspace/state/*.json (`/api/states`)
+ * - Symbient name from config (`/api/name`)
+ * - Per-module detail page with the module's `.md`, any `dashboardFiles`
+ *   declared in frontmatter, and recent log entries the module wrote
+ *   (`/api/module/<name>` + `/module/<name>` HTML)
  */
 
 import http from "node:http";
@@ -14,28 +16,29 @@ import fs from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 const { join } = path;
+import { parseFrontmatter } from "../modules/load-modules.js";
 import type { Orchestrator } from "../core/orchestrator.js";
 import type { MemoryManager } from "../memory/manager.js";
 
-const WORKSPACE = join(process.cwd(), "workspace");
-
-// Extra files to show for specific modules (beyond the auto-discovered module md)
-const MODULE_EXTRA_FILES: Record<string, string[]> = {
-  thinking: ["inner/current-state.md"],
-  desire: ["inner/current-desire.md"],
-  magi: ["inner/current-magi.md"],
-  radio: ["radio/log.md"],
-  "radio-dj": ["radio/log.md"],
-  "radio-commentary": ["radio/log.md"],
-  autobiographical: ["MEMORY.md"],
-  "radio-calendar": ["radio/calendar.json"],
-};
-
-/** Get related files for a module — auto-discovers the module md + extras */
-function getModuleFiles(name: string): string[] {
-  const files: string[] = [`modules/${name}.md`];
-  const extras = MODULE_EXTRA_FILES[name];
-  if (extras) files.push(...extras);
+/**
+ * Get related files for a module: always its own .md, plus anything the
+ * module declares in `dashboardFiles: [...]` frontmatter (extra context
+ * the operator wants visible in the per-module dashboard panel — e.g.
+ * inner-state snapshots, log files, curated memory). Deployment-specific
+ * by design — framework reads the frontmatter; the deployment owns the list.
+ */
+async function getModuleFiles(workspace: string, name: string): Promise<string[]> {
+  const modulePath = `modules/${name}.md`;
+  const files: string[] = [modulePath];
+  try {
+    const raw = await readFile(join(workspace, modulePath), "utf-8");
+    const { fields } = parseFrontmatter(raw);
+    if (Array.isArray(fields.dashboardFiles)) {
+      files.push(...fields.dashboardFiles.filter((p) => typeof p === "string"));
+    }
+  } catch {
+    // Module .md missing — return just the (non-existent) reference; the file-read loop will skip it.
+  }
   return files;
 }
 
@@ -44,15 +47,13 @@ const PORT = Number(process.env.DASHBOARD_PORT) || 3333;
 // Log persistence + SSE streaming
 const LOG_BUFFER_SIZE = 500;
 const sseClients = new Set<http.ServerResponse>();
-const LOG_FILE = path.join(process.cwd(), "workspace", "logs", "dashboard.jsonl");
-
-// Ensure log directory exists
-try { fs.mkdirSync(path.dirname(LOG_FILE), { recursive: true }); } catch {}
+let logFilePath: string | null = null;
 
 /** Read last N log lines from disk. */
 function readRecentLogs(n: number = LOG_BUFFER_SIZE): string[] {
+  if (!logFilePath) return [];
   try {
-    const lines = fs.readFileSync(LOG_FILE, "utf-8").split("\n").filter(Boolean);
+    const lines = fs.readFileSync(logFilePath, "utf-8").split("\n").filter(Boolean);
     return lines.slice(-n).map((l: string) => { try { return JSON.parse(l); } catch { return l; } });
   } catch { return []; }
 }
@@ -62,18 +63,34 @@ export function pushLogLine(line: string): void {
   for (const client of sseClients) {
     client.write(`data: ${JSON.stringify(line)}\n\n`);
   }
-  // Persist to disk (fire and forget)
-  fs.appendFile(LOG_FILE, JSON.stringify(line) + "\n", () => {});
+  if (logFilePath) {
+    fs.appendFile(logFilePath, JSON.stringify(line) + "\n", () => {});
+  }
 }
 
 /** Start the dashboard HTTP server. */
 let memoryRef: MemoryManager | null = null;
+let workspaceRef: string = "";
 
-export function startDashboard(orchestrator: Orchestrator, memory?: MemoryManager): void {
-  if (memory) memoryRef = memory;
+export function startDashboard(
+  orchestrator: Orchestrator,
+  memory: MemoryManager,
+  workspacePath: string,
+): void {
+  memoryRef = memory;
+  workspaceRef = workspacePath;
+  logFilePath = join(workspacePath, "logs", "dashboard.jsonl");
+  try { fs.mkdirSync(path.dirname(logFilePath), { recursive: true }); } catch {}
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || "/", `http://localhost:${PORT}`);
+
+    if (url.pathname === "/api/name") {
+      const { symbientName } = await import("../core/symbient-name.js");
+      res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+      res.end(JSON.stringify({ name: symbientName() }));
+      return;
+    }
 
     if (url.pathname === "/api/states") {
       res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
@@ -122,37 +139,49 @@ export function startDashboard(orchestrator: Orchestrator, memory?: MemoryManage
       res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
 
       const files: Array<{ path: string; content: string }> = [];
-      const relPaths = getModuleFiles(name);
+      const relPaths = await getModuleFiles(workspaceRef, name);
 
       // Always include the debug context if it exists
       relPaths.push(`debug/${name}-context.md`);
 
       for (const rel of relPaths) {
         try {
-          const content = await readFile(join(WORKSPACE, rel), "utf-8");
+          const content = await readFile(join(workspaceRef, rel), "utf-8");
           // For large files, take last 5000 chars
           const trimmed = content.length > 5000 ? "...\n" + content.slice(-5000) : content;
           files.push({ path: rel, content: trimmed });
         } catch {}
       }
 
-      // Also include today's memory log entries for this module
+      // Also include today's memory log entries written by this module.
+      // The module's frontmatter can declare an explicit `dashboardLogTag`
+      // (the literal `*[Tag]*` prefix the module's handler writes). If
+      // unset, fall back to a heuristic that matches `*[<Symbient> <name>]*`
+      // OR `*[<Capitalized name>...]*` — covers the common conventions
+      // without requiring every module to declare the tag.
       try {
         const today = new Date().toISOString().slice(0, 10);
-        const logPath = join(WORKSPACE, "memory", `${today}.md`);
+        const logPath = join(workspaceRef, "memory", `${today}.md`);
         const log = await readFile(logPath, "utf-8");
-        // Dashboard's per-module log filter — matches the daily-log entry
-        // prefixes the module's handler writes (e.g. `*[<Symbient> thinking]*`).
-        // The handler format lives in workspace/extensions/handlers.js; we
-        // read both forms (`[Name ...]` and `[<Symbient> name]`) so dashboard
-        // works regardless of the handler's chosen prefix convention.
-        const { symbientDisplayName } = await import("../core/symbient-name.js");
-        const self = symbientDisplayName();
-        const tag = `[${name.charAt(0).toUpperCase() + name.slice(1)}`;
-        const symbientTag = ["thinking", "desire", "magi"].includes(name)
-          ? `${self} ${name}`
-          : null;
-        const pattern = symbientTag ? new RegExp(`\\*\\[${symbientTag}\\]\\*`, "i") : null;
+        const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+        let pattern: RegExp;
+        const moduleMdPath = `modules/${name}.md`;
+        let dashboardLogTag: string | null = null;
+        try {
+          const raw = await readFile(join(workspaceRef, moduleMdPath), "utf-8");
+          const { fields } = parseFrontmatter(raw);
+          if (typeof fields.dashboardLogTag === "string") dashboardLogTag = fields.dashboardLogTag;
+        } catch {}
+
+        if (dashboardLogTag) {
+          pattern = new RegExp(`\\*\\[${escapeRe(dashboardLogTag)}\\]\\*`, "i");
+        } else {
+          const { symbientDisplayName } = await import("../core/symbient-name.js");
+          const self = symbientDisplayName();
+          const cap = name.charAt(0).toUpperCase() + name.slice(1);
+          pattern = new RegExp(`\\*\\[(?:${escapeRe(self)}\\s+${escapeRe(name)}|${escapeRe(cap)}[^\\]]*)\\]\\*`, "i");
+        }
 
         const sections = log.split(/^(## \d{2}:\d{2}:\d{2})/m);
         const relevant: string[] = [];
@@ -160,7 +189,7 @@ export function startDashboard(orchestrator: Orchestrator, memory?: MemoryManage
         for (const section of sections) {
           if (section.match(/^## \d{2}:\d{2}:\d{2}$/)) {
             currentHeader = section;
-          } else if (pattern && pattern.test(section)) {
+          } else if (pattern.test(section)) {
             relevant.push(currentHeader + "\n" + section.trim());
           }
         }

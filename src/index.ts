@@ -1,12 +1,12 @@
 /**
- * Symbient framework — CMA-inspired concurrent modular agent runtime.
+ * Symbient framework — concurrent modular agent runtime.
  *
  * Built on:
  * - Pi SDK (LLM, Agent, native tool calling)
- * - CMA-inspired concurrent modules (async, loosely coupled, MQTT messaging)
- * - OpenClaw-style Markdown memory (files, not vectors)
- * - Signal bridge via signal-cli
+ * - Concurrent modules (async, loosely coupled, MQTT messaging)
+ * - Markdown memory (files, not vectors)
  * - qmd search for memory retrieval
+ * - Pluggable chat adapters (Signal built in; Matrix/Discord/etc. via extensions)
  *
  * Modules are defined in workspace/modules/*.md — behavior is editable
  * without code changes. Each module gets Pi Agent capabilities with
@@ -33,8 +33,6 @@ import {
   createNudgeModuleTool,
   createWebSearchTool,
   createChatHistoryTool,
-  createSendDMTool,
-  createSendGroupMessageTool,
   createCreateModuleTool,
   createDisableModuleTool,
   createListModulesTool,
@@ -51,6 +49,7 @@ import { loadModuleConfigs } from "./modules/load-modules.js";
 import { loadAllExtensions, loadWorkspaceToolsFactory, loadWorkspaceModulesFactory } from "./core/extension-loader.js";
 import { setEventLogWorkspace } from "./core/event-log.js";
 import { setWatchesWorkspace } from "./core/watches.js";
+import { setSearchBackend, createQmdHttpBackend, createLocalBm25Backend } from "./core/search.js";
 import { registerBuiltIns } from "./core/register-builtins.js";
 import { getBuiltInModule, listBuiltInModules, type ModuleDeps } from "./core/module-factories.js";
 import { getChatAdapter, getDirectory } from "./core/adapter-registry.js";
@@ -82,40 +81,57 @@ async function main() {
 
   // Core systems
   const memory = new MemoryManager(config.workspacePath);
-  memory.setSummarizer(createLLMClient(config.llm));
-  memory.setQmdUrl(config.qmd.url);
 
-  // Wire framework tool service URLs.
+  // Search backend: explicit `services.search.backend` wins; otherwise
+  // pick `qmd-http` when a URL is set, `local-bm25` otherwise.
+  const searchCfg = (config.services?.search ?? {}) as { url?: string; backend?: string };
+  const declaredBackend = searchCfg.backend;
+  const backendChoice = declaredBackend
+    ?? (searchCfg.url ? "qmd-http" : "local-bm25");
+  if (backendChoice === "local-bm25") {
+    setSearchBackend(createLocalBm25Backend(config.workspacePath));
+    console.log("Search: local-bm25 (in-process, lex-only)");
+  } else if (backendChoice === "qmd-http") {
+    if (!searchCfg.url) {
+      console.warn("Search: qmd-http selected but services.search.url is unset — search tool will return empty results");
+      setSearchBackend(createQmdHttpBackend(""));
+    } else {
+      setSearchBackend(createQmdHttpBackend(searchCfg.url));
+      console.log(`Search: qmd-http at ${searchCfg.url}`);
+    }
+  } else {
+    console.warn(`Unknown search backend "${backendChoice}" — falling back to local-bm25`);
+    setSearchBackend(createLocalBm25Backend(config.workspacePath));
+  }
+
+  // Wire framework tool service URLs + policy values.
   const searxngUrl = config.services?.searxng?.url as string | undefined;
   configureToolServices({
-    qmdUrl: config.qmd.url,
     searxngUrl,
+    moduleManagement: config.moduleManagement,
   });
 
   // Wire attachment-processing service URLs (voice transcription + fetching
-  // attachments from chat adapter's backend). Both optional — missing
-  // Whisper means voice messages aren't transcribed.
+  // attachment binaries from the chat adapter's REST backend, if any).
+  // Both optional — missing Whisper means voice messages aren't transcribed;
+  // missing attachmentBaseUrl means attachment binaries can't be fetched.
+  // The base URL comes from the chat adapter itself (any adapter with a
+  // REST attachment endpoint implements `getAttachmentBaseUrl()`).
   const { configureAttachmentServices } = await import("./core/attachments.js");
-  configureAttachmentServices({
-    whisperUrl: config.services?.whisper?.url as string | undefined,
-    // Signal attachments are fetched from the Signal REST API. Reuse the
-    // host/port the chat adapter already has configured.
-    signalApiUrl: config.adapters?.chat?.adapter === "signal" && config.adapters.chat.params
-      ? `http://${config.adapters.chat.params.httpHost}:${config.adapters.chat.params.httpPort}`
-      : undefined,
-  });
+  // chatAdapter is wired below; we delay attachment configuration until
+  // after it's instantiated.
 
   // Register all built-in adapters + module factories, then load workspace
   // extensions (custom adapters, helpers, handlers, providers, actions,
   // sensors, directories). Both must run BEFORE config.adapters.* lookups
   // so the factory registry has everything before we try to resolve names.
-  registerBuiltIns();
+  registerBuiltIns(config);
   const extensions = await loadAllExtensions(config.workspacePath);
 
   // Directory adapter — config-driven via the registry. Deployments
   // without a member/booking source set config.adapters.directory to null;
-  // the framework then skips modules that require it (bookings, onboarding,
-  // people-sync, radio-calendar).
+  // modules that declare `requires: ["directory"]` are then skipped at
+  // launch time with a warning.
   let directory: Directory | undefined;
   const dirSel = config.adapters?.directory;
   if (dirSel === null || dirSel === undefined) {
@@ -136,9 +152,8 @@ async function main() {
     config.name,
   );
 
-  // Chat adapter — config-driven. Default (Feÿ legacy) is the built-in Signal
-  // factory with `config.signal`. Non-Signal deployments set config.adapters.chat
-  // to a different adapter, or `null` for CLI/headless deployments.
+  // Chat adapter — config-driven. Set config.adapters.chat to pick a
+  // transport, or `null` for CLI/headless deployments with no chat surface.
   let chatAdapter: ChatAdapter | undefined;
   const chatSel = config.adapters?.chat;
   if (chatSel === null || chatSel === undefined) {
@@ -153,11 +168,23 @@ async function main() {
     }
   }
 
+  configureAttachmentServices({
+    whisperUrl: config.services?.whisper?.url as string | undefined,
+    attachmentBaseUrl: chatAdapter?.getAttachmentBaseUrl?.() ?? undefined,
+  });
+
   // MCP servers — declared in config.mcp_servers. Tools auto-discovered at startup.
   let mcpTools = await initMCP(config.mcp_servers ?? []);
 
-  // Pi file tools (sandboxed to workspace, write-restricted)
-  const piTools = createSandboxedPiTools(config.workspacePath);
+  // Pi file tools (sandboxed to workspace, write-restricted).
+  // Default writable paths: MEMORY.md + people/. Deployments add their
+  // own (e.g. season/, inner/) via config.workspace.writablePaths.
+  const writablePrefixes = [
+    "MEMORY.md",
+    "people/",
+    ...(config.workspace?.writablePaths ?? []),
+  ];
+  const piTools = createSandboxedPiTools(config.workspacePath, writablePrefixes);
   console.log(`Pi tools: ${piTools.map(t => t.name).join(", ")}`);
 
   // Framework tools — universal, always available.
@@ -181,15 +208,8 @@ async function main() {
   if (searxngUrl) {
     tools.push(createWebSearchTool());
   }
-  // Chat tools — only if a chat adapter is wired.
-  if (chatAdapter) {
-    tools.push(
-      createSendDMTool(chatAdapter, memory),
-      createSendGroupMessageTool(chatAdapter, memory),
-    );
-  }
-  // Workspace tools — deployment-specific (Feÿ's radio_broadcast, check_sauna, etc.).
-  // Loaded from workspace/extensions/tools.{js,mjs,ts} if present.
+  // Workspace tools — deployment-specific tool set (e.g. broadcast, sensors,
+  // PMS lookups). Loaded from workspace/extensions/tools.{js,mjs,ts} if present.
   const workspaceTools = await loadWorkspaceToolsFactory(config.workspacePath);
   if (workspaceTools) {
     const deployToolDeps = {
@@ -226,6 +246,7 @@ async function main() {
     workspacePath: config.workspacePath,
     bus,
     orchestrator,
+    llm: createLLMClient(config.llm),
     chatAdapter,
     directory,
   };
@@ -243,8 +264,8 @@ async function main() {
     }
   }
 
-  // Which built-in modules to run. If config.enabled_modules is set, use
-  // that list; else default to every registered built-in (current Feÿ behavior).
+  // Which built-in modules to run. Either an explicit list from config or,
+  // by default, every registered built-in module.
   const enabled = config.enabled_modules ?? listBuiltInModules();
 
   for (const name of enabled) {
@@ -296,7 +317,7 @@ async function main() {
   // --- Dashboard + Start ---
 
   setLogSink(pushLogLine);
-  startDashboard(orchestrator, memory);
+  startDashboard(orchestrator, memory, config.workspacePath);
 
   await bus.connect();
   if (chatAdapter) await chatAdapter.start();

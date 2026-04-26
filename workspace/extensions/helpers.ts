@@ -29,6 +29,29 @@ const pendingCapabilityGaps: HelperFn = async () => {
   return `<pending-capability-gaps note="gaps the reviewer hasn't decided on yet — if their reply is about one of these, forward via nudge_module(coder, '<id>: <their reply verbatim>')">\n${entries.join("\n")}\n</pending-capability-gaps>`;
 };
 
+// Feÿ-specific inner-life pattern: thinking/desire/magi each maintain a
+// snapshot file in workspace/inner/. Conversation and other modules surface
+// the latest fragment as ambient mood. Other deployments without this
+// cognitive structure simply don't reference these helpers in their
+// templates and don't pay the file-read cost.
+const innerState: HelperFn = async (ctx) => {
+  if (!ctx) return "";
+  return (await ctx.memory.readFile("inner/current-state.md")) ?? "";
+};
+
+const currentDesire: HelperFn = async (ctx) => {
+  if (!ctx) return "";
+  return (await ctx.memory.readFile("inner/current-desire.md")) ?? "";
+};
+
+const currentMagi: HelperFn = async (ctx) => {
+  if (!ctx) return "";
+  return (await ctx.memory.readFile("inner/current-magi.md")) ?? "";
+};
+
 export default {
   pendingCapabilityGaps,
+  innerState,
+  currentDesire,
+  currentMagi,
 };

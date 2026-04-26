@@ -35,7 +35,7 @@ const ttsRes = await fetch(`${TTS_API}/v1/audio/speech`, {
   body: JSON.stringify({
     model: "qwen3-tts",
     voice: "default",
-    input: "Good morning Feytopia! It's a beautiful Monday at the chateau. We have 31 guests today, and the music is flowing.",
+    input: "Good morning everyone. Just a quick voice test on the radio bridge — testing the live TTS path end to end.",
     response_format: "wav",
     voice_path: voicePath,
   }),
@@ -47,7 +47,7 @@ if (ttsRes.ok) {
   const fs = await import("node:fs/promises");
   const http = await import("node:http");
   const audioBuffer = Buffer.from(await ttsRes.arrayBuffer());
-  const tmpPath = `/tmp/feyblet-radio-live-${Date.now()}.wav`;
+  const tmpPath = `/tmp/symbient-radio-live-${Date.now()}.wav`;
   await fs.writeFile(tmpPath, audioBuffer);
 
   const port = 9877;

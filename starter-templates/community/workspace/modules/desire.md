@@ -1,7 +1,10 @@
 ---
 name: desire
 interval: 1h
+runImmediately: true
 tools: [search, read, write, grep]
+dashboardFiles: [inner/current-desire.md]
+dashboardLogTag: "Symbient desire"
 context:
   - source: recent-group-chat
   - source: inner-mood

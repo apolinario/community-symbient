@@ -1,7 +1,9 @@
 ---
 name: radio-dj
 interval: 5m
+runImmediately: true
 tools: [radio.radio_overview, radio.search, radio.play_music, radio.player_settings]
+dashboardFiles: [radio/log.md]
 context:
   - source: current-time
     tag: current-time

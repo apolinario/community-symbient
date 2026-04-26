@@ -3,8 +3,8 @@
  *
  * A module's frontmatter can declare a `context:` array of provider
  * invocations. Each produces an XML-tagged block that gets appended to
- * the module's seed prompt at cycle time. This replaces the hardcoded
- * switch in agent-module.ts (radio/radio-dj/executive seed builders).
+ * the module's seed prompt at cycle time — fully data-driven, no
+ * hardcoded per-module seed builders in framework code.
  *
  * Example `workspace/modules/radio.md`:
  *

@@ -1,7 +1,9 @@
 ---
 name: radio
 interval: 2m
+runImmediately: true
 tools: [search, read, grep, lookup_person, check_bookings, check_sauna, radio_broadcast, radio, radio_schedule, radio_calendar]
+dashboardFiles: [radio/log.md]
 context:
   - source: current-time
     tag: current-time

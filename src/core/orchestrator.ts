@@ -1,10 +1,8 @@
 /**
- * Module Orchestrator — the heart of the framework's concurrent architecture.
- *
- * Inspired by CMA's Agent class: registers modules, runs them concurrently
- * as async loops, coordinates via MQTT messaging and shared Markdown memory.
- * Unlike CMA's ChromaDB, state is shared through filesystem (daily logs,
- * MEMORY.md, per-person files) following OpenClaw's memory philosophy.
+ * Module Orchestrator — registers modules, runs them concurrently as async
+ * loops, and coordinates between them via the MQTT bus + shared markdown
+ * memory. Each module gets its own MessageClient and its own first-cycle
+ * timing (timer-based by default, MQTT-triggered for `follows:`-modules).
  */
 
 import type {
@@ -144,8 +142,12 @@ export class Orchestrator {
       return;
     }
 
-    // High-frequency modules (<=60s) and bookings run immediately; others wait their interval first
-    const runImmediately = mod.config.intervalMs <= 60_000 || name === "bookings" || name === "radio" || name === "radio-dj" || name === "autobiographical";
+    // First-cycle behaviour: high-frequency modules (≤60s) run immediately
+    // because they'd wake up almost at once anyway; slower modules wait
+    // their first interval to avoid a startup stampede. A module can opt
+    // into immediate first-run by setting `runImmediately: true` in its
+    // .md frontmatter.
+    const runImmediately = mod.config.runImmediately ?? mod.config.intervalMs <= 60_000;
     let firstRun = true;
 
     while (!signal.aborted) {

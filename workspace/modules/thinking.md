@@ -2,6 +2,8 @@
 name: thinking
 interval: 30m
 tools: [search, read, edit, grep, lookup_person]
+dashboardFiles: [inner/current-state.md]
+dashboardLogTag: "Feyblet thinking"
 context:
   - source: house-status
   - source: sauna

@@ -67,22 +67,10 @@ function registerBuiltInHelpers(): void {
     new Date().toLocaleDateString("en-GB", { weekday: "long" }),
   );
 
-  // Memory wrappers
+  // Memory wrappers — universal, deployment-agnostic.
   registerHelper("memoryContext", async (ctx) => {
     if (!ctx) return "";
     return await ctx.memory.assembleContext();
-  });
-  registerHelper("innerState", async (ctx) => {
-    if (!ctx) return "";
-    return (await ctx.memory.readFile("inner/current-state.md")) ?? "";
-  });
-  registerHelper("currentDesire", async (ctx) => {
-    if (!ctx) return "";
-    return (await ctx.memory.readFile("inner/current-desire.md")) ?? "";
-  });
-  registerHelper("currentMagi", async (ctx) => {
-    if (!ctx) return "";
-    return (await ctx.memory.readFile("inner/current-magi.md")) ?? "";
   });
   registerHelper("soul", async (ctx) => {
     if (!ctx) return "";

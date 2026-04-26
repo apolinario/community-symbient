@@ -2,9 +2,9 @@
  * Directory — pluggable member/booking data source.
  *
  * A community has some notion of "who's here, who's coming, who's going."
- * For Feÿ that's the FeyOps SQLite DB + Amenitiz PMS sync. For a smaller
- * deployment it might just be the `workspace/people/*.md` files. For a
- * Discord-only symbient it might not have bookings at all.
+ * That can be a SQLite DB synced from a property-management system, a set
+ * of `workspace/people/*.md` files, a chat-platform roster, or nothing at
+ * all for symbients without a guest concept.
  *
  * The framework exposes this narrow interface so tools like `check_bookings`
  * and `lookup_person` don't hardcode a specific data source. `Booking` and
@@ -12,11 +12,11 @@
  */
 
 export interface Member {
-  slug: string;           // canonical id (e.g. "aaron-mayer")
+  slug: string;           // canonical id (e.g. "first-last")
   name: string;
   phone?: string;
-  signalUuid?: string;
-  /** Free-form additional fields (e.g. status, from, field). */
+  /** Chat-platform identifiers and any other extras (signal-uuid,
+   *  discord-id, matrix-mxid, status, role, etc.). */
   [key: string]: unknown;
 }
 

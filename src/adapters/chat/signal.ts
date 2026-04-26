@@ -1,34 +1,43 @@
 /**
- * Signal ChatAdapter — connects a symbient to Signal via bbernhard/signal-cli-rest-api.
+ * Signal ChatAdapter — connects a symbient to Signal via the
+ * bbernhard/signal-cli-rest-api Docker container.
  *
- * Uses the Docker container's REST + WebSocket API:
  * - Receives messages via WebSocket at /v1/receive/{number}
  * - Sends messages via POST /v2/send
  * - Typing indicators via PUT /v1/typing-indicator/{number}
+ *
+ * One built-in implementation of the `ChatAdapter` interface; deployments
+ * needing a different transport (Matrix, Discord, CLI, WebUI) drop their
+ * own factory under `workspace/extensions/adapters/chat/` and select it
+ * via `config.adapters.chat`.
  */
 
 import type {
-  SignalConfig,
   InboundMessage,
   OutboundMessage,
-  SignalSender,
-} from "../core/types.js";
-import type { ChatAdapter, ChatAdapterFactory, ChatMessageHandler } from "../adapters/chat/types.js";
-import { registerChatAdapter } from "../core/adapter-registry.js";
-import { createLogger } from "../core/logger.js";
-import { recordEvent } from "../core/event-log.js";
+  MessageSender,
+} from "../../core/types.js";
+import type { ChatAdapter, ChatAdapterFactory, ChatMessageHandler } from "./types.js";
+import { registerChatAdapter } from "../../core/adapter-registry.js";
+import { createLogger } from "../../core/logger.js";
+import { recordEvent } from "../../core/event-log.js";
 import WebSocket from "ws";
 
 type MessageHandler = ChatMessageHandler;
 
 const log = createLogger("signal");
 
-/**
- * Signal chat adapter — the built-in `ChatAdapter` implementation for
- * bbernhard/signal-cli-rest-api. Other chat transports (Matrix, Discord,
- * CLI, WebUI) can be added in workspace/extensions/adapters/ and selected
- * via config.yaml without touching this file.
- */
+/** Signal-specific adapter config — passed via config.adapters.chat.params. */
+export interface SignalConfig {
+  account: string;
+  httpHost: string;
+  httpPort: number;
+  dmPolicy: "open" | "allowlist";
+  groupPolicy: "open" | "allowlist" | "disabled";
+  allowFrom: string[];
+  groupAllowFrom: string[];
+}
+
 export class SignalBridge implements ChatAdapter {
   readonly name = "signal";
   private ws: WebSocket | null = null;
@@ -90,6 +99,11 @@ export class SignalBridge implements ChatAdapter {
       const text = await res.text();
       throw new Error(`Signal send error ${res.status}: ${text}`);
     }
+  }
+
+  /** signal-cli-rest-api serves binaries at `${baseUrl}/v1/attachments/{id}`. */
+  getAttachmentBaseUrl(): string {
+    return this.baseUrl;
   }
 
   async sendTyping(to: string, groupId?: string): Promise<void> {
@@ -203,7 +217,7 @@ export class SignalBridge implements ChatAdapter {
     if (!dataMsg?.message && !dataMsg?.attachments?.length) return;
 
     const source = envelope.envelope;
-    const sender: SignalSender = {
+    const sender: MessageSender = {
       id: source.sourceUuid || source.sourceNumber || "unknown",
       name: source.sourceName,
       phone: source.sourceNumber,
@@ -268,10 +282,8 @@ export class SignalBridge implements ChatAdapter {
   }
 }
 
-// Self-register as the built-in "signal" chat adapter factory so that
-// config.yaml entries with `adapter: signal` can find it. Deployments
-// using Signal as their chat transport don't need to do anything — just
-// point config.adapters.chat at this factory by name.
+// Self-register as the built-in "signal" chat adapter factory. Selected
+// by config.adapters.chat = { adapter: "signal", params: {...} }.
 export const signalChatAdapterFactory: ChatAdapterFactory = {
   name: "signal",
   create: (params) => new SignalBridge(params as unknown as SignalConfig),

@@ -1,7 +1,10 @@
 ---
 name: thinking
 interval: 30m
+runImmediately: true
 tools: [search, read, write, grep]
+dashboardFiles: [inner/current-state.md]
+dashboardLogTag: "Symbient thinking"
 context:
   - source: recent-group-chat
   - source: recent-days

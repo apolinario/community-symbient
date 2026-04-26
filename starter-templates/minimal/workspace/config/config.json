@@ -1,7 +1,9 @@
 {
   "name": "symbient",
   "workspacePath": "./starter-templates/minimal/workspace",
-  "qmd": { "url": "http://localhost:8181" },
+  "services": {
+    "search": { "backend": "local-bm25" }
+  },
   "mqtt": {
     "brokerUrl": "localhost",
     "port": 1883

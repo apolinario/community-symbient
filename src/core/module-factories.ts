@@ -1,22 +1,18 @@
 /**
- * Built-in Module Factories — the framework's shipped modules, each
- * wrapped as a name → factory entry so `src/index.ts` can instantiate
- * only what `config.modules` declares.
+ * Built-in Module Factories — the registry that `src/index.ts` consults
+ * when instantiating modules listed in `config.enabled_modules`.
  *
- * A deployment picks which built-in modules to enable by listing them
- * in `config.modules`. Modules that need dependencies (a Directory, a
- * ChatAdapter) declare them in `requires`; the framework skips the
- * module with a warning if the dep isn't wired up for this deployment.
+ * Modules that need dependencies (a Directory, a ChatAdapter, etc.)
+ * declare them in `requires`; the framework skips the module with a
+ * warning if the dep isn't wired up for this deployment.
  *
- * Adding a custom module: drop a `.md` in `workspace/modules/` (the
- * loader picks it up automatically) or, for code-driven modules,
- * create a factory in `workspace/extensions/modules/<name>.js` that
- * exports `{ config, factory, requires? }` and register via the
- * extension loader (future work — for now code-driven modules go in
- * `src/` or as MCP tools).
+ * Adding a custom module:
+ *   - Markdown-driven: drop a `.md` in `workspace/modules/`.
+ *   - Code-driven: register a factory from `workspace/extensions/modules.ts`
+ *     by calling `registerBuiltInModule(name, {config, factory, requires?})`.
  */
 
-import type { ModuleConfig, ModuleFunction } from "./types.js";
+import type { ModuleConfig, ModuleFunction, LLMClient } from "./types.js";
 import type { MemoryManager } from "../memory/manager.js";
 import type { MQTTBus } from "./mqtt-bus.js";
 import type { Orchestrator } from "./orchestrator.js";
@@ -25,17 +21,20 @@ import type { Directory } from "../adapters/directory/types.js";
 
 /**
  * Deps available to every module factory. Framework-wired:
- *   - memory, workspacePath, bus, orchestrator (always present)
+ *   - memory, workspacePath, bus, orchestrator, llm (always present)
  *   - chatAdapter (only if config.adapters.chat is set)
  *   - directory (only if config.adapters.directory is set)
- * Deployment modules cast `directory` to their specific impl type
- * (e.g. FeyOpsDB) inside `workspace/extensions/modules.ts`.
+ * Deployment modules can cast `directory` to their concrete adapter type
+ * inside `workspace/extensions/modules.ts` if they need adapter-specific
+ * methods beyond the Directory interface.
  */
 export interface ModuleDeps {
   memory: MemoryManager;
   workspacePath: string;
   bus: MQTTBus;
   orchestrator: Orchestrator;
+  /** Simple text-completion client (no tools). For LLM calls outside agent loops — summaries, classifiers. */
+  llm: LLMClient;
   chatAdapter?: ChatAdapter;
   directory?: Directory;
 }

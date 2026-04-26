@@ -1,8 +1,11 @@
 ---
 name: autobiographical
 interval: 6h
+runImmediately: true
 tools: [search, read, write, edit, grep, find, chat_history]
 startActive: true
+dashboardFiles: [MEMORY.md]
+dashboardLogTag: "Autobiographical memory"
 context:
   - source: recent-days
     count: 7

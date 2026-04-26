@@ -5,22 +5,24 @@
  * - SOUL.md          — symbient identity
  * - MEMORY.md        — curated long-term knowledge
  * - memory/YYYY-MM-DD.md — daily logs (append-only journals)
- * - memory/YYYY-MM-DD.summary.md — LLM-generated daily summaries
  * - people/<slug>.md — per-person relational memory (deployment convention)
  * - state/*.json     — transient global modes with optional expiry
  *
- * Framework memory knows nothing about bookings/seasons/moods/etc. —
- * deployments inject domain context via the MemoryEnricher hook
- * (per-person blocks) and context providers declared in module
- * frontmatter (everything else).
+ * Framework memory is intentionally domain-agnostic. Deployments inject
+ * any extra context via:
+ *   - MemoryEnricher (per-person blocks, e.g. booking history),
+ *   - context providers declared in module frontmatter (anything else),
+ *   - onAppend listeners for post-write side effects like LLM-generated
+ *     daily summaries.
  */
 
-import { readFile, writeFile, appendFile, mkdir, access, readdir, stat } from "node:fs/promises";
+import { readFile, writeFile, appendFile, mkdir, access, readdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
-import type { MemoryReader, MemoryWriter, SearchResult } from "../core/types.js";
+import type { MemoryReader, MemoryWriter } from "../core/types.js";
 import { slugify } from "../core/slugify.js";
-import { annotateContextLines } from "./time-annotate.js";
-import { symbientName, symbientDisplayName } from "../core/symbient-name.js";
+import { symbientName } from "../core/symbient-name.js";
+import { parseFrontmatter } from "../modules/load-modules.js";
+import { getSearchBackend, type SearchHit } from "../core/search.js";
 
 /**
  * Optional deployment-provided hook into context assembly. Handles the
@@ -31,38 +33,37 @@ import { symbientName, symbientDisplayName } from "../core/symbient-name.js";
  *     Context providers don't see "the current person" — only enrichers
  *     know it.
  *
- *   - `resolveNickname(name)`: fuzzy nickname → slug resolution during
- *     findPerson(). Deployment-specific alias table.
+ *   - `resolveNickname(input)`: resolve any string to a person slug —
+ *     fuzzy nicknames, chat-platform identifiers (Signal UUID, Matrix
+ *     MXID, Discord ID), or any deployment-specific alias scheme. Called
+ *     during findPerson() when name+phone alone don't match.
  *
- * Global context blocks (house-status, sauna, recent-broadcasts, etc.)
- * are NOT part of the enricher — they live as context providers in
- * `workspace/extensions/providers.js` and modules reference them by
- * name in frontmatter `context:` blocks.
+ * Global context blocks (sensor state, recent broadcasts, current
+ * occupants, etc.) are NOT part of the enricher — they live as context
+ * providers in `workspace/extensions/providers.js` and modules reference
+ * them by name in frontmatter `context:` blocks.
  */
 export interface MemoryEnricher {
   /** Extra blocks for a specific person (booking/stay history, aliases). */
   personBlocks?: (slug: string) => Promise<string[]> | string[];
-  /** Resolve a nickname/alias to a person slug. */
-  resolveNickname?: (name: string) => Promise<string | null> | string | null;
+  /** Resolve a nickname, alias, or chat-platform identifier to a person slug. */
+  resolveNickname?: (input: string) => Promise<string | null> | string | null;
 }
 
-type LLMSummarizer = {
-  complete(opts: { system: string; messages: Array<{ role: "user"; content: string }>; temperature?: number; maxTokens?: number }): Promise<string>;
-};
-
-export interface QmdResult {
-  docid: string;
-  file: string;
-  title: string;
-  score: number;
-  context: string;
-  snippet: string;
-}
+/**
+ * Listener fired after each successful `appendLog`. Receives the entry
+ * and the date it was written under. Deployments use this for things
+ * like daily summaries, indexing, or notification — none of which are
+ * framework concerns.
+ */
+export type AppendLogListener = (entry: string, date: Date) => void | Promise<void>;
 
 export interface PersonMeta {
   name: string;
   filename: string;
-  fields: Record<string, string>;
+  /** Raw frontmatter fields. Strings most of the time, but can be arrays
+   *  (e.g. `aliases:`), booleans, or numbers — js-yaml preserves the type. */
+  fields: Record<string, unknown>;
   path: string;
 }
 
@@ -72,12 +73,13 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
   private peopleCache: PersonMeta[] | null = null;
   private peopleCacheTime = 0;
   private enricher: MemoryEnricher | null = null;
-  private qmdUrl: string = "";
+  private appendListeners: AppendLogListener[] = [];
 
   constructor(private workspacePath: string) {}
 
-  setQmdUrl(url: string): void {
-    this.qmdUrl = url;
+  /** Workspace root, absolute. Lets listeners locate files relative to it. */
+  getWorkspacePath(): string {
+    return this.workspacePath;
   }
 
   /**
@@ -87,6 +89,15 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
    */
   setEnricher(enricher: MemoryEnricher): void {
     this.enricher = enricher;
+  }
+
+  /**
+   * Register a listener that fires after each successful `appendLog`.
+   * Listeners run sequentially; any error is logged and swallowed so a
+   * misbehaving listener never breaks the writer's flow.
+   */
+  onAppend(listener: AppendLogListener): void {
+    this.appendListeners.push(listener);
   }
 
   // --- MemoryReader ---
@@ -118,36 +129,42 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
   }
 
   /**
-   * Find a person by name or phone (fuzzy: matches against frontmatter name,
-   * filename, first name, FeyOps nicknames, or phone number).
-   * Returns their slug (filename without .md) and full profile content.
+   * Find a person by name. Resolution order:
+   *   1. phone-number match (suffix-aware, handles country-code variants)
+   *   2. exact frontmatter name
+   *   3. deployment-provided nickname / chat-id resolver (`resolveNickname`)
+   *   4. first-name / substring fallback
+   *   5. filename slug fallback
+   *
+   * Chat-platform identifiers (Signal UUID, Matrix MXID, Discord ID, etc.)
+   * resolve through the deployment's `resolveNickname` hook rather than
+   * being baked into core — the framework knows nothing about specific
+   * transports. Returns the person's slug and full profile content.
    */
-  async findPerson(name: string, phone?: string, signalUuid?: string): Promise<{ slug: string; content: string } | null> {
+  async findPerson(name: string, phone?: string): Promise<{ slug: string; content: string } | null> {
     const people = await this.discoverPeople();
     const lower = name.toLowerCase();
 
     let match: PersonMeta | undefined;
 
-    // Try Signal UUID match FIRST — most reliable identifier
-    if (!match && signalUuid) {
-      match = people.find((p) => p.fields["signal-uuid"]?.replace(/"/g, "") === signalUuid);
-    }
-
-    // Try phone number match — very reliable
-    if (!match && phone) {
+    // Phone-number match — suffix-aware so "+33 6 12 34 56 78" and
+    // "0612345678" can resolve to the same person.
+    if (phone) {
       const cleanPhone = phone.replace(/\s+/g, "");
       match = people.find((p) => {
-        const pPhone = p.fields.phone?.replace(/\s+/g, "");
+        const raw = p.fields.phone;
+        if (typeof raw !== "string") return false;
+        const pPhone = raw.replace(/\s+/g, "");
         return pPhone && (pPhone === cleanPhone || pPhone.endsWith(cleanPhone.slice(-9)) || cleanPhone.endsWith(pPhone.slice(-9)));
       });
     }
 
-    // Try exact match on frontmatter name
+    // Exact match on frontmatter name
     if (!match) {
       match = people.find((p) => p.name.toLowerCase() === lower);
     }
 
-    // Try deployment-provided nickname/alias resolution.
+    // Deployment-provided nickname/alias/chat-id resolution.
     if (!match && this.enricher?.resolveNickname) {
       const slug = await this.enricher.resolveNickname(name);
       if (slug) {
@@ -183,19 +200,7 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     return result?.content ?? null;
   }
 
-  // Search is a stub for now — Phase 4 adds SQLite FTS5 + optional embeddings
-  async search(_query: string, _maxResults?: number): Promise<SearchResult[]> {
-    return [];
-  }
-
   // --- MemoryWriter ---
-
-  private summarizer: LLMSummarizer | null = null;
-
-  /** Set the LLM client for daily summaries */
-  setSummarizer(llm: { complete(opts: { system: string; messages: Array<{ role: "user"; content: string }>; temperature?: number; maxTokens?: number }): Promise<string> }): void {
-    this.summarizer = llm as LLMSummarizer;
-  }
 
   async appendLog(entry: string): Promise<void> {
     const now = new Date();
@@ -205,51 +210,12 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     await this.ensureDir(dirname(logPath));
     await appendFile(logPath, line, "utf-8");
 
-    // Re-summarize the day (fire and forget — don't block the caller)
-    this.resummarizeDay(now).catch(() => {});
-  }
-
-  /**
-   * Re-summarize today's log into a single paragraph using the LLM.
-   * Overwrites the summary file each time so it's always current.
-   */
-  private async resummarizeDay(date: Date): Promise<void> {
-    if (!this.summarizer) return;
-
-    const logPath = this.dailyLogPath(date);
-    const log = await this.safeRead(logPath);
-    if (!log || log.length < 100) return;
-
-    // Truncate if very long to keep the LLM call fast
-    const truncated = log.length > 6000
-      ? log.slice(0, 3000) + "\n...\n" + log.slice(-3000)
-      : log;
-
-    try {
-      const summary = await this.summarizer.complete({
-        system: "Summarize this day's log into one short paragraph (3-5 sentences). Be factual: who talked, what happened, key events. No editorializing. Output ONLY the summary paragraph, nothing else.",
-        messages: [{ role: "user" as const, content: truncated }],
-        temperature: 0.3,
-        maxTokens: 1000,
-      });
-
-      if (summary.trim()) {
-        const summaryPath = this.dailySummaryPath(date);
-        await this.ensureDir(dirname(summaryPath));
-        await writeFile(summaryPath, summary.trim(), "utf-8");
-      }
-    } catch (err) {
-      // Non-fatal — surface so silent failures (model unavailable, empty
-      // response when thinking eats the token budget, etc.) are visible.
-      console.warn("[memory] resummarizeDay failed:", (err as Error)?.message || err);
+    // Fire registered listeners — fire-and-forget, errors logged but not thrown.
+    for (const listener of this.appendListeners) {
+      Promise.resolve()
+        .then(() => listener(entry, now))
+        .catch((err) => console.warn("[memory] onAppend listener failed:", (err as Error)?.message || err));
     }
-  }
-
-  private dailySummaryPath(date: Date): string {
-    const yyyy = date.getFullYear();
-    const mm = String(date.getMonth() + 1).padStart(2, "0");
-    const dd = String(date.getDate()).padStart(2, "0");
-    return join(this.workspacePath, "memory", `${yyyy}-${mm}-${dd}.summary.md`);
   }
 
   async writeFile(relPath: string, content: string): Promise<void> {
@@ -284,13 +250,14 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
         const content = await this.safeRead(filePath);
         if (!content) continue;
 
-        const fm = parseFrontmatter(content);
-        if (!fm || !fm.name) continue;
+        const { fields } = parseFrontmatter(content);
+        const personName = typeof fields.name === "string" ? fields.name : null;
+        if (!personName) continue;
 
         people.push({
-          name: fm.name,
+          name: personName,
           filename: file.replace(".md", ""),
-          fields: fm,
+          fields,
           path: filePath,
         });
       }
@@ -322,20 +289,12 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
   // --- Context Assembly ---
 
   /**
-   * Build the context that gets injected into a module's LLM call.
-   *
-   * Skills use progressive disclosure (Pi's pattern):
-   * - Skill names + descriptions are ALWAYS included (cheap, a few lines)
-   * - The LLM decides which skills are relevant and can request full loading
-   * - Full skill content is only loaded when explicitly requested via readSkill()
-   */
-  /**
    * Minimal generic context: SOUL + MEMORY + optional person profile.
-   * Anything deployment-specific (house-status, recent days, inner mood,
-   * recent DMs, group-chat digest, etc.) comes via context providers
-   * declared in the module's `.md` frontmatter — not here.
+   * Anything deployment-specific (sensor state, recent broadcasts, mood
+   * snapshots, etc.) comes via context providers declared in the module's
+   * `.md` frontmatter — not here.
    */
-  async assembleContext(personName?: string, senderPhone?: string): Promise<string> {
+  async assembleContext(personName?: string, phone?: string): Promise<string> {
     const parts: string[] = [];
 
     const soul = await this.readSoul();
@@ -345,16 +304,16 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     if (memory) parts.push(`<memory>\n${memory}\n</memory>`);
 
     // Person profile — universal concept; deployment enricher can add
-    // extra per-person blocks (bookings, aliases, etc.).
+    // extra per-person blocks via MemoryEnricher.personBlocks.
     if (personName) {
-      const personResult = await this.findPerson(personName, senderPhone);
+      const personResult = await this.findPerson(personName, phone);
       if (personResult) {
         let personBlock = personResult.content;
         const extras = await this.callPersonEnrichers(personResult.slug);
         for (const e of extras) personBlock += `\n\n${e}`;
         parts.push(`<person name="${personName}" slug="${personResult.slug}">\n${personBlock}\n</person>`);
-      } else if (senderPhone) {
-        parts.push(`<person name="${personName}">\nNo profile found. Phone: ${senderPhone}\n</person>`);
+      } else if (phone) {
+        parts.push(`<person name="${personName}">\nNo profile found. Phone: ${phone}\n</person>`);
       }
     }
 
@@ -362,20 +321,17 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
   }
 
   /**
-   * Build context for a conversation response, using qmd search to find
-   * relevant memory instead of static dumps. Falls back gracefully if qmd is down.
-   */
-  /**
    * Context assembly for conversation — same skeleton as assembleContext
-   * (SOUL + MEMORY + person + enricher) plus qmd relevant-memory for the
-   * incoming message. No group-chat digest, no recent-DMs, no active-
-   * states, no house-status — all of those are deployment context
-   * providers declared in the relevant module's `.md` frontmatter.
+   * (SOUL + MEMORY + person + enricher) plus a qmd <relevant-memory> block
+   * for the incoming message. Anything else (chat digests, sensor state,
+   * mood snapshots) belongs in the module's `context:` frontmatter as a
+   * declarative provider, not here. Falls back to static context if qmd
+   * is unreachable.
    */
   async assembleConversationContext(
     message: string,
     personName?: string,
-    senderPhone?: string,
+    phone?: string,
   ): Promise<string> {
     const parts: string[] = [];
 
@@ -388,7 +344,7 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     // Person profile + deployment-provided per-person blocks.
     let matchedSlug: string | null = null;
     if (personName) {
-      const personResult = await this.findPerson(personName, senderPhone);
+      const personResult = await this.findPerson(personName, phone);
       if (personResult) {
         matchedSlug = personResult.slug;
         let personBlock = personResult.content;
@@ -396,22 +352,22 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
           personBlock += `\n\n${extra}`;
         }
         parts.push(`<person name="${personName}" slug="${personResult.slug}">\n${personBlock}\n</person>`);
-      } else if (senderPhone) {
-        parts.push(`<person name="${personName}">\nNo profile found. Phone: ${senderPhone}\n</person>`);
+      } else if (phone) {
+        parts.push(`<person name="${personName}">\nNo profile found. Phone: ${phone}\n</person>`);
       }
     }
 
-    // qmd search: find relevant memory for this message
-    const searches: Array<{ type: string; query: string }> = [
+    // Search the memory backend for relevant chunks for this message.
+    const searches: Array<{ type: "lex" | "vec"; query: string }> = [
       { type: "vec", query: message },
     ];
     if (personName) {
       searches.push({ type: "lex", query: personName });
     }
 
-    const qmdResults = await this.queryQmd(searches, 8);
-    if (qmdResults.length > 0) {
-      const filtered = qmdResults.filter((r) => {
+    const searchResults = await this.runSearch(searches, 8);
+    if (searchResults.length > 0) {
+      const filtered = searchResults.filter((r) => {
         if (matchedSlug && r.file.includes(`people/${matchedSlug}`)) return false;
         if (r.file.endsWith("SOUL.md") || r.file.endsWith("MEMORY.md")) return false;
         return true;
@@ -448,197 +404,23 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     return parts.join("\n\n");
   }
 
-  /** Get a brief summary of recent DM activity from today's log. */
-  private async getRecentDMSummary(maxEntries: number): Promise<string | null> {
-    const todayLog = await this.readTodayLog();
-    if (!todayLog) return null;
-
-    // Extract DM entries: `**Name** (dm): text` and `**<Symbient>** (dm to Name): text`
-    const self = symbientName();
-    const selfDisplay = symbientDisplayName();
-    const dmPattern = /^\*\*([^*]+)\*\*\s*\(dm(?:\s+to\s+([^)]+))?\):\s*(.+)/gm;
-    const entries: Array<{ time: string; from: string; to: string; snippet: string }> = [];
-    const sections = todayLog.split(/^## (\d{2}:\d{2}:\d{2})/m);
-
-    let currentTime = "";
-    for (const section of sections) {
-      const timeMatch = section.match(/^(\d{2}:\d{2}:\d{2})$/);
-      if (timeMatch) { currentTime = timeMatch[1]; continue; }
-
-      let m;
-      dmPattern.lastIndex = 0;
-      while ((m = dmPattern.exec(section)) !== null) {
-        const name = m[1];
-        const toName = m[2] || "";
-        const snippet = m[3].replace(/\n/g, " ");
-        if (name === selfDisplay) {
-          entries.push({ time: currentTime, from: self, to: toName, snippet });
-        } else {
-          entries.push({ time: currentTime, from: name, to: self, snippet });
-        }
-      }
-    }
-
-    if (entries.length === 0) return null;
-
-    // Only show incoming DMs, not self-authored responses (avoids anchoring).
-    const dmLines = entries
-      .filter(e => e.from !== self)
-      .slice(-maxEntries)
-      .map(e => {
-        const person = e.from === self ? e.to : e.from;
-        const direction = e.from === self ? "→" : "←";
-        return `[${e.time.slice(0, 5)}] ${person} ${direction} ${e.snippet}`;
-      });
-    const annotated = await annotateContextLines(dmLines);
-    return annotated.join("\n");
-  }
-
-  /** Query the qmd search daemon. Returns [] on any failure. */
-  private async queryQmd(
-    searches: Array<{ type: string; query: string }>,
+  /**
+   * Query the configured search backend. Returns [] on any failure (so
+   * conversation context degrades gracefully when search is unavailable).
+   */
+  private async runSearch(
+    searches: Array<{ type: "lex" | "vec"; query: string }>,
     limit = 8,
-  ): Promise<QmdResult[]> {
+  ): Promise<SearchHit[]> {
     try {
-      if (!this.qmdUrl) return [];
-      const res = await fetch(`${this.qmdUrl}/query`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          searches: searches.map(s => ({ ...s, query: s.query.replace(/\n/g, " ").trim() })),
-          collections: [symbientName()],
-          limit,
-        }),
-        signal: AbortSignal.timeout(3000),
+      return await getSearchBackend().query({
+        searches,
+        collection: symbientName(),
+        limit,
       });
-      if (!res.ok) return [];
-      const data = (await res.json()) as { results?: QmdResult[] };
-      return data.results ?? [];
     } catch {
       return [];
     }
-  }
-
-  /**
-   * Filter today's log to only include actual conversations (messages from/to people),
-   * bookings updates, and sauna readings. Strips inner monologue (thinking, desire,
-   * magi dialogue) which should only influence mood, not be quoted.
-   */
-  private filterConversations(log: string): string {
-    const sections = log.split(/^(## \d{2}:\d{2}:\d{2})/m);
-    const kept: string[] = [];
-
-    for (let i = 1; i < sections.length; i += 2) {
-      const header = sections[i];
-      const body = (sections[i + 1] || "").trim();
-
-      // Keep: actual conversations and external data.
-      // Skip: inner monologue (`*[<Symbient> thinking]*`, `*[<Symbient> desire]*`,
-      // `*[Inner Dialogue]*`). Pattern-matched dynamically so any symbient name works.
-      const selfDisplay = symbientDisplayName();
-      if (
-        body.startsWith(`*[${selfDisplay} thinking]*`) ||
-        body.startsWith(`*[${selfDisplay} desire]*`) ||
-        body.startsWith("*[Inner Dialogue]*")
-      ) {
-        continue;
-      }
-
-      kept.push(`${header}\n${body}`);
-    }
-
-    return kept.join("\n\n");
-  }
-
-  /**
-   * Read the most recent N daily summaries (including today).
-   * Returns formatted text or null if no summaries exist.
-   */
-  private async readDailySummaries(count: number): Promise<string | null> {
-    const memoryDir = join(this.workspacePath, "memory");
-    let files: string[];
-    try {
-      files = await readdir(memoryDir);
-    } catch {
-      return null;
-    }
-
-    const summaryFiles = files
-      .filter((f) => f.endsWith(".summary.md"))
-      .sort()
-      .reverse()
-      .slice(0, count);
-
-    if (summaryFiles.length === 0) return null;
-
-    const today = new Date().toISOString().slice(0, 10);
-    const parts: string[] = [];
-    for (const file of summaryFiles) {
-      const date = file.replace(".summary.md", "");
-      const content = await this.safeRead(join(memoryDir, file));
-      if (content) {
-        const label = date === today ? `**Today (${date})**` : `**${date}**`;
-        parts.push(`${label}:\n${content.trim()}`);
-      }
-    }
-
-    return parts.length > 0 ? parts.join("\n\n") : null;
-  }
-
-
-  /**
-   * Build a consolidated inner mood from the three independent inner modules.
-   * Each gets a brief excerpt — they don't see each other's full output,
-   * but the conversation/radio modules see a combined summary.
-   */
-  private async buildInnerMood(): Promise<string | null> {
-    const { stat: fsStat } = await import("node:fs/promises");
-    const { rewriteStaleEntries, computeAge, isStale } = await import("../core/temporal-rewrite.js");
-
-    const files = [
-      { path: "inner/current-state.md", label: "Reflecting on", maxChars: 200 },
-      { path: "inner/current-desire.md", label: "Want", maxChars: 0 },
-      { path: "inner/current-magi.md", label: "Inner voices", maxChars: 200 },
-    ];
-
-    const fresh: string[] = [];
-    const staleEntries: Array<{ text: string; datetime: string; relativeAge: string; label: string }> = [];
-
-    for (const { path: relPath, label, maxChars } of files) {
-      const fullPath = join(this.workspacePath, relPath);
-      const content = await this.safeRead(fullPath);
-      if (!content || content.trim() === "None." || content.trim() === "None") continue;
-
-      const text = maxChars > 0 ? content.slice(-maxChars).trim() : content.trim();
-
-      try {
-        const s = await fsStat(fullPath);
-        if (isStale(s.mtime, 60)) {
-          // Older than 1h — rewrite into past tense
-          const { datetime, relativeAge } = computeAge(s.mtime);
-
-          // Drop if 2+ days old
-          const diffDays = Math.floor((Date.now() - s.mtime.getTime()) / 86400000);
-          if (diffDays >= 2) continue;
-
-          staleEntries.push({ text: `${label}: ${text}`, datetime, relativeAge, label });
-        } else {
-          fresh.push(`${label}: ${text}`);
-        }
-      } catch {
-        fresh.push(`${label}: ${text}`);
-      }
-    }
-
-    // Rewrite stale entries via tiny LLM
-    if (staleEntries.length > 0) {
-      const rewritten = await rewriteStaleEntries(
-        staleEntries.map(({ text, datetime, relativeAge }) => ({ text, datetime, relativeAge })),
-      );
-      fresh.push(...rewritten);
-    }
-
-    return fresh.length > 0 ? fresh.join("\n") : null;
   }
 
   // --- Helpers ---
@@ -715,29 +497,4 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     }
   }
 
-}
-
-/**
- * Parse YAML frontmatter from a markdown file.
- * Returns all key-value pairs as a flat Record, or null if no frontmatter.
- * Handles quoted values. No full YAML parser needed.
- */
-function parseFrontmatter(content: string): Record<string, string> | null {
-  const match = content.match(/^---\s*\n([\s\S]*?)\n---/);
-  if (!match) return null;
-
-  const result: Record<string, string> = {};
-  for (const line of match[1].split("\n")) {
-    const m = line.match(/^([a-z][\w-]*):\s*(.+)$/i);
-    if (m) {
-      let val = m[2].trim();
-      // Strip surrounding quotes
-      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-        val = val.slice(1, -1);
-      }
-      result[m[1]] = val;
-    }
-  }
-
-  return Object.keys(result).length > 0 ? result : null;
 }

@@ -1,6 +1,7 @@
 /**
- * Core types for the symbient framework (modified CMA architecture
- * with Pi SDK + OpenClaw-style markdown memory).
+ * Core types for the symbient framework — the contract between the
+ * orchestrator, modules, memory, messaging, chat adapters, and the
+ * deployment config.
  */
 
 // --- Module System ---
@@ -16,6 +17,13 @@ export interface ModuleConfig {
   model?: string;
   /** If set, this module runs after the named module completes instead of on a timer. */
   follows?: string;
+  /**
+   * If true, the module fires its first cycle right at startup instead of
+   * waiting `intervalMs`. Default: true for high-frequency modules (≤60s)
+   * since they'd run almost immediately anyway, false for slower ones.
+   * Set explicitly to opt a slow module into immediate first-run.
+   */
+  runImmediately?: boolean;
 }
 
 export type ModuleFunction = (ctx: ModuleContext) => Promise<void>;
@@ -58,14 +66,20 @@ export interface MemoryReader {
   readMemory(): Promise<string | null>;
   /** Read a person's file (convention: workspace/people/<slug>.md). */
   readPerson(name: string): Promise<string | null>;
-  /** Find a person by name/phone with fuzzy matching. */
+  /**
+   * Find a person by name. `phone` is consulted only by transports that
+   * have one (Signal); for transports without a phone field, leave it
+   * undefined and rely on name + the deployment's nickname/alias resolver.
+   */
   findPerson(name: string, phone?: string): Promise<{ slug: string; content: string } | null>;
-  /** Search memory (when search backend is available). */
-  search?(query: string, maxResults?: number): Promise<SearchResult[]>;
   /** Assemble generic context: SOUL + MEMORY + optional person profile. */
-  assembleContext(personName?: string, senderPhone?: string): Promise<string>;
-  /** Conversation variant — adds qmd-relevant-memory for the given message. */
-  assembleConversationContext(message: string, personName?: string, senderPhone?: string): Promise<string>;
+  assembleContext(personName?: string, phone?: string): Promise<string>;
+  /**
+   * Conversation variant — augments the base context with relevance-ranked
+   * memory chunks for the given message (currently routes through the
+   * search backend declared in `config.qmd`).
+   */
+  assembleConversationContext(message: string, personName?: string, phone?: string): Promise<string>;
 }
 
 export interface MemoryWriter {
@@ -75,13 +89,6 @@ export interface MemoryWriter {
   writeFile(relPath: string, content: string): Promise<void>;
   /** Append to a file relative to workspace root. */
   appendFile(relPath: string, content: string): Promise<void>;
-}
-
-export interface SearchResult {
-  text: string;
-  path: string;
-  score: number;
-  lines?: [number, number];
 }
 
 // --- Messaging (MQTT-based inter-module communication) ---
@@ -114,21 +121,23 @@ export interface LLMClient {
   }): Promise<string>;
 }
 
-// --- Signal Bridge ---
+// --- Chat messages (transport-agnostic) ---
 
-export interface SignalConfig {
-  account: string;
-  httpHost: string;
-  httpPort: number;
-  dmPolicy: "open" | "allowlist";
-  groupPolicy: "open" | "allowlist" | "disabled";
-  allowFrom: string[];
-  groupAllowFrom: string[];
+/**
+ * Sender of an inbound chat message. `id` is the transport's stable
+ * identifier (Signal UUID, Matrix MXID, Discord snowflake, …). `phone`
+ * is populated only by transports that have one — leave undefined
+ * elsewhere.
+ */
+export interface MessageSender {
+  id: string;
+  name?: string;
+  phone?: string;
 }
 
 export interface InboundMessage {
   id: string;
-  from: SignalSender;
+  from: MessageSender;
   text: string;
   timestamp: Date;
   chatType: "dm" | "group";
@@ -136,13 +145,8 @@ export interface InboundMessage {
   groupName?: string;
   attachments?: Attachment[];
   mentions?: Mention[];
+  /** Sender id of the quoted/replied-to message, if any. */
   quotedAuthorUuid?: string;
-}
-
-export interface SignalSender {
-  id: string;
-  name?: string;
-  phone?: string;
 }
 
 export interface Attachment {
@@ -156,6 +160,7 @@ export interface Attachment {
 export interface Mention {
   start: number;
   length: number;
+  /** Sender id of the mentioned participant. */
   uuid: string;
 }
 
@@ -178,6 +183,33 @@ export interface AdapterSelection {
 export interface SymbientConfig {
   name: string;
   workspacePath: string;
+  /**
+   * Workspace-level controls. `writablePaths` extends the default sandbox
+   * (MEMORY.md, people/) with deployment-specific writable areas. Entries
+   * ending with `/` are directory prefixes; entries without are exact file
+   * matches. All paths are relative to the workspace root.
+   */
+  workspace?: {
+    writablePaths?: string[];
+  };
+  /**
+   * Limits applied by the `create_module` self-modification tool. Optional —
+   * defaults are 20 modules total, 1 creation per week, and a 5-minute
+   * minimum cycle interval.
+   */
+  moduleManagement?: {
+    maxModules?: number;
+    creationsPerWeek?: number;
+    minIntervalMs?: number;
+  };
+  /**
+   * Scheduling defaults. When a scheduled item has no `target` field of
+   * its own, the schedule-checker fires the action at this module name.
+   * Default: `"conversation"` (the framework-mandatory module).
+   */
+  scheduling?: {
+    defaultTarget?: string;
+  };
   mqtt: {
     brokerUrl: string;
     port: number;
@@ -196,25 +228,34 @@ export interface SymbientConfig {
     tinyBaseUrl?: string;
   };
   /**
-   * Markdown/vector memory search backend. Required — the search tool
-   * and `assembleConversationContext()` both consult it. Run qmd
-   * locally or on any reachable host.
+   * @deprecated Use `services.search.url` instead. The framework still
+   * reads this for backward compatibility — at startup, if `qmd.url` is
+   * set and `services.search.url` is not, the value is copied across.
    */
-  qmd: { url: string };
+  qmd?: { url: string };
   /**
    * Arbitrary deployment-specific external services, keyed by name. The
    * framework stores this as-is; deployment tools / extensions read
    * whichever keys they need (e.g. `services.whisper.url` for voice
    * transcription, `services.searxng.url` for web search,
    * `services.tts.url` for radio broadcast, `services.image_gen.url`
-   * for image generation, whatever). Framework never enumerates these —
-   * if a tool/module needs a service, it reads it here; if missing,
-   * the feature degrades.
+   * for image generation, etc.).
+   *
+   * Framework-recognised keys:
+   *   - `services.search.backend` — optional, one of `"qmd-http" | "local-bm25"`.
+   *     Defaults to `qmd-http` when `url` is set, `local-bm25` otherwise.
+   *   - `services.search.url` — used by the `qmd-http` backend. HTTP endpoint
+   *     that accepts the qmd-shaped POST
+   *     `/query {searches:[{type:"vec"|"lex",query}], collections, limit}`.
+   *   - `services.searxng.url` — optional; enables `web_search` tool.
+   *   - `services.whisper.url` — optional; enables voice-message transcription.
+   *
+   * All other keys are deployment-defined.
    */
   services?: Record<string, { url: string } & Record<string, unknown>>;
   /** Per-module overrides (intervalMs, startActive, etc.). */
   modules: Record<string, Partial<ModuleConfig>>;
-  /** Declarative adapter selection. All entries optional — if omitted, framework uses current Feÿ defaults. */
+  /** Declarative adapter selection. Omit to disable that surface. */
   adapters?: {
     /** Pick a chat transport. Set to null for a headless deployment. */
     chat?: AdapterSelection | null;
@@ -223,9 +264,9 @@ export interface SymbientConfig {
   };
   /**
    * Which built-in modules to enable. Omit to enable all built-ins.
-   * A minimal deployment without PMS would list just the framework
-   * infrastructure modules (qmd-index, module-sync, schedule-checker,
-   * watch-evaluator, conversation).
+   * A minimal deployment without a member directory would list just the
+   * framework infrastructure modules (qmd-index, module-sync,
+   * schedule-checker, watch-evaluator, conversation).
    */
   enabled_modules?: string[];
   /**

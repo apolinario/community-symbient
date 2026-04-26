@@ -1,8 +1,14 @@
 /**
  * Module Sync — hot-reloads markdown modules without restart.
  *
- * Runs every 30s. Scans workspace/modules/*.md and compares against
- * registered modules. Adds new ones, removes deleted ones, handles expiry.
+ * Runs every 30s. Scans workspace/modules/*.md and reconciles against the
+ * orchestrator: registers new ones, re-registers changed ones (mtime-based
+ * change detection), unregisters deleted ones, and moves expired ones into
+ * `modules/disabled/`.
+ *
+ * Code-driven modules (those registered via `registerBuiltInModule`, both
+ * framework-shipped and workspace-registered) are skipped — they're owned
+ * by `registerBuiltIns` / `workspace/extensions/modules.ts`, not by .md files.
  *
  * Uses orchestrator.registerLive() and orchestrator.unregister().
  */
@@ -11,33 +17,14 @@ import type { ModuleContext } from "./types.js";
 import type { Orchestrator } from "./orchestrator.js";
 import { readdir, readFile, rename, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { parseFrontmatter } from "../modules/load-modules.js";
+import { parseFrontmatter, parseInterval } from "../modules/load-modules.js";
 import { createAgentModule } from "../modules/agent-module.js";
 import { parseSections } from "./prompt-template.js";
 import { getModuleHandler, defaultModuleHandler } from "./handler-registry.js";
+import { getBuiltInModule } from "./module-factories.js";
 
 // Track what we've loaded to detect changes
 const loadedModules = new Map<string, { mtime: number }>();
-
-// Modules that are hardcoded (not managed by hot-reload)
-const HARDCODED = new Set([
-  "sauna", "bookings", "onboarding", "qmd-index",
-  "conversation", "radio-calendar", "people-sync",
-  "people-enrich", "module-sync", "schedule-checker",
-]);
-
-function parseInterval(s: string): number {
-  const match = s.match(/^(\d+)\s*(ms|s|m|h)$/);
-  if (!match) return 60000;
-  const n = parseInt(match[1]);
-  switch (match[2]) {
-    case "ms": return n;
-    case "s": return n * 1000;
-    case "m": return n * 60 * 1000;
-    case "h": return n * 60 * 60 * 1000;
-    default: return n;
-  }
-}
 
 export function createModuleSyncModule(orchestrator: Orchestrator, workspacePath: string) {
   return async function moduleSync(ctx: ModuleContext): Promise<void> {
@@ -56,8 +43,10 @@ export function createModuleSyncModule(orchestrator: Orchestrator, workspacePath
       const name = file.replace(".md", "");
       currentFiles.add(name);
 
-      // Skip hardcoded modules and conversation (special wiring)
-      if (HARDCODED.has(name) || name === "conversation") continue;
+      // Skip any module that's owned by the built-in registry (framework
+      // modules + workspace-registered code modules). The registry is the
+      // single source of truth for "this module is code-driven, not .md-driven."
+      if (getBuiltInModule(name)) continue;
 
       const filePath = join(modulesDir, file);
 
@@ -74,6 +63,8 @@ export function createModuleSyncModule(orchestrator: Orchestrator, workspacePath
         const interval = typeof fields.interval === "string" ? parseInterval(fields.interval) : (fields.interval || 60000);
         const toolNames: string[] = Array.isArray(fields.tools) ? fields.tools : [];
         const startActive = fields.startActive !== false;
+        const runImmediately = fields.runImmediately as boolean | undefined;
+        const follows = fields.follows as string | undefined;
 
         // Check expiry
         if (fields.expires) {
@@ -97,13 +88,13 @@ export function createModuleSyncModule(orchestrator: Orchestrator, workspacePath
         // Handler: workspace-registered first, else framework default.
         const handler = getModuleHandler(name) ?? defaultModuleHandler;
 
-        const follows = fields.follows as string | undefined;
         const config = {
           name,
           intervalMs: interval,
           startActive,
           follows,
-          description: body.split("\n")[0],
+          runImmediately,
+          description: template.split("\n")[0],
         };
 
         // Declarative context blocks from frontmatter.
@@ -126,9 +117,11 @@ export function createModuleSyncModule(orchestrator: Orchestrator, workspacePath
       }
     }
 
-    // Check for removed modules (file deleted or moved to disabled/)
+    // Check for removed modules (file deleted or moved to disabled/).
+    // Skip code-driven names — those aren't tracked here anyway, but
+    // the guard is cheap and makes the loop self-explanatory.
     for (const [name] of loadedModules) {
-      if (!currentFiles.has(name) && !HARDCODED.has(name)) {
+      if (!currentFiles.has(name) && !getBuiltInModule(name)) {
         ctx.log(`Module ${name} removed, unregistering`);
         orchestrator.unregister(name);
         loadedModules.delete(name);

@@ -3,6 +3,8 @@ name: magi
 interval: 6h
 tools: [search, read, edit, grep, lookup_person]
 startActive: false
+dashboardFiles: [inner/current-magi.md]
+dashboardLogTag: "Feyblet magi"
 context:
   - source: house-status
   - source: recent-group-chat

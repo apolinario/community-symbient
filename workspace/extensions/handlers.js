@@ -15,8 +15,43 @@
  *   - toolCalls: array of { name, args } for the full tool calls
  */
 
-import { appendFile } from "node:fs/promises";
-import { join } from "node:path";
+import { appendFile, readFile, writeFile, mkdir } from "node:fs/promises";
+import { dirname, join } from "node:path";
+
+const PLAY_HISTORY_PATH = join(process.cwd(), "workspace", "radio", "play-history.csv");
+
+/** Append-or-increment a row in radio/play-history.csv for one play_music tool call. */
+async function trackPlay(args, result) {
+  if (typeof result === "string" && (result.includes("MCP error") || result.includes("Error"))) return;
+
+  const url = args?.url || "";
+  const titleMatch = result?.match?.(/"(?:now_playing|title)":\s*"([^"]+)"/);
+  const title = titleMatch?.[1] || url || "";
+  if (!title && !url) return;
+
+  await mkdir(dirname(PLAY_HISTORY_PATH), { recursive: true });
+  let csv = "";
+  try { csv = await readFile(PLAY_HISTORY_PATH, "utf-8"); } catch {}
+  if (!csv) csv = "title,count,last_played\n";
+
+  const lines = csv.split("\n");
+  const header = lines[0];
+  const rows = lines.slice(1).filter(Boolean);
+  const safeTitle = title.replace(/"/g, '""');
+  const now = new Date().toISOString();
+  let found = false;
+  const updated = rows.map((row) => {
+    const m = row.match(/^"([^"]*(?:""[^"]*)*)",(\d+),/);
+    if (m && m[1] === safeTitle) {
+      found = true;
+      return `"${safeTitle}",${parseInt(m[2]) + 1},"${now}"`;
+    }
+    return row;
+  });
+  if (!found) updated.push(`"${safeTitle}",1,"${now}"`);
+
+  await writeFile(PLAY_HISTORY_PATH, header + "\n" + updated.join("\n") + "\n", "utf-8");
+}
 
 export default {
   thinking: async (ctx, output, _trace, toolCalls) => {
@@ -69,9 +104,14 @@ export default {
     ctx.log("SOUL.md updated.");
   },
 
-  "radio-dj": async (ctx, _output, toolTrace) => {
+  "radio-dj": async (ctx, _output, toolTrace, toolCalls) => {
     if (toolTrace.length > 0) {
       ctx.log(`DJ: ${toolTrace.join(" → ")}`);
+    }
+    for (const call of toolCalls ?? []) {
+      if (call.name === "radio.play_music") {
+        await trackPlay(call.args, call.result ?? "").catch(() => {});
+      }
     }
   },
 

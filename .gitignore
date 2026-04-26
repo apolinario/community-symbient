@@ -16,6 +16,14 @@ workspace/memory/
 workspace/inner/
 workspace/logs/
 workspace/debug/
+
+# Starter-template runtime output — generated during smoke tests
+starter-templates/*/workspace/memory/
+starter-templates/*/workspace/inner/
+starter-templates/*/workspace/logs/
+starter-templates/*/workspace/debug/
+starter-templates/*/workspace/state/
+starter-templates/*/workspace/tasks/
 workspace/radio/log.md
 workspace/radio/log.md.bak
 workspace/radio/play-history.csv

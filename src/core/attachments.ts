@@ -1,29 +1,32 @@
 /**
- * Attachment processing — downloads, saves, and processes Signal attachments.
+ * Attachment processing — downloads, saves, and analyses chat attachments.
  *
- * Images: saved to workspace/media/, described via tiny LLM, returned as vision content.
- * Audio/Voice: saved to workspace/media/, transcribed via Whisper, returned as text.
+ * Images: saved to workspace/media/, described via tiny vision model, returned as vision content.
+ * Audio/voice: saved to workspace/media/, transcribed via Whisper, returned as text.
+ *
+ * The framework fetches attachment binaries through a chat-adapter-provided
+ * REST endpoint (`attachmentBaseUrl`). Only chat transports that expose
+ * such an endpoint (e.g. signal-cli-rest-api at /v1/attachments/{id})
+ * support attachment fetch; others should leave it unset and pass already-
+ * downloaded buffers some other way.
  */
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tinyComplete } from "./tiny-llm.js";
 
-/**
- * Runtime service URLs — set once at startup from config. If a URL is
- * empty, the corresponding feature degrades gracefully: no Whisper →
- * voice messages aren't transcribed; no SIGNAL_API → Signal attachments
- * can't be fetched (deployment isn't using Signal, so this never gets
- * called).
- */
-let signalApiUrl = "";
+let attachmentBaseUrl = "";
 let whisperUrl = "";
 
 export function configureAttachmentServices(options: {
-  signalApiUrl?: string;
+  /** REST base URL of the chat adapter's attachment fetcher. The framework
+   *  appends `/v1/attachments/{id}` (signal-cli-rest-api shape). Leave
+   *  unset for adapters without REST attachment fetch. */
+  attachmentBaseUrl?: string;
+  /** Whisper-compatible /v1/audio/transcriptions endpoint. */
   whisperUrl?: string;
 }): void {
-  signalApiUrl = options.signalApiUrl ?? "";
+  attachmentBaseUrl = options.attachmentBaseUrl ?? "";
   whisperUrl = options.whisperUrl ?? "";
 }
 
@@ -73,8 +76,8 @@ export async function processAttachments(
 }
 
 async function downloadAttachment(id: string): Promise<Buffer | null> {
-  if (!signalApiUrl) return null;
-  const res = await fetch(`${signalApiUrl}/v1/attachments/${id}`, {
+  if (!attachmentBaseUrl) return null;
+  const res = await fetch(`${attachmentBaseUrl}/v1/attachments/${id}`, {
     signal: AbortSignal.timeout(10000),
   });
   if (!res.ok) return null;

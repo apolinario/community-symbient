@@ -1,8 +1,11 @@
 ---
 name: magi
 interval: 6h
+runImmediately: true
 tools: [search, read, write, grep]
 startActive: false
+dashboardFiles: [inner/current-magi.md]
+dashboardLogTag: "Symbient magi"
 context:
   - source: recent-group-chat
   - source: recent-days

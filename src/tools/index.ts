@@ -10,28 +10,41 @@ import { Type } from "@mariozechner/pi-ai";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { MemoryManager } from "../memory/manager.js";
 import type { MQTTBus } from "../core/mqtt-bus.js";
-import { recordEvent } from "../core/event-log.js";
+import { recordEvent, queryEvents } from "../core/event-log.js";
 import { symbientName, symbientDisplayName } from "../core/symbient-name.js";
+import { getSearchBackend } from "../core/search.js";
 
 /**
- * Runtime service URLs — set once at startup from `config.qmd` and
- * `config.services`. Tools close over these values. A tool whose
- * service isn't configured silently degrades (search returns empty,
- * web_search returns "service not configured", etc.).
+ * Runtime service URLs and policy values — set once at startup from
+ * `config.services` and `config.moduleManagement`. Tools close over these.
+ * A tool whose service isn't configured silently degrades (web_search
+ * returns "service not configured", etc.). The search tool delegates
+ * to whichever `SearchBackend` was registered via `setSearchBackend`.
  */
-let qmdUrl: string = "";
 let searxngUrl: string | undefined;
+let moduleLimits = {
+  maxModules: 20,
+  creationsPerWeek: 1,
+  minIntervalMs: 5 * 60 * 1000,
+};
 
 export function configureToolServices(options: {
-  qmdUrl: string;
   searxngUrl?: string;
+  moduleManagement?: {
+    maxModules?: number;
+    creationsPerWeek?: number;
+    minIntervalMs?: number;
+  };
 }): void {
-  qmdUrl = options.qmdUrl;
   searxngUrl = options.searxngUrl;
+  if (options.moduleManagement) {
+    moduleLimits = {
+      maxModules: options.moduleManagement.maxModules ?? moduleLimits.maxModules,
+      creationsPerWeek: options.moduleManagement.creationsPerWeek ?? moduleLimits.creationsPerWeek,
+      minIntervalMs: options.moduleManagement.minIntervalMs ?? moduleLimits.minIntervalMs,
+    };
+  }
 }
-
-
-// --- Person Lookup ---
 
 
 // --- Memory Search ---
@@ -46,24 +59,16 @@ export function createSearchMemoryTool(): AgentTool {
     }),
     execute: async (_id, params) => {
       try {
-        const res = await fetch(`${qmdUrl}/query`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            searches: [
-              { type: "vec", query: params.query.replace(/\n/g, " ").trim() },
-              { type: "lex", query: params.query.replace(/\n/g, " ").trim() },
-            ],
-            collections: [symbientName()],
-            limit: 10,
-            maxPerFile: 5,
-            rerank: true,
-          }),
-          signal: AbortSignal.timeout(10000),
+        const results = await getSearchBackend().query({
+          searches: [
+            { type: "vec", query: params.query },
+            { type: "lex", query: params.query },
+          ],
+          collection: symbientName(),
+          limit: 10,
+          maxPerFile: 5,
+          rerank: true,
         });
-        if (!res.ok) return { content: [{ type: "text", text: "Memory search unavailable." }], details: {} };
-        const data = (await res.json()) as { results?: Array<{ title: string; file: string; snippet: string; score: number; docid: string }> };
-        const results = data.results ?? [];
         if (results.length === 0) return { content: [{ type: "text", text: `No results for "${params.query}".` }], details: {} };
 
         const text = results
@@ -77,98 +82,117 @@ export function createSearchMemoryTool(): AgentTool {
   };
 }
 
-// --- Read File (REMOVED — replaced by Pi's sandboxed `read` tool in pi-tools.ts) ---
+// --- Chat History (queries the structured event log) ---
 
-// --- Load More Context ---
+/**
+ * Format a chat_message event as a single line. Direction-aware:
+ *   [HH:mm] in  Alice: hi
+ *   [HH:mm] out → Alice: hi back
+ */
+function formatChatLine(evt: Record<string, unknown>, self: string): string {
+  const ts = typeof evt.ts === "number" ? new Date(evt.ts) : new Date();
+  const time = ts.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  const direction = evt.direction === "out" ? "out →" : "in  ←";
+  const counterparty = evt.direction === "out"
+    ? (typeof evt.to === "string" ? evt.to : "?")
+    : (typeof evt.from === "string" ? evt.from : "?");
+  const text = typeof evt.text === "string" ? evt.text : "(no text)";
+  return `[${time}] ${direction} ${counterparty}: ${text}`;
+}
 
 export function createChatHistoryTool(memory: MemoryManager): AgentTool {
   return {
     name: "chat_history",
-    description: "Load conversation history. Without a name: lists who you've DMed recently. With a name: loads the DM thread with that person. Use to check what you've already said before sending another message.",
+    description: "Load DM conversation history from the event log. Without a name: lists who you've DMed recently. With a name: loads the DM thread with that person. Use this to check what you've already said before sending another message.",
     label: "Chat History",
     parameters: Type.Object({
       person: Type.Optional(Type.String({ description: "Person name to load DM history with. Omit to see a list of recent DM contacts." })),
       count: Type.Optional(Type.Number({ description: "How many messages to load (default 20)" })),
+      days: Type.Optional(Type.Number({ description: "How many days back to scan (default 2)" })),
     }),
     execute: async (_id, params) => {
       try {
-        const fs = await import("node:fs/promises");
-        const pathMod = await import("node:path");
         const count = params.count || 20;
-
-        // Read today + yesterday logs
-        const today = new Date().toISOString().slice(0, 10);
-        const logPath = pathMod.join(process.cwd(), "workspace", "memory", `${today}.md`);
-        let log = "";
-        try { log = await fs.readFile(logPath, "utf-8"); } catch {}
-        const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-        try {
-          const yLog = await fs.readFile(pathMod.join(process.cwd(), "workspace", "memory", `${yesterday}.md`), "utf-8");
-          log = yLog + "\n" + log;
-        } catch {}
-
-        if (!log) return { content: [{ type: "text", text: "No conversation logs found." }], details: {} };
-
-        const lines = log.split("\n");
-
+        const days = params.days || 2;
         const self = symbientDisplayName();
-        if (!params.person) {
-          // List recent DM contacts
-          const contacts = new Map<string, number>();
-          for (const line of lines) {
-            const inbound = line.match(/^\*\*([^*]+)\*\*\s*\(dm/);
-            if (inbound && inbound[1] !== self) {
-              contacts.set(inbound[1], (contacts.get(inbound[1]) || 0) + 1);
-            }
-            const outbound = line.match(new RegExp(`^\\*\\*${self}\\*\\*\\s*\\(dm to ([^)]+)\\)`));
-            if (outbound) {
-              const name = outbound[1].replace(/, via .+/, "");
-              contacts.set(name, (contacts.get(name) || 0) + 1);
-            }
-          }
-          if (contacts.size === 0) return { content: [{ type: "text", text: "No DM conversations found." }], details: {} };
 
+        // All DM chat_message events in the window. The chat-reactor
+        // writes inbound/outbound DMs as `chat_message` events with
+        // chat="dm" and direction="in"|"out".
+        const events = await queryEvents({
+          type: "chat_message",
+          where: { chat: "dm" },
+          days,
+        });
+
+        if (events.length === 0) {
+          return { content: [{ type: "text", text: "No DM events found in the event log." }], details: {} };
+        }
+
+        if (!params.person) {
+          // List contacts: count messages per counterparty.
+          const contacts = new Map<string, number>();
+          for (const evt of events) {
+            const counterparty = evt.direction === "out"
+              ? (typeof evt.to === "string" ? evt.to : null)
+              : (typeof evt.from === "string" ? evt.from : null);
+            if (!counterparty || counterparty === self) continue;
+            contacts.set(counterparty, (contacts.get(counterparty) || 0) + 1);
+          }
+          if (contacts.size === 0) {
+            return { content: [{ type: "text", text: "No DM contacts in the recent window." }], details: {} };
+          }
           const sorted = [...contacts.entries()].sort((a, b) => b[1] - a[1]);
           const list = sorted.map(([name, n]) => `${name} (${n} messages)`).join("\n");
-          return { content: [{ type: "text", text: `Recent DM contacts:\n${list}\n\nCall chat_history with a person name to see their conversation.` }], details: {} };
+          return {
+            content: [{
+              type: "text",
+              text: `Recent DM contacts:\n${list}\n\nCall chat_history with a person name to see their conversation.`,
+            }],
+            details: {},
+          };
         }
 
-        // Resolve person name via fuzzy matching
+        // Resolve the requested name through the memory manager so nicknames
+        // / aliases match. Then build a set of name candidates to compare
+        // against the event log's `from`/`to` fields.
         const person = await memory.findPerson(params.person);
-        const matchName = person ? person.content.match(/^name:\s*(.+)/m)?.[1]?.trim() : null;
-        const searchNames = [params.person.toLowerCase()];
-        if (matchName) searchNames.push(matchName.toLowerCase());
+        const matchName = (() => {
+          if (!person) return null;
+          const match = person.content.match(/^name:\s*(.+)/m);
+          return match?.[1]?.trim().replace(/^["']|["']$/g, "") ?? null;
+        })();
+        const searchNames = new Set<string>([params.person.toLowerCase()]);
+        if (matchName) searchNames.add(matchName.toLowerCase());
 
-        const entries: string[] = [];
-        const selfDmToRe = new RegExp(`^\\*\\*${self}\\*\\*\\s*\\(dm to`);
-        for (const line of lines) {
-          const lower = line.toLowerCase();
-          const isDM = line.match(/^\*\*([^*]+)\*\*\s*\(dm/) || line.match(selfDmToRe);
-          if (isDM && searchNames.some(n => lower.includes(n))) {
-            entries.push(line);
-          }
-        }
+        const matching = events.filter((evt) => {
+          const counterparty = evt.direction === "out"
+            ? (typeof evt.to === "string" ? evt.to : null)
+            : (typeof evt.from === "string" ? evt.from : null);
+          return counterparty !== null && searchNames.has(counterparty.toLowerCase());
+        });
 
-        if (entries.length === 0) {
-          return { content: [{ type: "text", text: `No DM history with "${params.person}"${matchName ? ` (matched: ${matchName})` : ""}.` }], details: {} };
+        if (matching.length === 0) {
+          return {
+            content: [{
+              type: "text",
+              text: `No DM history with "${params.person}"${matchName && matchName.toLowerCase() !== params.person.toLowerCase() ? ` (matched: ${matchName})` : ""}.`,
+            }],
+            details: {},
+          };
         }
 
         const header = matchName && matchName.toLowerCase() !== params.person.toLowerCase()
           ? `DM history with ${matchName} (matched from "${params.person}"):\n`
           : `DM history with ${params.person}:\n`;
-        return { content: [{ type: "text", text: header + entries.slice(-count).join("\n") }], details: {} };
+        const lines = matching.slice(-count).map((evt) => formatChatLine(evt, self));
+        return { content: [{ type: "text", text: header + lines.join("\n") }], details: {} };
       } catch (err) {
-        return { content: [{ type: "text", text: `Error: ${err}` }], details: {} };
+        return { content: [{ type: "text", text: `chat_history error: ${err}` }], details: {} };
       }
     },
   };
 }
-
-// --- Bookings ---
-
-
-// --- Season Log ---
-
 
 // --- Web Search (SearXNG-compatible) ---
 
@@ -208,154 +232,16 @@ export function createWebSearchTool(): AgentTool {
   };
 }
 
-// --- View Image (REMOVED — replaced by Pi's sandboxed `read` tool which handles images natively) ---
-
-// --- Signal Messaging Tools ---
-
-import type { ChatAdapter } from "../adapters/chat/types.js";
-
-export function createSendDMTool(bridge: ChatAdapter, memory: MemoryManager): AgentTool {
-  return {
-    name: "send_dm",
-    description: "Send a direct message to someone on Signal, optionally with an image attachment. Look up the person first to find their Signal ID.",
-    label: "Send DM",
-    parameters: Type.Object({
-      to: Type.String({ description: "Person name — will be resolved to Signal ID via person lookup" }),
-      message: Type.String({ description: "The message to send" }),
-      image_path: Type.Optional(Type.String({ description: "Path to an image to attach, e.g. workspace/media/2026-04-08-sarah-123.jpeg" })),
-    }),
-    execute: async (_id, params) => {
-      try {
-        // Resolve person to Signal ID (phone or UUID from people file)
-        const person = await memory.findPerson(params.to);
-        if (!person) {
-          return { content: [{ type: "text", text: `Could not find person "${params.to}". Try a different name.` }], details: {} };
-        }
-
-        // Extract phone or signal UUID from the person file
-        const phoneMatch = person.content.match(/phone:\s*["']?(\+[\d\s]+)["']?/);
-        const uuidMatch = person.content.match(/signal-uuid:\s*["']?([\w-]+)["']?/);
-        const signalId = phoneMatch?.[1]?.replace(/\s/g, "") || uuidMatch?.[1];
-
-        if (!signalId) {
-          return { content: [{ type: "text", text: `Found ${params.to} but no Signal phone/UUID in their profile.` }], details: {} };
-        }
-
-        // Build attachments if image provided
-        let attachments: string[] | undefined;
-        if (params.image_path) {
-          const fs = await import("node:fs/promises");
-          const pathMod = await import("node:path");
-          const fullPath = pathMod.join(process.cwd(), params.image_path);
-          const buffer = await fs.readFile(fullPath);
-          const ext = pathMod.extname(fullPath).slice(1);
-          const mime = ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : "image/jpeg";
-          attachments = [`data:${mime};base64,${buffer.toString("base64")}`];
-        }
-
-        await bridge.send({ to: signalId, text: params.message, attachments });
-        const imageNote = params.image_path ? ` [+image: ${params.image_path}]` : "";
-        await memory.appendLog(`**${symbientDisplayName()}** (dm to ${params.to}): ${params.message}${imageNote}`);
-        return { content: [{ type: "text", text: `DM sent to ${params.to}: "${params.message.slice(0, 100)}"${imageNote}` }], details: {} };
-      } catch (err) {
-        return { content: [{ type: "text", text: `Failed to send DM: ${err}` }], details: {} };
-      }
-    },
-  };
-}
-
-export function createSendGroupMessageTool(bridge: ChatAdapter, memory: MemoryManager): AgentTool {
-  // Known groups cache — populated from workspace/community/known-groups.md
-  const knownGroups = new Map<string, string>(); // name → id
-  let loaded = false;
-  // Dedup: track recent messages to prevent identical sends
-  const recentMessages: string[] = [];
-
-  async function loadKnownGroups() {
-    if (loaded) return;
-    try {
-      const fs = await import("node:fs/promises");
-      const path = await import("node:path");
-      const content = await fs.readFile(path.join(process.cwd(), "workspace", "community", "known-groups.md"), "utf-8");
-      for (const match of content.matchAll(/\*\*(.+?)\*\*:\s*`(.+?)`/g)) {
-        knownGroups.set(match[1].toLowerCase(), match[2]);
-      }
-      loaded = true;
-    } catch {}
-  }
-
-  return {
-    name: "send_group_message",
-    description: "Send a message to a Signal group, optionally with an image. You can pass either the group ID or the group name.",
-    label: "Send Group Message",
-    parameters: Type.Object({
-      group_id: Type.String({ description: "The Signal group ID or group name (e.g. 'FEŸTOPIA 2026 - Season 7')" }),
-      message: Type.String({ description: "The message to send" }),
-      image_path: Type.Optional(Type.String({ description: "Path to an image to attach" })),
-    }),
-    execute: async (_id, params) => {
-      await loadKnownGroups();
-
-      // Dedup: reject identical messages
-      if (recentMessages.includes(params.message)) {
-        return { content: [{ type: "text", text: `Duplicate message blocked — you just sent this. Not sending again.` }], details: {} };
-      }
-
-      // Resolve: if it doesn't look like a base64 ID, try to find it by name
-      let groupId = params.group_id;
-      if (!groupId.includes("/") && !groupId.includes("=")) {
-        const resolved = knownGroups.get(groupId.toLowerCase());
-        if (resolved) {
-          groupId = resolved;
-        } else {
-          return { content: [{ type: "text", text: `Unknown group name "${params.group_id}". Use the group ID or a known name.` }], details: {} };
-        }
-      }
-
-      try {
-        // Build attachments if image provided
-        let attachments: string[] | undefined;
-        if (params.image_path) {
-          const fs = await import("node:fs/promises");
-          const pathMod = await import("node:path");
-          const fullPath = pathMod.join(process.cwd(), params.image_path);
-          const buffer = await fs.readFile(fullPath);
-          const ext = pathMod.extname(fullPath).slice(1);
-          const mime = ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : "image/jpeg";
-          attachments = [`data:${mime};base64,${buffer.toString("base64")}`];
-        }
-
-        await bridge.send({
-          to: "",
-          text: params.message,
-          groupId,
-          attachments,
-        });
-
-        // Track for dedup
-        recentMessages.push(params.message);
-        if (recentMessages.length > 20) recentMessages.shift();
-
-        const imageNote = params.image_path ? ` [+image]` : "";
-        await memory.appendLog(`**${symbientDisplayName()}** (group): ${params.message}${imageNote}`);
-        return { content: [{ type: "text", text: `Sent to group: "${params.message.slice(0, 100)}"${imageNote}` }], details: {} };
-      } catch (err) {
-        return { content: [{ type: "text", text: `Failed to send: ${err}` }], details: {} };
-      }
-    },
-  };
-}
-
 // --- Nudge Module (inter-module MQTT messaging) ---
 
 export function createNudgeModuleTool(bus: MQTTBus, senderName: string): AgentTool {
   const client = bus.clientFor(`nudge-${senderName}`);
   return {
     name: "nudge_module",
-    description: "Send a message to another module. Use to ask conversation to DM someone, ask radio to broadcast, ask the DJ to play something, ask the executive to schedule or follow up on something, or coordinate with any module.",
+    description: "Send a message to another running module. The target wakes up on its next cycle and acts on the message with its own judgment. Use `list_modules` to see what's currently registered.",
     label: "Nudge Module",
     parameters: Type.Object({
-      module: Type.String({ description: "Target module: conversation, radio, radio-dj, executive, thinking, desire, etc." }),
+      module: Type.String({ description: "Target module name (must match a currently-registered module — see list_modules)." }),
       message: Type.String({ description: "What you want the module to do — it will wake up and act on this with its own judgment" }),
     }),
     execute: async (_id, params) => {
@@ -370,14 +256,15 @@ export function createNudgeModuleTool(bus: MQTTBus, senderName: string): AgentTo
 export function createScheduleTool(workspacePath: string): AgentTool {
   return {
     name: "schedule",
-    description: "Schedule an action for your future self. When the time comes, you'll wake up and execute it immediately. Use `cron` for recurring patterns (preferred) or `when` for one-shot times.",
+    description: "Schedule an action for your future self. When the time comes, the action is delivered to a module that wakes up and executes it. Use `cron` for recurring patterns (preferred) or `when` for one-shot times.",
     label: "Schedule",
     parameters: Type.Object({
       when: Type.Optional(Type.String({ description: "One-shot time: ISO datetime, 'tomorrow 10:00', 'in 3h', 'at 18:30'. Use this OR cron, not both." })),
       cron: Type.Optional(Type.String({ description: "Cron expression for recurring schedules. Examples: '30 11 * * 1-5' (11:30 weekdays), '0 17 * * *' (17:00 daily), '0 9 * * 1' (9:00 Mondays). Format: min hour day month weekday." })),
-      prompt: Type.String({ description: "The action to execute — be specific: 'Send a group message reminding everyone GGGG starts in 30 minutes at 12:00'" }),
+      prompt: Type.String({ description: "The action to execute — be specific: 'Send a group message reminding everyone the meeting starts in 30 minutes at 12:00'" }),
       context: Type.Optional(Type.String({ description: "Background context for when the action fires" })),
       expires: Type.Optional(Type.String({ description: "When to stop recurring (ISO datetime). Only for cron schedules." })),
+      target: Type.Optional(Type.String({ description: "Module to wake up when this fires. Omit to use the deployment's default (typically 'conversation')." })),
     }),
     execute: async (_id, params) => {
       const fs = await import("node:fs/promises");
@@ -410,7 +297,7 @@ export function createScheduleTool(workspacePath: string): AgentTool {
             if (t) expiresTime = new Date(t).toISOString();
           }
 
-          const entry = {
+          const entry: Record<string, unknown> = {
             id: `sched-${Date.now()}`,
             cron: params.cron,
             nextRun: next.getTime(),
@@ -420,6 +307,7 @@ export function createScheduleTool(workspacePath: string): AgentTool {
             created: new Date().toISOString(),
             done: false,
           };
+          if (params.target) entry.target = params.target;
 
           schedule.push(entry);
           await fs.writeFile(schedulePath, JSON.stringify(schedule, null, 2), "utf-8");
@@ -438,7 +326,7 @@ export function createScheduleTool(workspacePath: string): AgentTool {
         return { content: [{ type: "text", text: `Could not parse time: "${params.when}". Try ISO datetime, "tomorrow 10:00", etc.` }], details: {} };
       }
 
-      const entry = {
+      const entry: Record<string, unknown> = {
         id: `sched-${Date.now()}`,
         when: atTime,
         prompt: params.prompt,
@@ -446,6 +334,7 @@ export function createScheduleTool(workspacePath: string): AgentTool {
         created: new Date().toISOString(),
         done: false,
       };
+      if (params.target) entry.target = params.target;
 
       schedule.push(entry);
       await fs.writeFile(schedulePath, JSON.stringify(schedule, null, 2), "utf-8");
@@ -520,12 +409,12 @@ export function createCancelScheduleTool(workspacePath: string): AgentTool {
 export function createRegisterWatchTool(senderName: string): AgentTool {
   return {
     name: "register_watch",
-    description: "Register a watch that fires an action when a matching event occurs. Use this instead of a polling cron when the trigger is a specific condition (e.g. sauna hits 82°C, someone arrives). The watch evaluator catches the exact moment the condition becomes true.",
+    description: "Register a watch that fires an action when a matching event occurs. Use this instead of a polling cron when the trigger is a specific condition (e.g. a sensor crossing a threshold, a message arriving). The watch evaluator catches the exact moment the condition becomes true.",
     label: "Register Watch",
     parameters: Type.Object({
       on: Type.Object({
-        type: Type.String({ description: "Event type to listen for (e.g. sauna_reading, chat_message, broadcast, arrival)" }),
-        where: Type.Optional(Type.String({ description: "Filter expression, e.g. 'temp >= 82' or 'from == \"Aaron\"'. Supports == != < <= > >= && ||." })),
+        type: Type.String({ description: "Event type to listen for. Use any type your deployment emits via recordEvent (chat_message, broadcast, tool_call, scheduled_fired, plus any custom sensor types)." }),
+        where: Type.Optional(Type.String({ description: "Filter expression, e.g. 'temp >= 30' or 'from == \"Alice\"'. Supports == != < <= > >= && ||." })),
         trigger: Type.Optional(Type.Union([
           Type.Literal("always"),
           Type.Literal("crossing_up"),
@@ -595,13 +484,6 @@ export function createCancelWatchTool(): AgentTool {
   };
 }
 
-// --- Radio ---
-
-
-
-// --- Radio Calendar ---
-
-
 // --- Module Management (self-modification) ---
 
 const MODULE_CREATION_LOG = "tasks/module-creation-log.json";
@@ -631,30 +513,32 @@ export function createCreateModuleTool(workspacePath: string): AgentTool {
       // Guard: check if module already exists
       try { await fs.access(modulePath); return { content: [{ type: "text", text: `Module "${safeName}" already exists. Use a different name.` }], details: {} }; } catch {}
 
-      // Guard: max 20 modules
+      // Guard: total module count
       const files = await fs.readdir(path.join(workspacePath, "modules"));
       const mdFiles = files.filter((f: string) => f.endsWith(".md"));
-      if (mdFiles.length >= 20) {
-        return { content: [{ type: "text", text: "Module limit reached (20). Disable or remove an existing module first." }], details: {} };
+      if (mdFiles.length >= moduleLimits.maxModules) {
+        return { content: [{ type: "text", text: `Module limit reached (${moduleLimits.maxModules}). Disable or remove an existing module first.` }], details: {} };
       }
 
-      // Guard: rate limit — max 1 per week
+      // Guard: weekly creation rate limit
       const logPath = path.join(workspacePath, MODULE_CREATION_LOG);
       let creationLog: any[] = [];
       try { creationLog = JSON.parse(await fs.readFile(logPath, "utf-8")); } catch {}
       const oneWeekAgo = Date.now() - 7 * 86400000;
       const recentCreations = creationLog.filter((e: any) => e.time > oneWeekAgo);
-      if (recentCreations.length >= 1) {
-        return { content: [{ type: "text", text: "Module creation rate limit: 1 per week. Last created: " + new Date(recentCreations[0].time).toLocaleDateString() }], details: {} };
+      if (recentCreations.length >= moduleLimits.creationsPerWeek) {
+        return { content: [{ type: "text", text: `Module creation rate limit: ${moduleLimits.creationsPerWeek} per week. Last created: ${new Date(recentCreations[0].time).toLocaleDateString()}` }], details: {} };
       }
 
-      // Guard: minimum interval 5m
-      const intervalMatch = params.interval.match(/^(\d+)\s*(m|h)$/);
-      if (intervalMatch) {
-        const mins = intervalMatch[2] === "h" ? parseInt(intervalMatch[1]) * 60 : parseInt(intervalMatch[1]);
-        if (mins < 5) {
-          return { content: [{ type: "text", text: "Minimum interval is 5m for self-created modules." }], details: {} };
-        }
+      // Guard: minimum cycle interval
+      const intervalMs = (() => {
+        const m = params.interval.match(/^(\d+)\s*(m|h)$/);
+        if (!m) return null;
+        return m[2] === "h" ? parseInt(m[1]) * 3600_000 : parseInt(m[1]) * 60_000;
+      })();
+      if (intervalMs !== null && intervalMs < moduleLimits.minIntervalMs) {
+        const minMin = Math.round(moduleLimits.minIntervalMs / 60_000);
+        return { content: [{ type: "text", text: `Minimum interval is ${minMin}m for self-created modules.` }], details: {} };
       }
 
       // Build frontmatter

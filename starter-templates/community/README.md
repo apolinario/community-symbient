@@ -9,13 +9,10 @@ sensor, no booking system.
 
 ## Architecture
 
-Modified Concurrent Modular Agent — see the CMA paper
-(https://arxiv.org/pdf/2508.19042) for the underlying ideas: concurrent
-modules, loose coupling via message passing, Baars's global workspace
-as a shared substrate, no central planner. Our substrate is files on
-disk (OpenClaw-style) rather than a vector store, per-module reasoning
-uses the Pi Agent (each module's cycle runs a Pi tool-use loop), and
-we layer a structured event log + declarative context providers on top.
+Concurrent modular agent — concurrent modules, loose coupling via MQTT,
+shared markdown memory as the substrate. Per-module reasoning runs the
+Pi Agent (each cycle is a tool-use loop). Layered on top: a structured
+event log + declarative context providers + watches + scheduling.
 
 ## What's inside
 
@@ -23,7 +20,7 @@ we layer a structured event log + declarative context providers on top.
 workspace/
   SOUL.md              — symbient identity (edit this)
   MEMORY.md            — long-term memory (autobiographical rewrites it)
-  config/config.json   — LLM, QMD, chat adapter, MQTT
+  config/config.json   — LLM, search backend, chat adapter, MQTT
   modules/
     conversation.md    — chat prompt
     thinking.md        — periodic free reflection → inner/current-state.md
@@ -36,21 +33,35 @@ workspace/
     providers.ts       — context providers: inner-mood, recent-dms,
                          recent-group-chat, recent-days, daily-summary,
                          active-states
-    modules.ts         — wires workspace modules into the framework
+    modules.ts         — registers qmd-index; add custom modules here
     helpers.js         — custom Handlebars helpers (stub)
     actions.js         — custom watch action kinds (stub)
   services/
-    conversation/      — chat handler: triage + retry + attachment
-                         handling + executive-nudge protocol
-                         (replaces framework's chat-reactor)
+    qmd-index/         — keeps the qmd index in sync (BM25 + vectors)
 ```
 
 Framework-provided things your deployment gets automatically:
 - Agent-module runner (reads `.md` modules, runs Pi Agent per cycle)
-- Memory manager (SOUL/MEMORY/daily logs/person profiles/qmd search)
+- Memory manager (SOUL/MEMORY/daily logs/person profiles, pluggable
+  search backend)
 - Event log, watches, schedule, hot-reload
-- Signal chat adapter (built-in — just configure in config.json)
-- qmd-index, schedule-checker, watch-evaluator, module-sync
+- Built-in chat adapter (Signal — configure in config.json)
+- Built-in code modules: schedule-checker, watch-evaluator, module-sync,
+  conversation (reactive chat reactor)
+
+## Search
+
+This starter uses the **`qmd-http`** search backend (qmd —
+https://github.com/mariozechner/qmd) for full vector + BM25 search with
+optional reranking. Run qmd locally and point `services.search.url` at
+it. The `qmd-index` module shells out to `qmd update` and `qmd embed`
+on a timer to keep the index fresh — paths come from `BUN_PATH` /
+`QMD_CLI` env vars.
+
+If you don't want to run qmd, the framework also ships a `local-bm25`
+backend (in-process, lex-only, zero external deps). Switch by setting
+`services.search.backend` to `"local-bm25"` and removing `qmd-index`
+from `enabled_modules`.
 
 ## How context flows
 
@@ -69,7 +80,16 @@ customize as your community evolves. The framework ships three built-in
 providers: `events` (queries the event log), `current-time`,
 `upcoming-scheduled`. Everything else is yours.
 
-## Extending into a Feÿ-like deployment
+## Scheduling and the executive
+
+The `schedule` tool drops one-shot or recurring actions into
+`workspace/tasks/scheduled.json`. When an item is due, the
+`schedule-checker` module nudges the target — `config.scheduling.defaultTarget`
+sets the default; this starter routes scheduled actions to the
+`executive` module so it can deliberate before acting. Each `schedule`
+call can override per-item with a `target` parameter.
+
+## Extending into a richer deployment
 
 If your community has bookings, sensors, or a broadcast system, look at
 Feÿ's deployment in the main repo (`workspace/services/feyops/`,
@@ -79,24 +99,29 @@ Feÿ's deployment in the main repo (`workspace/services/feyops/`,
 2. Add its modules + tools there.
 3. Register in `workspace/extensions/modules.ts` (factory + config).
 4. Add new context providers in `workspace/extensions/providers.ts` if
-   the service has queryable data (e.g. "current sauna temperature"
-   becomes a provider, not a hardcoded memory block).
+   the service has queryable data.
 
 ## Prerequisites
 
-- LLM (local or API)
-- qmd (http://localhost:8181 by default)
-- MQTT broker (localhost:1883 by default)
-- Chat transport — Signal via signal-cli-rest-api, or write a custom
-  ChatAdapter in `workspace/extensions/adapters/chat/<name>.ts`
+- LLM (local or API).
+- **qmd** (https://github.com/mariozechner/qmd) running locally —
+  defaults to http://localhost:8181. Point `services.search.url` at it.
+- **MQTT broker** (mosquitto is fine; defaults to localhost:1883).
+- A chat transport — Signal via signal-cli-rest-api, or write a custom
+  ChatAdapter in `workspace/extensions/adapters/chat/<name>.ts`.
 
 ## Run
 
 ```bash
 # 1. Edit workspace/SOUL.md (replace {{PLACEHOLDERS}})
-# 2. Edit workspace/config/config.json (LLM URL, chat adapter params)
-# 3. From the framework root:
-FEYBLET_CONFIG=./starter-templates/community/workspace/config/config.json \
+# 2. Edit workspace/config/config.json (LLM, chat adapter params)
+# 3. Set BUN_PATH and QMD_CLI env vars so qmd-index can shell out
+#    (only needed if you want auto-reindex; qmd's own daemon is
+#    independent).
+# 4. From the framework root:
+SYMBIENT_CONFIG=./starter-templates/community/workspace/config/config.json \
+  BUN_PATH=/path/to/bun \
+  QMD_CLI=/path/to/qmd/dist/cli/qmd.js \
   npm run dev
 ```
 
@@ -105,8 +130,8 @@ FEYBLET_CONFIG=./starter-templates/community/workspace/config/config.json \
 These are optional. Delete any you don't want; the framework doesn't
 care. Current defaults:
 
-- `conversation` — reactive chat (bespoke service with triage +
-  executive-nudge protocol). Replaces framework's chat-reactor.
+- `conversation` — reactive chat (framework's chat-reactor uses
+  `modules/conversation.md` as the system prompt).
 - `thinking` — 30m interval. Reflects on recent events, writes to
   `inner/current-state.md`.
 - `desire` — 1h interval. Generates concrete wants from community
@@ -115,7 +140,6 @@ care. Current defaults:
   (pragmatic/critical/relational) writing to `inner/current-magi.md`.
 - `autobiographical` — 6h interval. Rewrites `MEMORY.md` based on
   accumulated experience.
-- `executive` — 1h interval. Intentional self: runs full cycle of
-  deliberation, uses `schedule`/`register_watch`/`nudge_module` to act.
-  Also enters focused mode when `schedule-checker` wakes it with a
-  scheduled action.
+- `executive` — 1h interval. Intentional self: deliberates, uses
+  `schedule` / `register_watch` / `nudge_module` to act. Also enters
+  focused mode when `schedule-checker` wakes it with a scheduled action.

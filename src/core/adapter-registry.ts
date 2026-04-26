@@ -1,13 +1,13 @@
 /**
- * Adapter Registry — factories for chat, sensor, directory, and output
- * adapters. Built-in factories (src/adapters/*) self-register at import;
- * deployments add more via workspace/extensions/adapters/*.js (loaded by
- * extension-loader at startup).
+ * Adapter Registry — factories for chat, sensor, and directory adapters.
+ * Built-in factories (src/adapters/*) self-register at import; deployments
+ * add more via workspace/extensions/adapters/*.js (loaded by extension-
+ * loader at startup).
  *
- * Config.yaml then references each adapter by `adapter: <name>`, and
- * src/index.ts instantiates via the factory with the config's params.
- * This is what keeps `src/` free of deployment-specific imports — the
- * framework knows factories by name, not by concrete class.
+ * The deployment config references each adapter by `adapter: <name>`, and
+ * src/index.ts instantiates via the factory with the config's params. This
+ * is what keeps `src/` free of deployment-specific imports — the framework
+ * knows factories by name, not by concrete class.
  */
 
 import type { ChatAdapterFactory } from "../adapters/chat/types.js";

@@ -24,10 +24,10 @@ interface ParsedModule {
   fn: ModuleFunction;
 }
 
-// Parse interval strings like "3h", "10m", "500ms"
-function parseInterval(s: string): number {
+/** Parse interval strings like "3h", "10m", "500ms". Default: 1 min. */
+export function parseInterval(s: string): number {
   const match = s.match(/^(\d+)\s*(ms|s|m|h)$/);
-  if (!match) return 60000; // default 1 min
+  if (!match) return 60000;
   const n = parseInt(match[1]);
   switch (match[2]) {
     case "ms": return n;
@@ -67,6 +67,7 @@ export async function loadModuleConfigs(workspacePath: string): Promise<ParsedMo
     const toolNames: string[] = Array.isArray(fields.tools) ? fields.tools : [];
     const startActive = fields.startActive !== false; // default true
     const follows = fields.follows as string | undefined;
+    const runImmediately = fields.runImmediately as boolean | undefined;
 
     // Skip conversation — it has special handling (Signal bridge)
     if (name === "conversation") continue;
@@ -82,7 +83,7 @@ export async function loadModuleConfigs(workspacePath: string): Promise<ParsedMo
     const contextDecl = Array.isArray(fields.context) ? fields.context : undefined;
 
     modules.push({
-      config: { name, intervalMs: interval, startActive, follows, description: template.split("\n")[0] },
+      config: { name, intervalMs: interval, startActive, follows, runImmediately, description: template.split("\n")[0] },
       fn: createAgentModule({
         name,
         prompt: body,

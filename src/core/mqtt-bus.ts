@@ -1,7 +1,7 @@
 /**
  * MQTT message bus for inter-module communication.
  *
- * Each module gets its own topic: feyblet/{agentName}/{moduleName}
+ * Each module gets its own topic: symbient/{agentName}/{moduleName}
  * Messages are point-to-point (sender publishes to receiver's topic).
  * Following CMA's pattern but using the mqtt npm package.
  */
@@ -22,13 +22,13 @@ export class MQTTBus {
     private brokerUrl: string,
     private agentName: string,
   ) {
-    this.prefix = `feyblet/${agentName}`;
+    this.prefix = `symbient/${agentName}`;
   }
 
   async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.client = mqtt.connect(this.brokerUrl, {
-        clientId: `feyblet-${this.agentName}-${Date.now()}`,
+        clientId: `symbient-${this.agentName}-${Date.now()}`,
         clean: true,
       });
 
