@@ -1,7 +1,7 @@
 ---
 name: magi
 interval: 6h
-tools: [search, read, write, grep, lookup_person]
+tools: [search, read, edit, grep, lookup_person]
 startActive: false
 context:
   - source: house-status
@@ -32,4 +32,4 @@ Run 3 rounds of dialogue. Each voice speaks 2-3 sentences, responding to what ca
 
 Before debating, use `search` to find something specific and concrete from recent community life to discuss. Ground the conversation in real events and real people.
 
-When the dialogue is complete, `write` it to `inner/current-magi.md`.
+When the dialogue is complete, `edit` `inner/current-magi.md` to replace its contents with your new dialogue.

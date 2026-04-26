@@ -20,8 +20,48 @@ const log = createLogger("OOI");
 const CHROME_PATH = "/usr/bin/google-chrome";
 const PROFILE_DIR = path.resolve("data/chrome-profile");
 const OOI_CACHE = path.resolve("data/ooi-cache.json");
+const AUTH_ALERT_STATE = path.resolve("data/ooi-auth-alert.json");
+const AUTH_ALERT_MIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 const CALENDAR_API = "https://chateaubourgogne.amenitiz.io/en/api/v2/calendar/rooms";
+
+async function notifyAuthExpired(opts: { smoke?: boolean } = {}): Promise<void> {
+  const sender = process.env.SIGNAL_ACCOUNT;
+  const recipient = process.env.OOI_ALERT_RECIPIENT;
+  const signalApi = process.env.SIGNAL_API_URL ?? "http://localhost:8080";
+  if (!sender || !recipient) {
+    log.warn("OOI session expired; SIGNAL_ACCOUNT or OOI_ALERT_RECIPIENT unset — skipping DM");
+    return;
+  }
+  if (!opts.smoke) {
+    try {
+      const prev = JSON.parse(fs.readFileSync(AUTH_ALERT_STATE, "utf-8"));
+      if (prev.last_notified && Date.now() - prev.last_notified < AUTH_ALERT_MIN_INTERVAL_MS) return;
+    } catch { /* first time or unreadable — proceed */ }
+  }
+
+  const message = opts.smoke
+    ? "SMOKE TEST (ignore): this is the Amenitiz-session-expired alert path. If you see this, the notification plumbing works."
+    : "Amenitiz session expired — OOI fetch got the login page instead of JSON. " +
+      "To re-auth, run on the feyblet machine:\n\n" +
+      "cd ~/pi/feyblet && npx tsx workspace/services/feyops/ooi-fetcher.ts login";
+
+  try {
+    const res = await fetch(`${signalApi}/v2/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ number: sender, recipients: [recipient], message }),
+    });
+    if (!res.ok) {
+      log.warn(`Signal notify failed: HTTP ${res.status} ${await res.text()}`);
+      return;
+    }
+    if (!opts.smoke) fs.writeFileSync(AUTH_ALERT_STATE, JSON.stringify({ last_notified: Date.now() }));
+    log.info(`Sent OOI auth-expired alert to ${recipient}${opts.smoke ? " (smoke)" : ""}`);
+  } catch (err) {
+    log.warn(`Signal notify errored: ${err}`);
+  }
+}
 
 // Room ID → display name mapping (from MCP config)
 const ROOM_ID_MAP: Record<number, string> = {
@@ -137,6 +177,7 @@ export async function fetchOOI(): Promise<OOIEntry[]> {
       data = JSON.parse(text);
     } catch {
       if (text.includes("<!DOCTYPE") || text.includes("<html")) {
+        await notifyAuthExpired();
         throw new Error("Got HTML instead of JSON — not logged in. Log in in the browser window, then try again.");
       }
       throw new Error(`Invalid JSON response: ${text.slice(0, 200)}`);
@@ -196,7 +237,9 @@ if (process.argv[1]?.includes("ooi-fetcher")) {
         }
       })
       .catch(console.error);
+  } else if (cmd === "smoke-alert") {
+    notifyAuthExpired({ smoke: true }).catch(console.error);
   } else {
-    log.info("Usage: ooi-fetcher.ts [login|fetch]");
+    log.info("Usage: ooi-fetcher.ts [login|fetch|smoke-alert]");
   }
 }

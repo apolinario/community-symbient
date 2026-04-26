@@ -212,6 +212,9 @@ const innerMoodProvider: ContextProvider = {
 const recentDmsProvider: ContextProvider = {
   async execute(decl, ctx) {
     const count = (decl.count as number) ?? 10;
+    // Optional filter: only DMs with a specific person (both directions).
+    // Useful for the coder module to limit context to reviewer DMs.
+    const withPerson = (decl.with as string | undefined)?.toLowerCase();
     const todayLog = await safeRead(dailyLogPath(workspacePathOf(ctx), new Date()));
     if (!todayLog) return null;
     const self = symbientDisplayName();
@@ -232,9 +235,18 @@ const recentDmsProvider: ContextProvider = {
         else entries.push({ time: currentTime, from: name, to: self, snippet });
       }
     }
-    const incoming = entries.filter((e) => e.from !== self).slice(-count);
-    if (incoming.length === 0) return null;
-    const lines = incoming.map((e) => `[${e.time.slice(0, 5)}] ${e.from}: ${e.snippet}`);
+    let filtered = entries;
+    if (withPerson) {
+      filtered = entries.filter((e) => e.from.toLowerCase().includes(withPerson) || e.to.toLowerCase().includes(withPerson));
+    } else {
+      filtered = entries.filter((e) => e.from !== self);
+    }
+    filtered = filtered.slice(-count);
+    if (filtered.length === 0) return null;
+    const lines = filtered.map((e) => {
+      const prefix = e.from === self ? `→ ${e.to}` : `${e.from} →`;
+      return `[${e.time.slice(0, 5)}] ${prefix}: ${e.snippet}`;
+    });
     return (await annotateContextLines(lines)).join("\n");
   },
 };

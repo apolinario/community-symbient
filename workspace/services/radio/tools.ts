@@ -32,96 +32,32 @@ export function createRadioBroadcastTool(): AgentTool {
         const os = await import("node:os");
         const pathMod = await import("node:path");
 
-        // Generate TTS with random voice
-        const VOICES_DIR = pathMod.join(process.cwd(), "workspace", "voices");
-        const voices = [
-          {
-            path: `${VOICES_DIR}/primavera.wav`,
-            ref_text: "So this is Aminance. You can see the currant population of Aminance. There will be many more families. So Aminance are blockchain-based lifeforms.",
-          },
-          {
-            path: `${VOICES_DIR}/lou_short.wav`,
-            ref_text: "Welcome everyone to be on the future of work. I think most of you of the high-mine know my name, I'm Liu, and...",
-          },
-          {
-            path: `${VOICES_DIR}/poli_voiceover.wav`,
-            ref_text: "We were tired of systems that tell us what to fear, what to optimize for, and what to expect. What we lack are spaces where people can imagine futures together. Trying to reclaim imagine...",
-          },
-          {
-            path: `${VOICES_DIR}/sparkle.wav`,
-            ref_text: "Hello, my name is Unimportant and I'm here to teach you how maps work. Welcome to the Sparkle platform, it's very easy.",
-          },
-          {
-            path: `${VOICES_DIR}/ed_brittish_short.wav`,
-            ref_text: "Now, what I will say to you, Apollonio, is that the future of Feÿtopian radio depends upon our embrace of the...",
-          },
-          {
-            path: `${VOICES_DIR}/ed_french_2.wav`,
-            ref_text: "Ici, ici, à l'enfant de l'Américaine Grille, oui, à l'Américaine Grille, avec des bagages, ici, je suis juste paré à la gare. Et c'est vraiment...",
-          },
-          {
-            path: `${VOICES_DIR}/shibley.wav`,
-            ref_text: "Good morning, Feÿtopia. This is Shipply. I'm coming in to ask you how do you feel about your eggs today.",
-          },
-          {
-            path: `${VOICES_DIR}/sebnem.wav`,
-            ref_text: "Hello, Feÿtopia. I hope everyone is enjoying their week of embodiment. Today's a beautiful day, and I hope we meet for a game of volleyball.",
-          },
-          {
-            path: `${VOICES_DIR}/elena.wav`,
-            ref_text: "Hi, Poly, amore. I'm here looking at you to the other side of the window. You will look so cool with these new glasses.",
-          },
+        // All voices are registered as OmniVoice profiles (see voice_library/profiles/).
+        // We always send `voice: "clone:<name>"` — this goes through the profile code
+        // path in OmniVoice which passes cache_key to the backend, triggering the
+        // disk-persisted voice-embed cache. No more voice_path/ref_text inline.
+        const VOICE_POOL = [
+          "primavera", "lou", "poli", "sparkle",
+          "ed_british", "ed_french", "shibley", "sebnem", "elena", "iannis", "plantony",
         ];
-        // Clone voices from the voice library (fast, ~2.5s)
-        const cloneVoices = ["clone:iannis"];
 
-        // Use specified voice or pick a random one (including clone voices)
-        let ttsBody: Record<string, any>;
+        let voiceId: string;
         if (params.voice?.startsWith("clone:")) {
-          broadcastLog.info(`Voice: ${params.voice}`);
-          ttsBody = {
-            model: "qwen3-tts",
-            voice: params.voice,
-            input: params.message,
-            response_format: "wav",
-          };
-        } else if (!params.voice) {
-          // Random selection from all voices (ref + clone)
-          const totalVoices = voices.length + cloneVoices.length;
-          const pick = Math.floor(Math.random() * totalVoices);
-          if (pick < voices.length) {
-            const voice = voices[pick];
-            broadcastLog.info(`Voice: ${voice.path.split("/").pop()}`);
-            ttsBody = {
-              model: "qwen3-tts",
-              voice: "default",
-              input: params.message,
-              response_format: "wav",
-              voice_path: voice.path,
-              ref_text: voice.ref_text,
-            };
-          } else {
-            const cloneVoice = cloneVoices[pick - voices.length];
-            broadcastLog.info(`Voice: ${cloneVoice}`);
-            ttsBody = {
-              model: "qwen3-tts",
-              voice: cloneVoice,
-              input: params.message,
-              response_format: "wav",
-            };
-          }
+          voiceId = params.voice;
+        } else if (params.voice && VOICE_POOL.includes(params.voice)) {
+          voiceId = `clone:${params.voice}`;
         } else {
-          const voice = voices[Math.floor(Math.random() * voices.length)];
-          broadcastLog.info(`Voice: ${voice.path.split("/").pop()}`);
-          ttsBody = {
-            model: "qwen3-tts",
-            voice: "default",
-            input: params.message,
-            response_format: "wav",
-            voice_path: voice.path,
-            ref_text: voice.ref_text,
-          };
+          // No voice specified (or unknown) — random pick from the pool
+          voiceId = `clone:${VOICE_POOL[Math.floor(Math.random() * VOICE_POOL.length)]}`;
         }
+        broadcastLog.info(`Voice: ${voiceId}`);
+
+        const ttsBody: Record<string, any> = {
+          model: "qwen3-tts",
+          voice: voiceId,
+          input: params.message,
+          response_format: "wav",
+        };
 
         const ttsRes = await fetch(`${TTS_API}/v1/audio/speech`, {
           method: "POST",

@@ -5,6 +5,7 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { MemoryManager } from "../../src/memory/manager.js";
 import type { Directory } from "../../src/adapters/directory/types.js";
+import type { ChatAdapter } from "../../src/adapters/chat/types.js";
 import type { FeyOpsDB } from "../services/feyops/db.js";
 import { createCheckSaunaTool } from "../services/sauna/tools.js";
 import {
@@ -13,6 +14,7 @@ import {
   createRadioCalendarTool,
   configureRadioTools,
 } from "../services/radio/tools.js";
+import { createSendVoiceMessageTool } from "../services/voice/tools.js";
 import {
   createLookupPersonTool,
   createCheckBookingsTool,
@@ -27,6 +29,7 @@ import { join } from "node:path";
 export interface ToolDeps {
   memory: MemoryManager;
   directory?: Directory;
+  chatAdapter?: ChatAdapter;
   workspacePath: string;
   services?: Record<string, { url: string } & Record<string, unknown>>;
 }
@@ -43,6 +46,15 @@ export default function feyToolset(deps: ToolDeps): AgentTool[] {
       createRadioScheduleTool(),
       createRadioCalendarTool(),
     );
+
+    if (deps.chatAdapter) {
+      tools.push(createSendVoiceMessageTool({
+        workspacePath: deps.workspacePath,
+        ttsUrl,
+        chatAdapter: deps.chatAdapter,
+        memory: deps.memory,
+      }));
+    }
   }
 
   tools.push(

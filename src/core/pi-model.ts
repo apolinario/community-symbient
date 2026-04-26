@@ -25,7 +25,7 @@ export function createModel(config: {
     provider: config.provider,
     baseUrl,
     reasoning: true,
-    reasoningFormat: "qwen-chat-template",
+    compat: { thinkingFormat: "qwen-chat-template" },
     input: ["text", "image"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 262144,

@@ -37,7 +37,7 @@
   },
   "llm": {
     "provider": "openai",
-    "model": "qwen/qwen3.5-27b",
+    "model": "qwen/qwen3.6-27b",
     "baseUrl": "http://localhost:1234",
     "tinyBaseUrl": "http://localhost:1235",
     "tinyModel": "LFM2.5-VL-1.6B-Q8_0"

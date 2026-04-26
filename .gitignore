@@ -44,3 +44,12 @@ workspace/voices/
 
 # Per-deployment group/contact caches
 workspace/community/known-groups.md
+
+# Machine-specific operational scripts and units
+scripts/backfill-summaries.sh
+scripts/signal-watchdog.sh
+signal-watchdog.service
+signal-watchdog.timer
+
+# Feÿ-specific docs (this deployment only)
+docs/feyblet-architecture-image-prompt.txt

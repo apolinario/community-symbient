@@ -232,8 +232,16 @@ export function createConversationModule(bridge: ChatAdapter) {
     await agent.prompt(finalUserContent, images.length > 0 ? images : undefined);
     await agent.waitForIdle();
 
-    // Check for silence
+    // Treat bare status markers as silence. The model sometimes emits
+    // `[SENT]`, `[DONE]`, `[OK]`, etc. after calling a send_* tool as a
+    // note-to-self that the action completed. Those are NOT meant to be
+    // posted — treat them the same as `[silent]`.
+    const STATUS_MARKER_RX = /^\s*\[(?:silent|sent|done|ok|complete|no[\s_-]?reply|nothing|n\/a)\]\s*$/i;
     response = response.replace(/\[silent\]/gi, "").trim();
+    if (STATUS_MARKER_RX.test(response)) {
+      ctx.log(`Stripping bare status marker: ${response}`);
+      response = "";
+    }
     if (!response) {
       if (msg.chatType === "group" && !directlyAddressed) {
         ctx.log("Decided to stay silent.");
@@ -244,6 +252,10 @@ export function createConversationModule(bridge: ChatAdapter) {
       await agent.prompt(conversationSections.directAddressRetry ?? "");
       await agent.waitForIdle();
       response = response.replace(/\[silent\]/gi, "").trim();
+      if (STATUS_MARKER_RX.test(response)) {
+        ctx.log(`Stripping bare status marker on retry: ${response}`);
+        response = "";
+      }
       if (!response) {
         ctx.log("Chose silence even on direct address.");
         return;

@@ -8,6 +8,7 @@ context:
   - source: pending-capability-gaps
   - source: recent-dms
     count: 20
+    with: Apolinário
 ---
 
 It is {{currentDateTime}}.

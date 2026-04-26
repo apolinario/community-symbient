@@ -230,7 +230,7 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
         system: "Summarize this day's log into one short paragraph (3-5 sentences). Be factual: who talked, what happened, key events. No editorializing. Output ONLY the summary paragraph, nothing else.",
         messages: [{ role: "user" as const, content: truncated }],
         temperature: 0.3,
-        maxTokens: 200,
+        maxTokens: 1000,
       });
 
       if (summary.trim()) {
@@ -238,8 +238,10 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
         await this.ensureDir(dirname(summaryPath));
         await writeFile(summaryPath, summary.trim(), "utf-8");
       }
-    } catch {
-      // LLM down? No problem — summary just stays stale
+    } catch (err) {
+      // Non-fatal — surface so silent failures (model unavailable, empty
+      // response when thinking eats the token budget, etc.) are visible.
+      console.warn("[memory] resummarizeDay failed:", (err as Error)?.message || err);
     }
   }
 

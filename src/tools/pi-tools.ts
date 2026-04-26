@@ -137,18 +137,37 @@ export function createSandboxedPiTools(workspacePath: string): AgentTool[] {
   };
 
   // Write — restricted to writable paths
-  const write = createWriteTool(ws, {
+  const piWrite = createWriteTool(ws, {
     operations: {
       writeFile: async (absolutePath, content) => {
         assertWritable(absolutePath, ws);
         await writeFile(absolutePath, content, "utf-8");
       },
       mkdir: async (dir) => {
-        assertWritable(dir, ws);
+        // Pi's createWriteTool calls mkdir(dirname(path)) before every write
+        // to ensure parent dirs exist. For files at workspace root (e.g.
+        // MEMORY.md), dirname is the workspace itself — assertWritable
+        // would reject it because relative("","")==="". Enforce only the
+        // sandbox boundary here; the writeFile path still gets assertWritable.
+        assertReadable(dir, ws);
         await mkdir(dir, { recursive: true });
       },
     },
   });
+
+  // Strengthen write's description: writes are full-file replace, which
+  // destroys any existing content. Use `edit` for existing files; reserve
+  // `write` for creating new ones (or for files whose whole purpose is
+  // rewrite, like MEMORY.md in the autobiographical module).
+  const write: AgentTool = {
+    ...piWrite,
+    description:
+      (piWrite.description ?? "") +
+      " WARNING: `write` is full-file REPLACE. If the file already exists, its entire previous content is destroyed. " +
+      "Prefer `edit` for modifying existing files. Only use `write` for: (1) creating a new file that doesn't exist, or " +
+      "(2) files that are meant to be fully regenerated each time (e.g. curated memory rewrites). " +
+      "If unsure whether the file exists, `read` it first.",
+  };
 
   // Edit — restricted to writable paths
   const edit = createEditTool(ws, {

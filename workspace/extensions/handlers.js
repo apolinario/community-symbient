@@ -20,16 +20,16 @@ import { join } from "node:path";
 
 export default {
   thinking: async (ctx, output, _trace, toolCalls) => {
-    const wrote = toolCalls?.some((tc) => tc.name === "write");
-    if (wrote) {
+    const persisted = toolCalls?.some((tc) => tc.name === "write" || tc.name === "edit");
+    if (persisted) {
       await ctx.memory.appendLog(`*[Feyblet thinking]*\n${output}`);
       await ctx.messages.send("conversation", "inner_state_updated");
     }
   },
 
   desire: async (ctx, output, _trace, toolCalls) => {
-    const wrote = toolCalls?.some((tc) => tc.name === "write");
-    if (wrote) {
+    const persisted = toolCalls?.some((tc) => tc.name === "write" || tc.name === "edit");
+    if (persisted) {
       await ctx.memory.appendLog(`*[Feyblet desire]* ${output}`);
       await ctx.messages.send("conversation", `desire:${output}`);
     } else {
@@ -38,8 +38,8 @@ export default {
   },
 
   magi: async (ctx, output, _trace, toolCalls) => {
-    const wrote = toolCalls?.some((tc) => tc.name === "write");
-    if (wrote) {
+    const persisted = toolCalls?.some((tc) => tc.name === "write" || tc.name === "edit");
+    if (persisted) {
       await ctx.memory.appendLog(`*[Feyblet magi]*\n${output}`);
     }
   },

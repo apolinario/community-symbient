@@ -1,7 +1,7 @@
 ---
 name: thinking
 interval: 30m
-tools: [search, read, write, grep, lookup_person]
+tools: [search, read, edit, grep, lookup_person]
 context:
   - source: house-status
   - source: sauna
@@ -23,4 +23,4 @@ What's interesting? Who's new? What conversations stood out? What patterns do yo
 
 Keep it to a few paragraphs. Be specific — name real people, real events. This is your inner life, not a philosophical treatise. Once you've reflected, stop. You'll think again in 30 minutes.
 
-When done, `write` your reflection to `inner/current-state.md`.
+When done, `edit` `inner/current-state.md` to replace its contents with your new reflection.
