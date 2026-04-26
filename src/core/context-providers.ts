@@ -58,17 +58,17 @@ export function listProviders(): string[] {
 
 // --- Formatting helpers ---
 
-function pad2(n: number): string { return n.toString().padStart(2, "0"); }
+function padTwoDigit(n: number): string { return n.toString().padStart(2, "0"); }
 
 function formatDate(ts: number, pattern: string): string {
   const d = new Date(ts);
   return pattern
     .replace("YYYY", String(d.getFullYear()))
-    .replace("MM", pad2(d.getMonth() + 1))
-    .replace("DD", pad2(d.getDate()))
-    .replace("HH", pad2(d.getHours()))
-    .replace("mm", pad2(d.getMinutes()))
-    .replace("ss", pad2(d.getSeconds()));
+    .replace("MM", padTwoDigit(d.getMonth() + 1))
+    .replace("DD", padTwoDigit(d.getDate()))
+    .replace("HH", padTwoDigit(d.getHours()))
+    .replace("mm", padTwoDigit(d.getMinutes()))
+    .replace("ss", padTwoDigit(d.getSeconds()));
 }
 
 /**

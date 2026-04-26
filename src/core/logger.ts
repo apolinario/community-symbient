@@ -18,10 +18,21 @@ const LEVEL_PRIORITY: Record<LogLevel, number> = {
   error: 3,
 };
 
-const minLevel: LogLevel = (process.env.LOG_LEVEL as LogLevel) || "info";
+/**
+ * Resolve the active minimum log level from process.env.LOG_LEVEL on each
+ * call. Reading at every check (rather than caching at module load) lets
+ * tests and runtime knobs flip the level without a restart. Unknown values
+ * fall back to "info" — the previous module-load cache silently disabled
+ * every level when given an unrecognised string.
+ */
+function getMinLevel(): LogLevel {
+  const raw = process.env.LOG_LEVEL;
+  if (raw === "debug" || raw === "info" || raw === "warn" || raw === "error") return raw;
+  return "info";
+}
 
 function shouldLog(level: LogLevel): boolean {
-  return LEVEL_PRIORITY[level] >= LEVEL_PRIORITY[minLevel];
+  return LEVEL_PRIORITY[level] >= LEVEL_PRIORITY[getMinLevel()];
 }
 
 function formatMessage(tag: string, level: LogLevel, msg: string): string {

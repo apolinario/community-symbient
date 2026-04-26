@@ -23,22 +23,30 @@ interface AmenitizBooking {
   rooms?: Array<{ individual_room_name?: string; name?: string }>;
 }
 
-const DEFAULT_CONFIG: AmenitizConfig = {
-  accessToken: process.env.AMENITIZ_ACCESS_TOKEN || "",
-  hotelId: process.env.AMENITIZ_HOTEL_ID || "",
-  baseUrl: "https://api.amenitiz.io/vendor_api/v1",
-};
+/**
+ * Build the env-derived defaults at call time. Reading env inside the
+ * function (rather than capturing it at module load) lets a deployment
+ * set AMENITIZ_ACCESS_TOKEN/HOTEL_ID after import — useful for tests
+ * and for credential-rotation flows that swap env between cycles.
+ */
+function buildAmenitizDefaults(): AmenitizConfig {
+  return {
+    accessToken: process.env.AMENITIZ_ACCESS_TOKEN || "",
+    hotelId: process.env.AMENITIZ_HOTEL_ID || "",
+    baseUrl: "https://api.amenitiz.io/vendor_api/v1",
+  };
+}
 
 export async function syncAmenitiz(
   db: FeyOpsDB,
   config: Partial<AmenitizConfig> = {},
   log: (msg: string) => void = console.log
 ): Promise<{ synced: number; stale: number; ooi: number }> {
-  const cfg = { ...DEFAULT_CONFIG, ...config };
+  const cfg = { ...buildAmenitizDefaults(), ...config };
 
   if (!cfg.accessToken || !cfg.hotelId) {
     log("Amenitiz sync skipped: no credentials");
-    return { synced: 0, stale: 0 };
+    return { synced: 0, stale: 0, ooi: 0 };
   }
 
   // Season runs Dec 1 - May 5. Amenitiz limits to 31-day windows.

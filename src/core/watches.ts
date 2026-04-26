@@ -123,7 +123,19 @@ async function loadState(): Promise<WatchStateFile> {
   if (!workspacePath) return {};
   try {
     const content = await readFile(statePath(), "utf-8");
-    return JSON.parse(content) as WatchStateFile;
+    const parsed: unknown = JSON.parse(content);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const result: WatchStateFile = {};
+    for (const [id, raw] of Object.entries(parsed as Record<string, unknown>)) {
+      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+        const r = raw as Record<string, unknown>;
+        const entry: WatchStateFile[string] = {};
+        if (typeof r.lastMatched === "boolean") entry.lastMatched = r.lastMatched;
+        if (typeof r.lastFiredTs === "number") entry.lastFiredTs = r.lastFiredTs;
+        result[id] = entry;
+      }
+    }
+    return result;
   } catch {
     return {};
   }
@@ -137,12 +149,13 @@ async function writeState(state: WatchStateFile): Promise<void> {
 
 export async function getWatchState(id: string): Promise<{ lastMatched?: boolean; lastFiredTs?: number }> {
   const state = await loadState();
-  return state[id] ?? {};
+  return state[id] ? { ...state[id] } : {};
 }
 
 export async function setWatchState(id: string, patch: { lastMatched?: boolean; lastFiredTs?: number }): Promise<void> {
   const state = await loadState();
-  state[id] = { ...(state[id] ?? {}), ...patch };
+  const prev = state[id];
+  state[id] = prev ? { ...prev, ...patch } : { ...patch };
   await writeState(state);
 }
 

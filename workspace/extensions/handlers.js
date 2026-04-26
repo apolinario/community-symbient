@@ -18,10 +18,8 @@
 import { appendFile, readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-const PLAY_HISTORY_PATH = join(process.cwd(), "workspace", "radio", "play-history.csv");
-
 /** Append-or-increment a row in radio/play-history.csv for one play_music tool call. */
-async function trackPlay(args, result) {
+async function trackPlay(workspacePath, args, result) {
   if (typeof result === "string" && (result.includes("MCP error") || result.includes("Error"))) return;
 
   const url = args?.url || "";
@@ -29,9 +27,10 @@ async function trackPlay(args, result) {
   const title = titleMatch?.[1] || url || "";
   if (!title && !url) return;
 
-  await mkdir(dirname(PLAY_HISTORY_PATH), { recursive: true });
+  const playHistoryPath = join(workspacePath, "radio", "play-history.csv");
+  await mkdir(dirname(playHistoryPath), { recursive: true });
   let csv = "";
-  try { csv = await readFile(PLAY_HISTORY_PATH, "utf-8"); } catch {}
+  try { csv = await readFile(playHistoryPath, "utf-8"); } catch {}
   if (!csv) csv = "title,count,last_played\n";
 
   const lines = csv.split("\n");
@@ -50,7 +49,7 @@ async function trackPlay(args, result) {
   });
   if (!found) updated.push(`"${safeTitle}",1,"${now}"`);
 
-  await writeFile(PLAY_HISTORY_PATH, header + "\n" + updated.join("\n") + "\n", "utf-8");
+  await writeFile(playHistoryPath, header + "\n" + updated.join("\n") + "\n", "utf-8");
 }
 
 export default {
@@ -110,13 +109,13 @@ export default {
     }
     for (const call of toolCalls ?? []) {
       if (call.name === "radio.play_music") {
-        await trackPlay(call.args, call.result ?? "").catch(() => {});
+        await trackPlay(ctx.memory.workspacePath, call.args, call.result ?? "").catch(() => {});
       }
     }
   },
 
-  radio: async (_ctx, output, _trace, toolCalls) => {
-    const logPath = join(process.cwd(), "workspace", "radio", "log.md");
+  radio: async (ctx, output, _trace, toolCalls) => {
+    const logPath = join(ctx.memory.workspacePath, "radio", "log.md");
     const timestamp = new Date().toLocaleTimeString("en-GB", {
       hour: "2-digit",
       minute: "2-digit",

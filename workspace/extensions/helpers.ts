@@ -10,8 +10,9 @@ import type { HelperFn } from "../../src/core/extensions-api.js";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
-const pendingCapabilityGaps: HelperFn = async () => {
-  const dir = join(process.cwd(), "workspace", "state", "capability-gaps");
+const pendingCapabilityGaps: HelperFn = async (ctx) => {
+  if (!ctx) return "";
+  const dir = join(ctx.memory.workspacePath, "state", "capability-gaps");
   let files: string[] = [];
   try { files = await readdir(dir); } catch { return ""; }
 

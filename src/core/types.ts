@@ -66,6 +66,13 @@ export interface ModuleHandle {
  * pure read-only consumer ever appears.
  */
 export interface MemoryAccess {
+  /**
+   * Absolute path to the workspace root. Exposed so extensions and helpers
+   * can locate files outside the curated read API (e.g. `readdir` on a
+   * deployment-specific directory) without falling back to `process.cwd()`.
+   */
+  readonly workspacePath: string;
+
   // --- Reads ---
   /** Read a file relative to the workspace root. */
   readFile(relPath: string): Promise<string | null>;
@@ -252,12 +259,6 @@ export interface SymbientConfig {
     tinyModel?: string;
     tinyBaseUrl?: string;
   };
-  /**
-   * @deprecated Use `services.search.url` instead. The framework still
-   * reads this for backward compatibility — at startup, if `qmd.url` is
-   * set and `services.search.url` is not, the value is copied across.
-   */
-  qmd?: { url: string };
   /**
    * Arbitrary deployment-specific external services, keyed by name. The
    * framework stores this as-is; deployment tools / extensions read

@@ -173,15 +173,15 @@ function extractEventTime(text: string, msgTime: Date): { time: Date; confidence
 
   // "at H.MMpm/am" (european style like "5.30pm")
   m = lower.match(/\bat\s+(\d{1,2})\.(\d{2})\s*(am|pm)\b/);
-  if (m) { t = buildTime(toH24(parseInt(m[1]), m[3]), parseInt(m[2]), msgTime); if (t) return { time: t, confidence: "high" }; }
+  if (m) { t = buildTime(toMilitaryHour(parseInt(m[1]), m[3]), parseInt(m[2]), msgTime); if (t) return { time: t, confidence: "high" }; }
 
   // "at HH:MM am/pm"
   m = lower.match(/\bat\s+(\d{1,2}):(\d{2})\s*(am|pm)\b/);
-  if (m) { t = buildTime(toH24(parseInt(m[1]), m[3]), parseInt(m[2]), msgTime); if (t) return { time: t, confidence: "high" }; }
+  if (m) { t = buildTime(toMilitaryHour(parseInt(m[1]), m[3]), parseInt(m[2]), msgTime); if (t) return { time: t, confidence: "high" }; }
 
   // "at Hpm/Ham" or "at H pm/am"
   m = lower.match(/\bat\s+(\d{1,2})\s*(am|pm)\b/);
-  if (m) { t = buildTime(toH24(parseInt(m[1]), m[2]), 0, msgTime); if (t) return { time: t, confidence: "high" }; }
+  if (m) { t = buildTime(toMilitaryHour(parseInt(m[1]), m[2]), 0, msgTime); if (t) return { time: t, confidence: "high" }; }
 
   // "tonight at H" / "this evening at H"
   m = lower.match(/(?:tonight|this evening)\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\b/);
@@ -195,7 +195,7 @@ function extractEventTime(text: string, msgTime: Date): { time: Date; confidence
   // "tomorrow at H:MM"
   m = lower.match(/tomorrow\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/);
   if (m) {
-    let h = m[3] ? toH24(parseInt(m[1]), m[3]) : parseInt(m[1]);
+    let h = m[3] ? toMilitaryHour(parseInt(m[1]), m[3]) : parseInt(m[1]);
     t = buildTime(h, m[2] ? parseInt(m[2]) : 0, msgTime);
     if (t) { t.setDate(t.getDate() + 1); return { time: t, confidence: "high" }; }
   }
@@ -248,7 +248,7 @@ function extractEventTime(text: string, msgTime: Date): { time: Date; confidence
   return null;
 }
 
-function toH24(h: number, ampm: string): number {
+function toMilitaryHour(h: number, ampm: string): number {
   if (ampm === "pm" && h < 12) return h + 12;
   if (ampm === "am" && h === 12) return 0;
   return h;

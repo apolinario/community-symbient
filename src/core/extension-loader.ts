@@ -44,8 +44,7 @@ async function importIfExists(basePath: string): Promise<Record<string, unknown>
     if (!existsSync(fullPath)) continue;
     try {
       const mod = await import(pathToFileURL(fullPath).href);
-      const exports = (mod.default ?? mod) as Record<string, unknown>;
-      return exports;
+      return (mod.default ?? mod) as Record<string, unknown>;
     } catch (err) {
       log.error(`Failed to import ${fullPath}: ${err}`);
       return null;

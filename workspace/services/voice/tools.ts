@@ -28,10 +28,28 @@ interface VoiceEntry {
   ref_text: string;
 }
 
+function parseVoices(raw: string): VoiceEntry[] {
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch { return []; }
+  if (!Array.isArray(parsed)) return [];
+  const out: VoiceEntry[] = [];
+  for (const entry of parsed) {
+    if (
+      entry && typeof entry === "object" &&
+      typeof (entry as { name?: unknown }).name === "string" &&
+      typeof (entry as { path?: unknown }).path === "string" &&
+      typeof (entry as { ref_text?: unknown }).ref_text === "string"
+    ) {
+      out.push(entry as VoiceEntry);
+    }
+  }
+  return out;
+}
+
 async function loadVoices(workspacePath: string): Promise<VoiceEntry[]> {
   try {
     const raw = await readFile(join(workspacePath, "voices.json"), "utf-8");
-    return JSON.parse(raw) as VoiceEntry[];
+    return parseVoices(raw);
   } catch {
     return [];
   }
@@ -82,8 +100,7 @@ export function createSendVoiceMessageTool(deps: {
   let voiceNamesList = "(voices.json not found)";
   try {
     const raw = readFileSync(join(deps.workspacePath, "voices.json"), "utf-8");
-    const voices = JSON.parse(raw) as VoiceEntry[];
-    voiceNamesList = voices.map((v) => v.name).join(", ");
+    voiceNamesList = parseVoices(raw).map((v) => v.name).join(", ");
   } catch {
     // keep default
   }

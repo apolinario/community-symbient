@@ -31,8 +31,8 @@
     { "name": "radio", "url": "http://192.168.10.97:8001/mcp" },
     { "name": "phonebooth", "url": "http://192.168.10.97:3001/mcp" }
   ],
-  "qmd": { "url": "http://localhost:8181" },
   "services": {
+    "search": { "url": "http://localhost:8181" },
     "whisper": { "url": "http://localhost:8001" },
     "searxng": { "url": "http://localhost:4000" },
     "tts": { "url": "http://localhost:8000" }

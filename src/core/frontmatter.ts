@@ -17,7 +17,10 @@ import { load as yamlLoad } from "js-yaml";
 export function parseFrontmatter(content: string): { fields: Record<string, unknown>; body: string } {
   const match = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
   if (!match) return { fields: {}, body: content };
-  const fields = (yamlLoad(match[1]) as Record<string, unknown>) ?? {};
+  const parsed = yamlLoad(match[1]);
+  const fields: Record<string, unknown> = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : {};
   return { fields, body: match[2].trim() };
 }
 

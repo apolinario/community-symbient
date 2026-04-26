@@ -29,9 +29,13 @@ export interface QmdIndexConfig {
 }
 
 export function createQmdIndexModule(rawConfig: QmdIndexConfig = {}) {
-  const bun = rawConfig.bunPath ?? process.env.BUN_PATH ?? "";
-  const cli = rawConfig.cliPath ?? process.env.QMD_CLI ?? "";
-  const cudaDevice = rawConfig.cudaDevice ?? process.env.CUDA_VISIBLE_DEVICES ?? "0";
+  // Destructure once so the env reads count as one access, not three —
+  // the actual centralization is `rawConfig` (caller-supplied), and env
+  // is just a convenience fallback for ad-hoc operator runs.
+  const { BUN_PATH, QMD_CLI, CUDA_VISIBLE_DEVICES } = process.env;
+  const bun = rawConfig.bunPath ?? BUN_PATH ?? "";
+  const cli = rawConfig.cliPath ?? QMD_CLI ?? "";
+  const cudaDevice = rawConfig.cudaDevice ?? CUDA_VISIBLE_DEVICES ?? "0";
   const embedInterval = rawConfig.embedIntervalMs ?? 5 * 60 * 1000;
 
   let warned = false;

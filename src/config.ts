@@ -10,26 +10,35 @@ import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { SymbientConfig } from "./core/types.js";
 
-const DEFAULT_CONFIG: SymbientConfig = {
-  name: "symbient",
-  workspacePath: resolve("workspace"),
-  mqtt: {
-    brokerUrl: process.env.MQTT_BROKER || "localhost",
-    port: Number(process.env.MQTT_PORT) || 1883,
-  },
-  llm: {
-    provider: (process.env.LLM_PROVIDER as "anthropic" | "openai" | "ollama") || "openai",
-    model: process.env.LLM_MODEL || "qwen/qwen3.5-35b-a3b",
-    apiKey: process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY,
-    baseUrl: process.env.LLM_BASE_URL,
-    tinyModel: process.env.LLM_TINY_MODEL,
-    tinyBaseUrl: process.env.LLM_TINY_BASE_URL,
-  },
-  services: {
-    search: { url: process.env.SEARCH_URL || process.env.QMD_URL || "http://localhost:8181" },
-  },
-  modules: {},
-};
+/**
+ * Build the env-derived default config. Computed inside loadConfig() rather
+ * than captured at module load so a test or runtime knob that flips an env
+ * var (LLM_PROVIDER, MQTT_BROKER, etc.) before calling loadConfig() takes
+ * effect — the previous module-load capture froze whatever was in the env
+ * at first import.
+ */
+function buildDefaultConfig(): SymbientConfig {
+  return {
+    name: "symbient",
+    workspacePath: resolve("workspace"),
+    mqtt: {
+      brokerUrl: process.env.MQTT_BROKER || "localhost",
+      port: Number(process.env.MQTT_PORT) || 1883,
+    },
+    llm: {
+      provider: (process.env.LLM_PROVIDER as "anthropic" | "openai" | "ollama") || "openai",
+      model: process.env.LLM_MODEL || "qwen/qwen3.5-35b-a3b",
+      apiKey: process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY,
+      baseUrl: process.env.LLM_BASE_URL,
+      tinyModel: process.env.LLM_TINY_MODEL,
+      tinyBaseUrl: process.env.LLM_TINY_BASE_URL,
+    },
+    services: {
+      search: { url: process.env.SEARCH_URL || process.env.QMD_URL || "http://localhost:8181" },
+    },
+    modules: {},
+  };
+}
 
 async function readJsonIfExists(path: string): Promise<Partial<SymbientConfig> | null> {
   try {
@@ -65,24 +74,7 @@ export async function loadConfig(): Promise<SymbientConfig> {
     console.log(`Loaded config from ${usedPath}`);
   }
 
-  const merged = deepMerge(DEFAULT_CONFIG, fileConfig) as SymbientConfig;
-
-  // Backward-compat: `config.qmd.url` was the old name for the search
-  // backend URL. If only the legacy field is set, copy it over and warn.
-  const services = merged.services ?? {};
-  const hasSearchUrl = typeof services.search?.url === "string" && services.search.url.length > 0;
-  const legacyQmdUrl = (merged.qmd as { url?: string } | undefined)?.url;
-  if (!hasSearchUrl && legacyQmdUrl) {
-    console.warn(`[config] 'qmd.url' is deprecated — set 'services.search.url' instead. Falling back for now.`);
-    merged.services = { ...services, search: { url: legacyQmdUrl } };
-  }
-  // Also keep config.qmd.url populated from services.search.url so any
-  // call sites still reading the legacy field continue to work for now.
-  if (merged.services?.search?.url && !merged.qmd?.url) {
-    merged.qmd = { url: merged.services.search.url };
-  }
-
-  return merged;
+  return deepMerge(buildDefaultConfig(), fileConfig) as SymbientConfig;
 }
 
 function deepMerge(target: Record<string, any>, source: Record<string, any>): Record<string, any> {

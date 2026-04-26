@@ -36,8 +36,8 @@ function isPlaceholder(name: string): boolean {
   return lower.startsWith("block") || lower.startsWith("hold") || lower.includes("secret garden");
 }
 
-async function safeRead(path: string): Promise<string | null> {
-  try { return await readFile(path, "utf-8"); } catch { return null; }
+function safeRead(path: string): Promise<string | null> {
+  return readFile(path, "utf-8").catch(() => null);
 }
 
 function dailyLogPath(wsPath: string, date: Date): string {
@@ -298,7 +298,7 @@ const recentDaysProvider: ContextProvider = {
 const dailySummaryProvider: ContextProvider = {
   async execute(_decl, ctx) {
     const today = new Date().toISOString().slice(0, 10);
-    return await safeRead(join(workspacePathOf(ctx), "memory", `${today}.summary.md`));
+    return safeRead(join(workspacePathOf(ctx), "memory", `${today}.summary.md`));
   },
 };
 
@@ -393,10 +393,7 @@ const activeStatesProvider: ContextProvider = {
 };
 
 function workspacePathOf(ctx: ModuleContext): string {
-  // ctx.memory is the MemoryManager; use its workspace path via the
-  // `appendLog` write pattern. Simplest: rely on process.cwd() since all
-  // deployments run from project root. Falls back safely if not set.
-  return join(process.cwd(), "workspace");
+  return ctx.memory.workspacePath;
 }
 
 export default {

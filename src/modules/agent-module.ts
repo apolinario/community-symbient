@@ -73,7 +73,7 @@ function correlateToolResult(toolCalls: ToolCall[], toolName: string, resultText
       return toolCalls[i];
     }
   }
-  return undefined;
+  return;
 }
 
 export interface ModuleSpec {

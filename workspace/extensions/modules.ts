@@ -36,7 +36,7 @@ import { createRadioModule } from "../services/radio/index.js";
 import { createQmdIndexModule } from "../services/qmd-index/index.js";
 import { attachDailySummarizer } from "./memory-hooks.js";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 export interface WorkspaceModulesDeps {
   memory: MemoryManager;
@@ -99,21 +99,32 @@ export default function feySetup(deps: WorkspaceModulesDeps): unknown[] {
     factory: () => createRadioModule(),
   });
 
-  registerBuiltInModule("qmd-index", {
-    config: { name: "qmd-index", intervalMs: 30_000, startActive: true, description: "qmd BM25 every 30s, vectors every 5min" },
-    factory: () => createQmdIndexModule({
-      bunPath: process.env.BUN_PATH || "/home/plantoidz/.bun/bin/bun",
-      cliPath: process.env.QMD_CLI || "/home/plantoidz/pi/qmd/dist/cli/qmd.js",
-    }),
-  });
+  // qmd-index: optional. Requires QMD_CLI + BUN_PATH env vars pointing at
+  // the qmd CLI bundle and the bun runtime. No fallbacks — paths are
+  // deployment-machine-specific and silently broken defaults (one operator's
+  // /home/plantoidz/... layout) leak the prior local-only assumption.
+  const bunPath = process.env.BUN_PATH;
+  const qmdCli = process.env.QMD_CLI;
+  if (bunPath && qmdCli) {
+    registerBuiltInModule("qmd-index", {
+      config: { name: "qmd-index", intervalMs: 30_000, startActive: true, description: "qmd BM25 every 30s, vectors every 5min" },
+      factory: () => createQmdIndexModule({ bunPath, cliPath: qmdCli }),
+    });
+  } else {
+    console.log("[modules] qmd-index skipped: set BUN_PATH and QMD_CLI to enable.");
+  }
 
-  ensureCoderWatches().catch((err) => console.error(`coder watch registration failed: ${err}`));
+  ensureCoderWatches(deps.workspacePath).catch((err) => console.error(`coder watch registration failed: ${err}`));
 
   return [];
 }
 
-async function ensureCoderWatches(): Promise<void> {
-  const raw = await readFile(join(process.cwd(), "config", "feyblet.json"), "utf-8").catch(() => null);
+async function ensureCoderWatches(workspacePath: string): Promise<void> {
+  // Convention: workspace lives at `<project-root>/workspace`, so the
+  // project's config dir is the workspace's parent + "config". No cwd
+  // dependence — works regardless of where the process was launched.
+  const projectRoot = dirname(workspacePath);
+  const raw = await readFile(join(projectRoot, "config", "feyblet.json"), "utf-8").catch(() => null);
   if (!raw) return;
   let cfg: { coder?: { reviewer?: string } } | null = null;
   try {

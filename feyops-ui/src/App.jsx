@@ -52,7 +52,8 @@ function App() {
       if (!res.ok) throw new Error(`API error: ${res.status}`)
       const data = await res.json()
       // Normalize field names (API uses checkin/checkout, components use checkIn/checkOut)
-      const normalized = (data.bookings || []).map(b => ({
+      const bookings = Array.isArray(data.bookings) ? data.bookings : []
+      const normalized = bookings.map(b => ({
         ...b,
         checkIn: b.checkin,
         checkOut: b.checkout,
@@ -131,7 +132,7 @@ function App() {
       }
       await fetchData()
     } catch (err) {
-      alert('Delete failed: ' + err.message)
+      alert(`Delete failed: ${err.message}`)
     }
   }
 

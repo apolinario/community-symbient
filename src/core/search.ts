@@ -86,7 +86,7 @@ export function createQmdHttpBackend(url: string): SearchBackend {
       });
       if (!res.ok) return [];
       const data = (await res.json()) as { results?: SearchHit[] };
-      return data.results ?? [];
+      return Array.isArray(data.results) ? data.results : [];
     },
   };
 }

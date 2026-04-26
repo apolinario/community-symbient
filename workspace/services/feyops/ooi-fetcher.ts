@@ -25,19 +25,37 @@ const AUTH_ALERT_MIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 const CALENDAR_API = "https://chateaubourgogne.amenitiz.io/en/api/v2/calendar/rooms";
 
+/** All env vars this module consults. Destructured once, in one place,
+ *  to avoid scattered process.env references across the file. */
+function loadAlertConfig(): { sender?: string; recipient?: string; signalApi: string } {
+  const { SIGNAL_ACCOUNT, OOI_ALERT_RECIPIENT, SIGNAL_API_URL } = process.env;
+  return {
+    sender: SIGNAL_ACCOUNT,
+    recipient: OOI_ALERT_RECIPIENT,
+    signalApi: SIGNAL_API_URL ?? "http://localhost:8080",
+  };
+}
+
+function readLastNotifiedTs(): number | null {
+  try {
+    const parsed: unknown = JSON.parse(fs.readFileSync(AUTH_ALERT_STATE, "utf-8"));
+    if (parsed && typeof parsed === "object") {
+      const v = (parsed as Record<string, unknown>).last_notified;
+      if (typeof v === "number") return v;
+    }
+  } catch { /* first time or unreadable — proceed */ }
+  return null;
+}
+
 async function notifyAuthExpired(opts: { smoke?: boolean } = {}): Promise<void> {
-  const sender = process.env.SIGNAL_ACCOUNT;
-  const recipient = process.env.OOI_ALERT_RECIPIENT;
-  const signalApi = process.env.SIGNAL_API_URL ?? "http://localhost:8080";
+  const { sender, recipient, signalApi } = loadAlertConfig();
   if (!sender || !recipient) {
     log.warn("OOI session expired; SIGNAL_ACCOUNT or OOI_ALERT_RECIPIENT unset — skipping DM");
     return;
   }
   if (!opts.smoke) {
-    try {
-      const prev = JSON.parse(fs.readFileSync(AUTH_ALERT_STATE, "utf-8"));
-      if (prev.last_notified && Date.now() - prev.last_notified < AUTH_ALERT_MIN_INTERVAL_MS) return;
-    } catch { /* first time or unreadable — proceed */ }
+    const prevTs = readLastNotifiedTs();
+    if (prevTs && Date.now() - prevTs < AUTH_ALERT_MIN_INTERVAL_MS) return;
   }
 
   const message = opts.smoke
@@ -183,7 +201,8 @@ export async function fetchOOI(): Promise<OOIEntry[]> {
       throw new Error(`Invalid JSON response: ${text.slice(0, 200)}`);
     }
 
-    const entries: OOIEntry[] = (data.rooms || []).map((r) => ({
+    const rooms = Array.isArray(data.rooms) ? data.rooms : [];
+    const entries: OOIEntry[] = rooms.map((r) => ({
       room_id: r.room_id,
       room_name: ROOM_ID_MAP[r.room_id] || `Room ${r.room_id}`,
       start_date: r.start_date,
@@ -206,7 +225,7 @@ export async function fetchOOI(): Promise<OOIEntry[]> {
 export function readCachedOOI(): OOIEntry[] {
   try {
     const data = JSON.parse(fs.readFileSync(OOI_CACHE, "utf-8"));
-    return data.entries || [];
+    return Array.isArray(data.entries) ? data.entries : [];
   } catch {
     return [];
   }

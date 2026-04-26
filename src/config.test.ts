@@ -6,15 +6,16 @@ describe("loadConfig", () => {
     const config = await loadConfig();
     expect(config.name).toBe("feyblet");
     expect(config.mqtt.port).toBe(1883);
-    expect(config.llm.provider).toBeDefined();
+    expect(config.llm.provider).toBe("openai");
     expect(config.workspacePath).toContain("workspace");
   });
 
   it("merges config file values over defaults", async () => {
     const config = await loadConfig();
-    // Config file exists at config/feyblet.json — values should override defaults
     expect(config.adapters?.chat?.adapter).toBe("signal");
-    expect(config.llm).toBeDefined();
-    expect(config.modules).toBeDefined();
+    expect(config.llm.model).toBe("qwen/qwen3.6-27b");
+    expect(Object.keys(config.modules)).toEqual(
+      expect.arrayContaining(["thinking", "desire", "magi"]),
+    );
   });
 });

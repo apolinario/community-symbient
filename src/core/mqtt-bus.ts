@@ -91,8 +91,17 @@ export class MQTTBus {
     return { queue, waiters };
   }
 
+  private removeWaiter(moduleName: string, waiter: (msg: ModuleMessage) => void): void {
+    const ws = this.waiters.get(moduleName);
+    if (!ws) return;
+    const idx = ws.indexOf(waiter);
+    if (idx !== -1) ws.splice(idx, 1);
+  }
+
   clientFor(moduleName: string): MessageClient {
-    this.ensureModuleSlots(moduleName);
+    // Slots are created up-front and never removed for the lifetime of this
+    // client — closure can capture the arrays directly.
+    const { queue, waiters } = this.ensureModuleSlots(moduleName);
 
     return {
       send: async (targetModule: string, content: string) => {
@@ -107,41 +116,28 @@ export class MQTTBus {
 
       receive: (timeoutMs?: number) => {
         return new Promise<ModuleMessage | null>((resolve) => {
-          const queue = this.queues.get(moduleName) || [];
           if (queue.length > 0) {
             resolve(queue.shift()!);
             return;
           }
 
-          // Wait for a message
           let timer: ReturnType<typeof setTimeout> | undefined;
-
           const waiter = (msg: ModuleMessage) => {
             if (timer) clearTimeout(timer);
             resolve(msg);
           };
-
-          if (!this.waiters.has(moduleName)) {
-            this.waiters.set(moduleName, []);
-          }
-          this.waiters.get(moduleName)!.push(waiter);
+          waiters.push(waiter);
 
           if (timeoutMs !== undefined) {
             timer = setTimeout(() => {
-              const ws = this.waiters.get(moduleName);
-              if (ws) {
-                const idx = ws.indexOf(waiter);
-                if (idx !== -1) ws.splice(idx, 1);
-              }
+              this.removeWaiter(moduleName, waiter);
               resolve(null);
             }, timeoutMs);
           }
         });
       },
 
-      pending: () => {
-        return (this.queues.get(moduleName) || []).length;
-      },
+      pending: () => queue.length,
     };
   }
 

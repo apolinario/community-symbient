@@ -117,7 +117,19 @@ function PersonMatcher({ onClose }) {
   if (loading) return <div className="matcher-overlay"><div className="matcher-modal"><p>Loading...</p></div></div>
 
   return (
-    <div className="matcher-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div
+      className="matcher-overlay"
+      role="dialog"
+      aria-modal="true"
+      tabIndex={-1}
+      onKeyDown={(e) => { if (e.key === "Escape") onClose() }}
+    >
+      <button
+        type="button"
+        className="matcher-backdrop"
+        aria-label="Close dialog"
+        onClick={onClose}
+      />
       <div className="matcher-modal">
         <div className="matcher-header">
           <h2>Person Matching</h2>
@@ -212,10 +224,10 @@ function UnmatchedRow({ guest, people, suggestions, onMatch, onSkip }) {
 
   return (
     <div className="unmatched-row">
-      <div className="unmatched-guest" onClick={() => setExpanded(!expanded)}>
+      <button type="button" className="unmatched-guest" onClick={() => setExpanded(!expanded)}>
         <span className="guest-label">{guest.guest}</span>
         <span className="guest-meta">{guest.count} booking{guest.count > 1 ? 's' : ''} ({guest.sources})</span>
-      </div>
+      </button>
       <div className="match-options">
         {allOptions.map(s => (
           <button key={s.slug} className={`match-btn ${s.score >= 90 ? 'high' : s.score >= 50 ? 'medium' : 'low'}`} onClick={() => onMatch(guest.guest, s.slug)} title={s.slug}>

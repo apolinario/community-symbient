@@ -23,8 +23,8 @@ import { join } from "node:path";
 import { symbientDisplayName } from "../../../../src/core/symbient-name.js";
 import { annotateContextLines } from "../../../../src/memory/time-annotate.js";
 
-async function safeRead(path: string): Promise<string | null> {
-  try { return await readFile(path, "utf-8"); } catch { return null; }
+function safeRead(path: string): Promise<string | null> {
+  return readFile(path, "utf-8").catch(() => null);
 }
 
 function wsPath(ctx: ModuleContext): string {
@@ -147,7 +147,7 @@ const recentDaysProvider: ContextProvider = {
 const dailySummaryProvider: ContextProvider = {
   async execute(_decl, ctx) {
     const today = new Date().toISOString().slice(0, 10);
-    return await safeRead(join(wsPath(ctx), "memory", `${today}.summary.md`));
+    return safeRead(join(wsPath(ctx), "memory", `${today}.summary.md`));
   },
 };
 

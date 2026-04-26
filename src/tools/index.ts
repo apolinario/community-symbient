@@ -214,7 +214,8 @@ export function createWebSearchTool(): AgentTool {
         if (!res.ok) return { content: [{ type: "text", text: `Search failed: ${res.status}` }], details: {} };
 
         const data = await res.json() as any;
-        const results = (data.results || []).slice(0, 5);
+        const rawResults = Array.isArray(data.results) ? data.results : [];
+        const results = rawResults.slice(0, 5);
 
         if (results.length === 0) {
           return { content: [{ type: "text", text: "No results found." }], details: {} };

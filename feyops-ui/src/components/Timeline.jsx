@@ -136,7 +136,7 @@ function Timeline({ bookings, rooms, startDate, visibleDays, referenceDate }) {
           <div className="timeline-body">
             {Object.entries(groupedRooms).map(([venue, venueRooms]) => (
               <div key={venue} className="venue-group">
-                <div className="venue-header" style={{ borderLeftColor: VENUE_COLORS[venue] }}>
+                <div className={`venue-header venue-${venue}`}>
                   {venue === 'chateau' ? 'Chateau' : venue === 'gite' ? 'Gite' : venue.charAt(0).toUpperCase() + venue.slice(1)}
                   <span className="venue-count">({venueRooms.length})</span>
                 </div>
@@ -200,9 +200,9 @@ function Timeline({ bookings, rooms, startDate, visibleDays, referenceDate }) {
           <span className="legend-color departure-indicator" />
           <span className="legend-label">Sun (Departure)</span>
         </div>
-        {Object.entries(VENUE_COLORS).map(([venue, color]) => (
+        {Object.keys(VENUE_COLORS).map((venue) => (
           <div key={venue} className="legend-item">
-            <span className="legend-color" style={{ backgroundColor: color }} />
+            <span className={`legend-color venue-${venue}-bg`} />
             <span className="legend-label">
               {venue === 'chateau' ? 'Chateau' : venue === 'gite' ? 'Gite' : venue.charAt(0).toUpperCase() + venue.slice(1)}
             </span>

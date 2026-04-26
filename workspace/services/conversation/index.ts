@@ -87,7 +87,7 @@ export function createConversationModule(bridge: ChatAdapter, workspacePath?: st
 
     // Track known groups so the feyblet can look them up when needed
     if (msg.groupId && msg.groupName) {
-      trackKnownGroup(msg.groupId, msg.groupName).catch(() => {});
+      trackKnownGroup(ctx.memory.workspacePath, msg.groupId, msg.groupName).catch(() => {});
     }
     const imageNote = msg.attachments?.filter(a => a.contentType?.startsWith("image/")).length
       ? ` [+${msg.attachments.filter(a => a.contentType?.startsWith("image/")).length} image(s)]`
@@ -296,7 +296,7 @@ export function createConversationModule(bridge: ChatAdapter, workspacePath?: st
     if (radioActions.length > 0) {
       const fs = await import("node:fs/promises");
       const path = await import("node:path");
-      const logPath = path.join(process.cwd(), "workspace", "radio", "log.md");
+      const logPath = path.join(ctx.memory.workspacePath, "radio", "log.md");
       const timestamp = new Date().toISOString().slice(0, 19).replace("T", " ");
       const entry = `\n## ${timestamp}\n\n**Via chat (${fromLabel}):** ${radioActions.join(" → ")}\n`;
       await fs.appendFile(logPath, entry, "utf-8");
@@ -309,7 +309,7 @@ export function createConversationModule(bridge: ChatAdapter, workspacePath?: st
         try {
           const fs = await import("node:fs/promises");
           const path = await import("node:path");
-          const threadsPath = path.join(process.cwd(), "workspace", "inner", "active-threads.md");
+          const threadsPath = path.join(ctx.memory.workspacePath, "inner", "active-threads.md");
           const now = new Date();
           const dateStr = now.toISOString().slice(0, 10);
           const timeStr = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
@@ -580,13 +580,13 @@ async function handleModuleNudge(
 
 const knownGroups = new Map<string, string>();
 
-async function trackKnownGroup(groupId: string, groupName: string): Promise<void> {
+async function trackKnownGroup(workspacePath: string, groupId: string, groupName: string): Promise<void> {
   if (knownGroups.get(groupId) === groupName) return; // already tracked
   knownGroups.set(groupId, groupName);
 
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
-  const filePath = path.join(process.cwd(), "workspace", "community", "known-groups.md");
+  const filePath = path.join(workspacePath, "community", "known-groups.md");
 
   const lines = [`# Signal Groups\n`];
   for (const [id, name] of knownGroups) {
@@ -610,7 +610,7 @@ async function captureSignalUuid(ctx: ModuleContext, name: string, uuid: string,
 
   const fs = await import("node:fs/promises");
   const pathMod = await import("node:path");
-  const filePath = pathMod.join(process.cwd(), "workspace", "people", `${person.slug}.md`);
+  const filePath = pathMod.join(ctx.memory.workspacePath, "people", `${person.slug}.md`);
 
   let content = person.content;
 

@@ -12,8 +12,10 @@ import { recordEvent } from "../../../src/core/event-log.js";
 const broadcastLog = createLogger("radio_broadcast");
 
 let TTS_API = "";
-export function configureRadioTools(options: { ttsUrl?: string }): void {
+let workspacePath = "";
+export function configureRadioTools(options: { ttsUrl?: string; workspacePath?: string }): void {
   TTS_API = options.ttsUrl ?? "";
+  if (options.workspacePath) workspacePath = options.workspacePath;
 }
 
 export function createRadioBroadcastTool(): AgentTool {
@@ -162,7 +164,7 @@ export function createRadioScheduleTool(): AgentTool {
         return { content: [{ type: "text", text: "Invalid time format. Use 'in 5m' or 'at 18:30'." }], details: {} };
       }
 
-      const schedulePath = path.join(process.cwd(), "workspace", "radio", "schedule.json");
+      const schedulePath = path.join(workspacePath, "radio", "schedule.json");
       let schedule: Array<Record<string, unknown>> = [];
       try { schedule = JSON.parse(await fs.readFile(schedulePath, "utf-8")); } catch {}
 
@@ -204,7 +206,7 @@ export function createRadioCalendarTool(): AgentTool {
     execute: async (_id, params) => {
       const fs = await import("node:fs/promises");
       const path = await import("node:path");
-      const calPath = path.join(process.cwd(), "workspace", "radio", "calendar.json");
+      const calPath = path.join(workspacePath, "radio", "calendar.json");
 
       let cal: any;
       try {

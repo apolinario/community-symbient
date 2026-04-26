@@ -78,9 +78,9 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
   private enricher: MemoryEnricher | null = null;
   private appendListeners: AppendLogListener[] = [];
 
-  constructor(private workspacePath: string) {}
+  constructor(public readonly workspacePath: string) {}
 
-  /** Workspace root, absolute. Lets listeners locate files relative to it. */
+  /** @deprecated read `.workspacePath` directly. */
   getWorkspacePath(): string {
     return this.workspacePath;
   }
@@ -415,15 +415,9 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     searches: Array<{ type: "lex" | "vec"; query: string }>,
     limit = 8,
   ): Promise<SearchHit[]> {
-    try {
-      return await getSearchBackend().query({
-        searches,
-        collection: symbientName(),
-        limit,
-      });
-    } catch {
-      return [];
-    }
+    return getSearchBackend()
+      .query({ searches, collection: symbientName(), limit })
+      .catch(() => [] as SearchHit[]);
   }
 
   // --- Helpers ---
@@ -493,12 +487,8 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     return join(this.workspacePath, "memory", `${yyyy}-${mm}-${dd}.md`);
   }
 
-  private async safeRead(path: string): Promise<string | null> {
-    try {
-      return await readFile(path, "utf-8");
-    } catch {
-      return null;
-    }
+  private safeRead(path: string): Promise<string | null> {
+    return readFile(path, "utf-8").catch(() => null);
   }
 
   private async ensureDir(dir: string): Promise<void> {

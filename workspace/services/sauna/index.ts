@@ -12,6 +12,7 @@
 
 import type { ModuleContext } from "../../../src/core/types.js";
 import { recordEvent } from "../../../src/core/event-log.js";
+import { sleep } from "../../../src/core/sleep.js";
 
 const SPREADSHEET_ID = "1nQioINK2QYU3MymE5u04F5K0GBASeOIC96TA4UtiQL4";
 
@@ -48,7 +49,7 @@ export function createSaunaModule(config: Partial<SaunaConfig> = {}) {
           ctx.log(`Sauna fetch failed after ${maxRetries} retries: ${err}`);
           return;
         }
-        await new Promise((r) => setTimeout(r, (attempt + 1) * 1000));
+        await sleep((attempt + 1) * 1000);
       }
     }
 

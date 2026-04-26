@@ -27,16 +27,31 @@ async function processCalendarItems(ctx: ModuleContext): Promise<void> {
   // Malformed calendar.json shouldn't crash the cycle — radio-calendar
   // is hot-edited by the executive; a half-written save is recoverable
   // on the next save.
-  let cal: { upcoming?: Array<{ at: number; done?: boolean; intent?: string }> };
+  interface CalendarItem { at: number; done?: boolean; intent?: string; script?: string; context?: string }
+  interface Calendar {
+    upcoming: CalendarItem[];
+    history: Array<{ when: string; what: string }>;
+    meta: { last_updated: string | null };
+  }
+
+  let cal: Calendar;
   try {
-    cal = JSON.parse(content);
+    const parsedRaw: unknown = JSON.parse(content);
+    const parsed: Partial<Calendar> = parsedRaw && typeof parsedRaw === "object"
+      ? (parsedRaw as Partial<Calendar>)
+      : {};
+    cal = {
+      upcoming: Array.isArray(parsed.upcoming) ? parsed.upcoming : [],
+      history: Array.isArray(parsed.history) ? parsed.history : [],
+      meta: parsed.meta && typeof parsed.meta === "object" ? parsed.meta : { last_updated: null },
+    };
   } catch (err) {
     ctx.log(`processCalendarItems: failed to parse radio/calendar.json: ${(err as Error).message}`);
     return;
   }
 
   const now = Date.now();
-  const due = (cal.upcoming || []).filter((u: any) => u.at <= now && !u.done);
+  const due = cal.upcoming.filter((u) => u.at <= now && !u.done);
   if (due.length === 0) return;
 
   const broadcastTool = ctx.tools.find((t: any) => t.name === "radio_broadcast");
@@ -71,8 +86,6 @@ async function processCalendarItems(ctx: ModuleContext): Promise<void> {
     if (script && script !== "generate") {
       try {
         await broadcastTool.execute("cal", { message: script.trim() });
-        // Log to history
-        cal.history = cal.history || [];
         cal.history.push({ when: new Date().toISOString(), what: script.trim().slice(0, 100) });
         if (cal.history.length > 50) cal.history = cal.history.slice(-50);
         ctx.log(`Radio: calendar broadcast done`);
@@ -83,8 +96,8 @@ async function processCalendarItems(ctx: ModuleContext): Promise<void> {
     item.done = true;
   }
 
-  // Clean up
-  cal.upcoming = (cal.upcoming || []).filter((u: any) => !u.done || (now - u.at) < 3600000);
+  // Clean up — keep done items for an hour so re-runs don't re-fire them.
+  cal.upcoming = cal.upcoming.filter((u) => !u.done || (now - u.at) < 3600000);
   cal.meta.last_updated = new Date().toISOString();
   await ctx.memory.writeFile("radio/calendar.json", JSON.stringify(cal, null, 2));
 }

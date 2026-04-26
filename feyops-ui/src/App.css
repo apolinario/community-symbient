@@ -525,6 +525,26 @@ header {
   opacity: 0.7;
 }
 
+/* Per-venue accent colors. Mirrors VENUE_COLORS in Timeline.jsx — keep
+   the palettes synchronized when adding venues. */
+.venue-chateau    { border-left-color: #8B4513; }
+.venue-cottage    { border-left-color: #228B22; }
+.venue-ferme      { border-left-color: #DAA520; }
+.venue-gite       { border-left-color: #4169E1; }
+.venue-glamping   { border-left-color: #9370DB; }
+.venue-dorm       { border-left-color: #708090; }
+.venue-van        { border-left-color: #2d6a4f; }
+.venue-offsite    { border-left-color: #a3a3a3; }
+
+.venue-chateau-bg    { background-color: #8B4513; }
+.venue-cottage-bg    { background-color: #228B22; }
+.venue-ferme-bg      { background-color: #DAA520; }
+.venue-gite-bg       { background-color: #4169E1; }
+.venue-glamping-bg   { background-color: #9370DB; }
+.venue-dorm-bg       { background-color: #708090; }
+.venue-van-bg        { background-color: #2d6a4f; }
+.venue-offsite-bg    { background-color: #a3a3a3; }
+
 .timeline-row {
   display: flex;
   border-bottom: 1px solid var(--border);
@@ -1154,7 +1174,20 @@ header {
   justify-content: center;
 }
 
+.matcher-backdrop {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: default;
+  z-index: 0;
+}
+
 .matcher-modal {
+  position: relative;
+  z-index: 1;
   background: var(--surface);
   border-radius: 12px;
   width: 90vw;
@@ -1241,6 +1274,13 @@ header {
   gap: 12px;
   cursor: pointer;
   margin-bottom: 6px;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  width: 100%;
 }
 
 .guest-label {

@@ -18,7 +18,7 @@
  *       async execute(decl, ctx) {
  *         const hours = decl.hours ?? 24;
  *         // Use recordEvent to log, or fetch live. Return a string block.
- *         return await fetchForecast(hours);
+ *         return fetchForecast(hours);
  *       },
  *     },
  *   };

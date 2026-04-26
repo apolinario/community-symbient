@@ -25,7 +25,7 @@ import { createApproveCapabilityTool, createSkipCapabilityTool } from "../servic
 import { createOpenCapabilityPrTool, type CoderConfig } from "../services/coder/open-pr-tool.js";
 import { createSendDMTool, createSendGroupMessageTool } from "../services/messaging/tools.js";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 export interface ToolDeps {
   memory: MemoryManager;
@@ -39,7 +39,7 @@ export default function feyToolset(deps: ToolDeps): AgentTool[] {
   const tools: AgentTool[] = [];
   const ttsUrl = deps.services?.tts?.url as string | undefined;
 
-  configureRadioTools({ ttsUrl });
+  configureRadioTools({ ttsUrl, workspacePath: deps.workspacePath });
 
   if (ttsUrl) {
     tools.push(
@@ -75,14 +75,18 @@ export default function feyToolset(deps: ToolDeps): AgentTool[] {
     );
   }
 
-  const coderConfig = readCoderConfig();
+  // Convention: workspace lives at `<project-root>/workspace`. Anchor the
+  // PR tool's repo cwd + config read to that, not to whatever directory
+  // the process was launched from.
+  const projectRoot = dirname(deps.workspacePath);
+  const coderConfig = readCoderConfig(projectRoot);
   if (coderConfig) {
-    tools.push(createOpenCapabilityPrTool(deps.workspacePath, process.cwd(), coderConfig));
+    tools.push(createOpenCapabilityPrTool(deps.workspacePath, projectRoot, coderConfig));
   }
 
-  function readCoderConfig(): CoderConfig | null {
+  function readCoderConfig(root: string): CoderConfig | null {
     try {
-      const raw = readFileSync(join(process.cwd(), "config", "feyblet.json"), "utf-8");
+      const raw = readFileSync(join(root, "config", "feyblet.json"), "utf-8");
       const cfg = JSON.parse(raw);
       if (!cfg?.coder?.reviewer || !cfg?.coder?.repo || !cfg?.coder?.worktreeBase) return null;
       return cfg.coder as CoderConfig;

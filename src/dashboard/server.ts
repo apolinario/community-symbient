@@ -243,7 +243,10 @@ export function startDashboard(
 
     if (url.pathname === "/docs" || url.pathname === "/docs/") {
       try {
-        const html = await readFile(join(process.cwd(), "docs", "index.html"), "utf-8");
+        // docs ship alongside the workspace at `<project-root>/docs`.
+        // Anchor to workspace's parent so the dashboard works regardless
+        // of how the process was launched.
+        const html = await readFile(join(dirname(workspaceRef), "docs", "index.html"), "utf-8");
         res.writeHead(200, { "Content-Type": "text/html" });
         res.end(html);
       } catch {

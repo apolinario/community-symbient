@@ -21,6 +21,7 @@ import type { ChatAdapter, ChatAdapterFactory, ChatMessageHandler } from "./type
 import { registerChatAdapter } from "../../core/adapter-registry.js";
 import { createLogger } from "../../core/logger.js";
 import { recordEvent } from "../../core/event-log.js";
+import { sleep } from "../../core/sleep.js";
 import WebSocket from "ws";
 
 type MessageHandler = ChatMessageHandler;
@@ -138,7 +139,7 @@ export class SignalBridge implements ChatAdapter {
       } catch {
         // Not ready yet
       }
-      await new Promise((r) => setTimeout(r, 1000));
+      await sleep(1000);
     }
     throw new Error("signal-cli-rest-api did not become ready");
   }

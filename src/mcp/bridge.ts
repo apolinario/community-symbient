@@ -12,6 +12,7 @@ import { createRuntime, type Runtime, type ServerToolInfo } from "mcporter";
 import { Type } from "@mariozechner/pi-ai";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { createLogger } from "../core/logger.js";
+import { sleep } from "../core/sleep.js";
 
 const log = createLogger("mcp");
 
@@ -66,7 +67,7 @@ export async function initMCP(servers: MCPServerConfig[]): Promise<AgentTool[]> 
       } catch (err) {
         if (attempt < 2) {
           log.warn(`[${server.name}]: attempt ${attempt + 1} failed, retrying in 5s...`);
-          await new Promise(r => setTimeout(r, 5000));
+          await sleep(5000);
         } else {
           log.error(`[${server.name}]: failed to connect after 3 attempts — ${err}`);
         }
@@ -106,8 +107,10 @@ function mcpToolToAgentTool(serverName: string, tool: ServerToolInfo): AgentTool
 
   // Convert MCP JSON Schema to TypeBox parameters
   const schema = tool.inputSchema as any;
-  const properties = schema?.properties || {};
-  const required = new Set(schema?.required || []);
+  const properties: Record<string, unknown> = schema?.properties && typeof schema.properties === "object"
+    ? schema.properties
+    : {};
+  const required = new Set<string>(Array.isArray(schema?.required) ? schema.required : []);
 
   const typeboxProps: Record<string, any> = {};
   for (const [key, prop] of Object.entries(properties) as [string, any][]) {

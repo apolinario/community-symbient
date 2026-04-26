@@ -63,8 +63,7 @@ async function main() {
   const { setSymbientName } = await import("./core/symbient-name.js");
   setSymbientName(config.name);
 
-  console.log(`Starting "${config.name}"...`);
-  console.log(`Workspace: ${config.workspacePath}`);
+  console.log(`"${config.name}" — workspace: ${config.workspacePath}`);
 
   // Pi SDK model
   const model = createModel(config.llm);
@@ -84,20 +83,21 @@ async function main() {
 
   // Search backend: explicit `services.search.backend` wins; otherwise
   // pick `qmd-http` when a URL is set, `local-bm25` otherwise.
-  const searchCfg = (config.services?.search ?? {}) as { url?: string; backend?: string };
-  const declaredBackend = searchCfg.backend;
+  const searchCfg = (config.services?.search as { url?: string; backend?: string } | undefined);
+  const declaredBackend = searchCfg?.backend;
+  const searchUrl = searchCfg?.url;
   const backendChoice = declaredBackend
-    ?? (searchCfg.url ? "qmd-http" : "local-bm25");
+    ?? (searchUrl ? "qmd-http" : "local-bm25");
   if (backendChoice === "local-bm25") {
     setSearchBackend(createLocalBm25Backend(config.workspacePath));
     console.log("Search: local-bm25 (in-process, lex-only)");
   } else if (backendChoice === "qmd-http") {
-    if (!searchCfg.url) {
+    if (!searchUrl) {
       console.warn("Search: qmd-http selected but services.search.url is unset — search tool will return empty results");
       setSearchBackend(createQmdHttpBackend(""));
     } else {
-      setSearchBackend(createQmdHttpBackend(searchCfg.url));
-      console.log(`Search: qmd-http at ${searchCfg.url}`);
+      setSearchBackend(createQmdHttpBackend(searchUrl));
+      console.log(`Search: qmd-http at ${searchUrl}`);
     }
   } else {
     console.warn(`Unknown search backend "${backendChoice}" — falling back to local-bm25`);
@@ -144,7 +144,8 @@ async function main() {
         `Unknown directory adapter "${dirSel.adapter}" — register via workspace/extensions/adapters/directory/ or set config.adapters.directory to null.`,
       );
     }
-    directory = await factory.create(dirSel.params ?? {});
+    const params: Record<string, unknown> = dirSel.params ? dirSel.params : {};
+    directory = await factory.create(params);
     console.log(`Directory: ${dirSel.adapter}`);
   }
 
@@ -168,7 +169,8 @@ async function main() {
         `Unknown chat adapter "${chatSel.adapter}" — register via workspace/extensions/adapters/chat/ or set config.adapters.chat to null.`,
       );
     }
-    chatAdapter = factory.create(chatSel.params ?? {});
+    const params: Record<string, unknown> = chatSel.params ? chatSel.params : {};
+    chatAdapter = factory.create(params);
     console.log(`Chat: ${chatSel.adapter}`);
   }
 
@@ -179,16 +181,16 @@ async function main() {
   });
 
   // MCP servers — declared in config.mcp_servers. Tools auto-discovered at startup.
-  let mcpTools = await initMCP(config.mcp_servers ?? []);
+  const mcpServers = Array.isArray(config.mcp_servers) ? config.mcp_servers : [];
+  let mcpTools = await initMCP(mcpServers);
 
   // Pi file tools (sandboxed to workspace, write-restricted).
   // Default writable paths: MEMORY.md + people/. Deployments add their
   // own (e.g. season/, inner/) via config.workspace.writablePaths.
-  const writablePrefixes = [
-    "MEMORY.md",
-    "people/",
-    ...(config.workspace?.writablePaths ?? []),
-  ];
+  const extraWritable = Array.isArray(config.workspace?.writablePaths)
+    ? config.workspace.writablePaths
+    : [];
+  const writablePrefixes = ["MEMORY.md", "people/", ...extraWritable];
   const piTools = createSandboxedPiTools(config.workspacePath, writablePrefixes);
   console.log(`Pi tools: ${piTools.map(t => t.name).join(", ")}`);
 
@@ -279,7 +281,8 @@ async function main() {
       console.warn(`Unknown built-in module "${name}" — skipping`);
       continue;
     }
-    const missing = (mod.requires ?? []).filter((r) => !deps[r]);
+    const required = Array.isArray(mod.requires) ? mod.requires : [];
+    const missing = required.filter((r) => !deps[r]);
     if (missing.length > 0) {
       console.warn(`Module "${name}" skipped: missing deps [${missing.join(", ")}]`);
       continue;
