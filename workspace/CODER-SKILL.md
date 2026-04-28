@@ -38,6 +38,7 @@ Every `.md` file in `workspace/modules/` is one module. The framework parses it 
 |------------------|-----------------------|--------------------------|--------------|
 | `name`           | string                | filename without `.md`   | Module identifier. Keep it equal to the filename to avoid surprises. |
 | `interval`       | duration string or ms | `60s`                    | How often the module's cycle runs. Accepts `"500ms"`, `"30s"`, `"5m"`, `"3h"`, etc. |
+| `cron`           | 5-field cron string   | —                        | Optional alternative to `interval`. Fires the module at the cron's next-fire-time (e.g. `"0 12 * * *"` for daily-at-noon). If feyblet is down at the scheduled time, that tick is missed — no catch-up. `interval` still acts as an upper-bound safety net; the orchestrator picks whichever fires sooner. |
 | `tools`          | string[]              | `[]` → all tools         | Whitelist. **Always set this** to the minimum your module actually needs. An empty array means "all tools available." |
 | `startActive`    | boolean               | `true`                   | If `false`, the module is registered but doesn't run until something activates it. |
 | `runImmediately` | boolean               | `false`                  | If `true`, the first cycle runs at startup instead of waiting for the first interval tick. Useful for status modules. |
@@ -96,22 +97,25 @@ Each cycle, check the sauna temp. If above 70°C and you haven't broadcast in th
 
 ### B. Cron (specific time of day or day of week)
 
-Use when the capability genuinely needs to fire at a specific clock time ("daily at noon", "weekdays at 9am"). The framework's `schedule_checker` polls cron entries from `workspace/tasks/scheduled.json`. Don't hand-edit that file — register a cron via the `register_watch` tool with a `schedule` action, OR have your module call the `schedule` tool with a cron expression on its first run.
-
-For a daily-at-noon module:
+Use when the capability needs to fire at a specific clock time ("daily at noon", "weekdays at 9am"). Set `cron` directly in frontmatter — no indirection through schedule-checker, no first-cycle registration logic. The orchestrator computes the next-fire-time and sleeps the module until then. If feyblet is down at the scheduled moment, the tick is missed silently — that's the contract.
 
 ```yaml
 ---
 name: daily-noon-broadcast
-interval: 24h
+cron: "0 12 * * *"
+interval: 25h
 startActive: true
-runImmediately: false
-tools: [schedule, list_schedule]
+tools: [radio_broadcast]
 ---
-On your very first cycle, register a cron schedule with: schedule(cron: "0 12 * * *", prompt: "fire daily noon broadcast", target: "daily-noon-broadcast"). On subsequent cycles when nudged with a "scheduled_action" payload, do the actual work.
+You broadcast a community update at noon every day. (Body describes what to do when fired.)
 ```
 
-For most cases though, prefer simply setting `interval: 24h` and using `dayOfWeek`/`currentTime` helpers in the prompt to gate behavior. Cron only when "exact time" is load-bearing.
+Notes:
+
+- `cron` is preferred over hand-rolling cron logic in the body. The framework already does the math.
+- Set `interval` to slightly more than the cron's natural period (`25h` for daily, `8d` for weekly) as an upper-bound safety net — if cron parsing fails for any reason the module still wakes once per period.
+- For "every N minutes" cadence, prefer `interval` — cron is for clock-aligned firing.
+- The `runImmediately` default is `false` for cron-driven modules (running at startup would defeat the point of "exactly at this time"). Override explicitly if you actually want a startup tick too.
 
 ### C. Watch (event-driven)
 
@@ -169,27 +173,27 @@ If your module needs an inner-state file (e.g. a roster, a log), don't ship it i
 
 ## Worked example: a daily roster-driven broadcast module
 
-This is the shape the Feyblade simulator should have had. Daily noon, draws from a stored roster, simulates, broadcasts. The roster file is created on first run, not shipped in the PR.
+Daily-at-noon broadcast, draws from a stored roster, simulates, broadcasts. The roster file is created on first run, not shipped in the PR.
 
 ```yaml
 ---
 name: feyblade-simulator
-interval: 1h
+cron: "0 12 * * *"
+interval: 25h
 startActive: true
-runImmediately: true
 tools: [read, write, edit, radio_broadcast, check_bookings]
 context:
   - source: current-time
   - source: house-status
 ---
 
-It is {{currentDateTime}}. The day is {{dayOfWeek}}.
+It is {{currentDateTime}}.
 
-You run a daily Feyblade tournament. The interval is 1h but you only act once per day around noon — check the current time and stop early if outside the 12:00–13:00 window OR if today's tournament already happened (the battle log records the last fire date).
+You run a daily Feyblade tournament. The cron `0 12 * * *` fires this module at exactly 12:00 each day. If feyblet is down at noon, today's tournament is skipped — no retries.
 
 ## Roster
 
-Read `inner/feyblade-roster.json`. If the file doesn't exist, initialize it with the current residents from house-status — assign each a playful blade name and stats (power 5–10, defense 5–10) — and write it. Add new residents on subsequent days. Remove departed ones.
+Read `inner/feyblade-roster.json`. If missing, initialize from house-status — assign each resident a playful blade name and stats (power 5–10, defense 5–10) — and write it. On subsequent days, reconcile against the current roster: add arrivals, remove departures.
 
 ## Battle
 
@@ -197,13 +201,14 @@ Run a single-elimination bracket. Each match: roll d20 per fighter, add power, +
 
 ## Broadcast
 
-Call radio_broadcast with a 20-second announcement: name today's champion, name one notable upset or moment. Sign off with "FEYBLADE — LET IT RIP". Append the result to inner/feyblade-battle-log.md so subsequent cycles know not to re-fire today.
+Call radio_broadcast with a 20-second announcement: name today's champion, name one notable upset or moment. Sign off with "FEYBLADE — LET IT RIP". Append the result to inner/feyblade-battle-log.md.
 ```
 
 Key choices made above and why:
 
-- `interval: 1h` not `24h`: gives the module multiple chances to fire if the system was down at exactly noon. The "fire once per day" gate is the battle log check, not the interval.
-- `runImmediately: true`: lets the operator validate it works at deploy time without waiting an hour.
+- `cron: "0 12 * * *"` is the firing mechanism — exact time, no retry logic in the body.
+- `interval: 25h` is the safety-net upper bound; cron normally beats it.
+- `runImmediately` omitted — defaults to `false` for cron-driven modules.
 - Roster lives at `inner/feyblade-roster.json`, NOT shipped in the PR — created on first run by the module's own `write` tool call.
 - Tool whitelist is minimal — no `send_dm`, no `web_search`, etc. Only what this module actually needs.
 - Context blocks include `house-status` so the module can see who's currently at the château without needing `check_bookings` every tick.

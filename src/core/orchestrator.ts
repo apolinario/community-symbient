@@ -16,6 +16,7 @@ import type {
 import { MQTTBus } from "./mqtt-bus.js";
 import { createLLMClient } from "./llm.js";
 import { createLogger } from "./logger.js";
+import { Cron } from "croner";
 
 const orchLog = createLogger("orchestrator");
 
@@ -131,7 +132,7 @@ export class Orchestrator {
       signal,
     };
 
-    modLog.info(`Started (interval: ${mod.config.intervalMs}ms, active: ${mod.active}${mod.config.follows ? `, follows: ${mod.config.follows}` : ""})`);
+    modLog.info(`Started (${mod.config.cron ? `cron: "${mod.config.cron}"` : `interval: ${mod.config.intervalMs}ms`}, active: ${mod.active}${mod.config.follows ? `, follows: ${mod.config.follows}` : ""})`);
 
     // Follow-up modules: wait for MQTT trigger instead of timer
     if (mod.config.follows) {
@@ -151,10 +152,11 @@ export class Orchestrator {
 
     // First-cycle behaviour: high-frequency modules (≤60s) run immediately
     // because they'd wake up almost at once anyway; slower modules wait
-    // their first interval to avoid a startup stampede. A module can opt
-    // into immediate first-run by setting `runImmediately: true` in its
-    // .md frontmatter.
-    const runImmediately = mod.config.runImmediately ?? mod.config.intervalMs <= 60_000;
+    // their first interval to avoid a startup stampede. Cron-driven modules
+    // never run immediately by default — the cron expression IS the schedule,
+    // running at startup would defeat the point of "exactly at this time."
+    // Any module can opt in/out via `runImmediately` in frontmatter.
+    const runImmediately = mod.config.runImmediately ?? (!mod.config.cron && mod.config.intervalMs <= 60_000);
     let firstRun = true;
 
     while (!signal.aborted) {
@@ -167,9 +169,10 @@ export class Orchestrator {
       // still wake immediately if another module nudges us.
       if (firstRun && !runImmediately) {
         firstRun = false;
-        modLog.info(`First run in ${Math.round(mod.config.intervalMs / 1000)}s (or on nudge)`);
+        const sleepMs = nextSleepMs(mod.config);
+        modLog.info(`First run in ${Math.round(sleepMs / 1000)}s (or on nudge)`);
         await Promise.race([
-          sleep(mod.config.intervalMs, signal),
+          sleep(sleepMs, signal),
           this.bus.waitForMessage(name),
         ]);
         if (signal.aborted) break;
@@ -192,10 +195,12 @@ export class Orchestrator {
         }
       }
 
-      if (mod.config.intervalMs > 0) {
-        // Sleep until next cycle OR an MQTT message wakes us up
+      if (mod.config.intervalMs > 0 || mod.config.cron) {
+        // Sleep until next cycle OR an MQTT message wakes us up. With cron
+        // set, "next cycle" is the cron's next-fire-time; otherwise it's
+        // intervalMs from now.
         await Promise.race([
-          sleep(mod.config.intervalMs, signal),
+          sleep(nextSleepMs(mod.config), signal),
           this.bus.waitForMessage(name),
         ]);
       }
@@ -252,4 +257,24 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
       resolve();
     }, { once: true });
   });
+}
+
+/**
+ * Compute how long to sleep before the next cycle. Honours `cron` when
+ * present (next-fire-time minus now); falls back to `intervalMs` if cron
+ * is unset, fails to parse, or returns no upcoming run. If both cron and
+ * interval would fire, takes the sooner of the two — so a stuck cron
+ * doesn't strand the module past its interval upper bound.
+ */
+function nextSleepMs(config: ModuleConfig): number {
+  if (!config.cron) return config.intervalMs;
+  try {
+    const next = new Cron(config.cron).nextRun();
+    if (!next) return config.intervalMs;
+    const cronMs = next.getTime() - Date.now();
+    if (cronMs <= 0) return config.intervalMs;
+    return Math.min(cronMs, config.intervalMs);
+  } catch {
+    return config.intervalMs;
+  }
 }

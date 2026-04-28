@@ -67,6 +67,7 @@ export function createModuleSyncModule(orchestrator: Orchestrator, workspacePath
         const startActive = fields.startActive !== false;
         const runImmediately = typeof fields.runImmediately === "boolean" ? fields.runImmediately : undefined;
         const follows = typeof fields.follows === "string" ? fields.follows : undefined;
+        const cron = typeof fields.cron === "string" ? fields.cron : undefined;
 
         // Check expiry
         if (typeof fields.expires === "string") {
@@ -93,6 +94,7 @@ export function createModuleSyncModule(orchestrator: Orchestrator, workspacePath
         const config = {
           name,
           intervalMs: interval,
+          cron,
           startActive,
           follows,
           runImmediately,

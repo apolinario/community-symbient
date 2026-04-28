@@ -11,6 +11,17 @@ export interface ModuleConfig {
   description?: string;
   /** Cycle interval in ms. If 0, module runs on message trigger only. */
   intervalMs: number;
+  /**
+   * Optional cron expression (5-field, e.g. "0 12 * * *"). When set, the
+   * orchestrator schedules each cycle for the cron's next-fire time instead
+   * of waiting `intervalMs`. If feyblet is down at the scheduled time, the
+   * tick is missed — no catch-up. Use this for capabilities that need to
+   * fire at specific clock times (daily-at-noon, weekdays-at-9am) rather
+   * than every-N-minutes. `intervalMs` is still required as a hard upper
+   * bound: if the cron parser fails or the next run is more than
+   * `intervalMs` ahead, the module falls back to interval cadence.
+   */
+  cron?: string;
   /** Whether the module starts active or waits for activation. */
   startActive: boolean;
   /** LLM model to use for this module's reasoning. */
