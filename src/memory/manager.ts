@@ -259,27 +259,35 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     const peopleDir = join(this.workspacePath, "people");
     const people: PersonMeta[] = [];
 
-    try {
-      const files = await readdir(peopleDir);
-      for (const file of files) {
-        if (!file.endsWith(".md")) continue;
-        const filePath = join(peopleDir, file);
-        const content = await this.safeRead(filePath);
-        if (!content) continue;
+    let files: string[] = [];
+    try { files = await readdir(peopleDir); } catch { /* no people directory */ }
 
-        const { fields } = parseFrontmatter(content);
-        const personName = typeof fields.name === "string" ? fields.name : null;
-        if (!personName) continue;
+    for (const file of files) {
+      if (!file.endsWith(".md")) continue;
+      const filePath = join(peopleDir, file);
+      const content = await this.safeRead(filePath);
+      if (!content) continue;
 
-        people.push({
-          name: personName,
-          filename: file.replace(".md", ""),
-          fields,
-          path: filePath,
-        });
+      // Per-file guard: a single malformed YAML frontmatter (unquoted
+      // colons, multi-line unquoted scalars, etc.) used to crash the
+      // whole scan and silently truncate the people directory at the
+      // alphabetical position of the offender. Now we log and skip.
+      let fields: Record<string, unknown>;
+      try {
+        fields = parseFrontmatter(content).fields;
+      } catch (err) {
+        log.warn(`people/${file}: frontmatter parse failed (${(err as Error).message.split("\n")[0]}); skipped`);
+        continue;
       }
-    } catch {
-      // No people directory
+      const personName = typeof fields.name === "string" ? fields.name : null;
+      if (!personName) continue;
+
+      people.push({
+        name: personName,
+        filename: file.replace(".md", ""),
+        fields,
+        path: filePath,
+      });
     }
 
     this.peopleCache = people;
