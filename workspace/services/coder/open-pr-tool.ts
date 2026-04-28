@@ -30,6 +30,14 @@ export interface CoderConfig {
   reviewer: string;
   repo: string;
   worktreeBase: string;
+  /**
+   * The base branch capability PRs target and fork from. Worktrees are
+   * created off `origin/<baseBranch>` so each capability branch contains
+   * only the gap's own commit (no parent-branch drift), and
+   * `gh pr create` is invoked with `--base <baseBranch>` so reviewers
+   * see exactly that diff. Defaults to "main" if unset.
+   */
+  baseBranch?: string;
 }
 
 const ALLOWED_PREFIXES = [
@@ -122,15 +130,28 @@ export function createOpenCapabilityPrTool(
 
       const worktreePath = join(coderConfig.worktreeBase, params.id);
       const branch = `capability/${params.id}`;
+      const baseBranch = coderConfig.baseBranch ?? "main";
+      const baseRef = `origin/${baseBranch}`;
 
       try {
+        // Clean up any prior failed attempt: remove worktree dir and
+        // delete the branch (force, since we may have a dangling commit
+        // from a previous push that never landed). Both are idempotent.
         if (existsSync(worktreePath)) {
           await exec("git", ["worktree", "remove", "--force", worktreePath], { cwd: repoRoot }).catch(() => {});
           await rm(worktreePath, { recursive: true, force: true }).catch(() => {});
         }
+        await runGit(repoRoot, "branch", "-D", branch).catch(() => {});
 
         await mkdir(dirname(worktreePath), { recursive: true });
-        await runGit(repoRoot, "worktree", "add", "-b", branch, worktreePath);
+        // Refresh the local view of the base before forking — without this,
+        // origin/<baseBranch> might be stale and the worktree forks from an
+        // older state than what's actually on the remote.
+        await runGit(repoRoot, "fetch", "origin", baseBranch).catch(() => {});
+        // Fork capability branch from origin/<baseBranch>, NOT from the
+        // running repo's current HEAD — guarantees the PR diff contains
+        // only this capability's commit, no parent-branch drift.
+        await runGit(repoRoot, "worktree", "add", "-b", branch, worktreePath, baseRef);
 
         for (const f of params.files) {
           const full = join(worktreePath, f.path);
@@ -144,7 +165,7 @@ export function createOpenCapabilityPrTool(
         await runGit(worktreePath, "push", "-u", "origin", branch);
 
         const prBody = `**Gap:** ${gap.what}\n\n**Why:** ${gap.why}\n\n---\n\n${params.body}\n\n_Opened automatically by the coder module for gap ${params.id}._`;
-        const prUrl = await runGh(worktreePath, "pr", "create", "--title", params.title, "--body", prBody);
+        const prUrl = await runGh(worktreePath, "pr", "create", "--base", baseBranch, "--title", params.title, "--body", prBody);
 
         gap.pr_url = prUrl;
         (gap as { updated_at: string }).updated_at = new Date().toISOString();
@@ -166,7 +187,11 @@ export function createOpenCapabilityPrTool(
           details: { pr_url: prUrl, branch, gap_id: params.id },
         };
       } catch (err) {
+        // Roll back worktree + branch so the next retry starts clean.
+        // Without the branch delete, `git worktree add -b` on retry trips
+        // on "fatal: a branch named ... already exists".
         await exec("git", ["worktree", "remove", "--force", worktreePath], { cwd: repoRoot }).catch(() => {});
+        await runGit(repoRoot, "branch", "-D", branch).catch(() => {});
         return {
           content: [{ type: "text", text: `Failed: ${err instanceof Error ? err.message : String(err)}` }],
           details: { error: String(err) },

@@ -58,6 +58,7 @@
   "coder": {
     "reviewer": "Apolinário Passos",
     "repo": "apolinario/community-symbient",
-    "worktreeBase": "/tmp/symbient-coder"
+    "worktreeBase": "/tmp/symbient-coder",
+    "baseBranch": "alpha-rc"
   }
 }
