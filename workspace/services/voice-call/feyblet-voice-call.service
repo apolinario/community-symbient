@@ -1,0 +1,22 @@
+[Unit]
+Description=Feyblet voice-call server (live phone-in line)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=plantoidz
+WorkingDirectory=/home/plantoidz/pi/feyblet/workspace/services/voice-call
+ExecStart=/home/plantoidz/.local/bin/uv run server.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Set the access key here. Override per environment.
+# Environment="FEYBLET_CALL_SECRET=feyblade-2026"
+# Environment="FEYBLET_CALL_PORT=8400"
+# Environment="RADIO_STREAM=disabled"
+
+[Install]
+WantedBy=multi-user.target

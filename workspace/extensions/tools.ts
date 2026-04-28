@@ -24,6 +24,7 @@ import { createRequestCapabilityTool } from "../services/coder/request-capabilit
 import { createApproveCapabilityTool, createSkipCapabilityTool } from "../services/coder/approval-tools.js";
 import { createOpenCapabilityPrTool, type CoderConfig } from "../services/coder/open-pr-tool.js";
 import { createSendDMTool, createSendGroupMessageTool } from "../services/messaging/tools.js";
+import { createStartCallLineTool, createEndCallLineTool } from "../services/voice-call/tools.js";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -64,6 +65,8 @@ export default function feyToolset(deps: ToolDeps): AgentTool[] {
     createRequestCapabilityTool(deps.workspacePath),
     createApproveCapabilityTool(deps.workspacePath),
     createSkipCapabilityTool(deps.workspacePath),
+    createStartCallLineTool(),
+    createEndCallLineTool(),
   );
 
   // Signal-flavoured DM/group tools — phone+UUID resolution and the
