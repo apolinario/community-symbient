@@ -64,16 +64,18 @@ export function createConversationModule(bridge: ChatAdapter, workspacePath?: st
   return async function conversation(ctx: ModuleContext): Promise<void> {
     await ensureConversationSpec(ws);
 
-    // Check for inter-module messages (nudges from executive, radio, etc.)
+    // Check for inter-module messages (nudges from executive, radio, coder, etc.).
+    // Every non-empty nudge runs a full agent cycle — the system prompt
+    // (in conversation.md) tells the LLM how to handle each shape: action
+    // payloads (send_dm: / send_group: / request:), forwarded user replies,
+    // and plaintext status updates. The previous prefix-gate silently
+    // dropped anything without an exact prefix, which broke the coder→
+    // conversation handoff whenever coder forgot to format its nudge.
     const moduleMsg = await ctx.messages.receive(100);
-    if (moduleMsg) {
+    if (moduleMsg && moduleMsg.content.trim()) {
       ctx.log(`Internal: ${moduleMsg.from}: ${moduleMsg.content.slice(0, 80)}`);
-
-      // Handle nudges that require conversation to act as an agent
-      if (moduleMsg.content.startsWith("send_dm:") || moduleMsg.content.startsWith("send_group:") || moduleMsg.content.startsWith("request:")) {
-        await handleModuleNudge(ctx, moduleMsg);
-        return; // Don't process inbox this cycle
-      }
+      await handleModuleNudge(ctx, moduleMsg);
+      return; // Don't process inbox this cycle
     }
 
     const msg = inbox.shift();
