@@ -260,21 +260,18 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 /**
- * Compute how long to sleep before the next cycle. Honours `cron` when
- * present (next-fire-time minus now); falls back to `intervalMs` if cron
- * is unset, fails to parse, or returns no upcoming run. If both cron and
- * interval would fire, takes the sooner of the two — so a stuck cron
- * doesn't strand the module past its interval upper bound.
+ * How long to sleep before the next cycle. If `cron` is set, that's the
+ * schedule — sleep until the cron's next-fire-time. Otherwise sleep
+ * `intervalMs`. A malformed cron string logs once and falls through to
+ * intervalMs so the module isn't permanently wedged by a typo.
  */
 function nextSleepMs(config: ModuleConfig): number {
   if (!config.cron) return config.intervalMs;
   try {
     const next = new Cron(config.cron).nextRun();
-    if (!next) return config.intervalMs;
-    const cronMs = next.getTime() - Date.now();
-    if (cronMs <= 0) return config.intervalMs;
-    return Math.min(cronMs, config.intervalMs);
-  } catch {
-    return config.intervalMs;
+    if (next) return Math.max(0, next.getTime() - Date.now());
+  } catch (err) {
+    orchLog.warn(`Module ${config.name}: invalid cron "${config.cron}" (${(err as Error).message}); falling back to interval`);
   }
+  return config.intervalMs;
 }
