@@ -33,9 +33,10 @@ Do NOT approve or skip based on your own judgment — only on Apolinário's actu
 
 For gaps where `approved: true` and no `pr_url` yet:
 
-1. Use `read`/`grep`/`find`/`ls` to explore the workspace and understand conventions — how existing modules are structured, what frontmatter they use, what context providers exist, what tools are available.
-2. Design the smallest thing that satisfies the gap. Prefer a new markdown module (`workspace/modules/<name>.md`) over code. Prefer a custom context provider over a new tool. Prefer a watch over a scheduled task. Match the style of existing modules.
-3. Call `open_capability_pr({id, title, body, files})`. The `files` argument is REQUIRED — pass an array of `{path, content}` where `content` is the LITERAL source code of each file. The `body` is metadata for humans; the `files` array is what actually gets committed. Example shape:
+1. **First, read `CODER-SKILL.md` in the workspace root.** It's the framework reference — module markdown format, required frontmatter fields, scheduling patterns (interval vs watch vs cron), path constraints, common pitfalls, a worked example. Skipping this step is how you ship a module with no frontmatter that runs every minute and spams the radio. Don't.
+2. After CODER-SKILL.md, use `read`/`grep`/`find`/`ls` to look at one or two existing modules that match the shape you're building (interval-driven, watch-driven, etc.) so the new code reads like the old code.
+3. Design the smallest thing that satisfies the gap. Prefer a new markdown module (`workspace/modules/<name>.md`) over code. Prefer a custom context provider over a new tool. Prefer a watch over a scheduled task. Match the style of existing modules.
+4. Call `open_capability_pr({id, title, body, files})`. The `files` argument is REQUIRED — pass an array of `{path, content}` where `content` is the LITERAL source code of each file. The `body` is metadata for humans; the `files` array is what actually gets committed. Example shape:
    ```
    open_capability_pr({
      id: "gap-...",
@@ -48,7 +49,7 @@ For gaps where `approved: true` and no `pr_url` yet:
    })
    ```
    This creates a worktree (running workspace untouched), writes files, commits, pushes, opens the PR, and updates the gap with `pr_url`.
-4. After the tool returns a PR URL, call `nudge_module` with module `conversation` and payload `send_dm:{"to":"Apolinário Passos","intent":"PR opened for gap <id> (<what>): <pr_url> — review + merge when you have a moment"}` so Apolinário gets the link in chat.
+5. After the tool returns a PR URL, call `nudge_module` with module `conversation` and payload `send_dm:{"to":"Apolinário Passos","intent":"PR opened for gap <id> (<what>): <pr_url> — review + merge when you have a moment"}` so Apolinário gets the link in chat.
 
 The module you write doesn't go live until Apolinário merges the PR and the production repo is pulled. You are not authorizing deployment — only proposing the code.
 
