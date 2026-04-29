@@ -1,6 +1,10 @@
 [Unit]
-Description=Feyblet voice-call server (live phone-in line)
-After=network-online.target
+Description=Feyblet voice-call server (live phone-in line, audio relay)
+# The Python relay calls the TS agent-bridge inside the feyblet process at
+# 127.0.0.1:3334, so feyblet must be up first. Requires= also stops this
+# unit if feyblet dies, avoiding a relay that's pointing at nothing.
+After=feyblet.service network-online.target
+Requires=feyblet.service
 Wants=network-online.target
 
 [Service]
@@ -8,15 +12,22 @@ Type=simple
 User=plantoidz
 WorkingDirectory=/home/plantoidz/pi/feyblet/workspace/services/voice-call
 ExecStart=/home/plantoidz/.local/bin/uv run server.py
-Restart=on-failure
+Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
+SyslogIdentifier=feyblet-voice-call
 
-# Set the access key here. Override per environment.
-# Environment="FEYBLET_CALL_SECRET=feyblade-2026"
-# Environment="FEYBLET_CALL_PORT=8400"
-# Environment="RADIO_STREAM=disabled"
+# Defaults — override per environment if needed
+Environment=FEYBLET_CALL_PORT=8400
+Environment=FEYBLET_CALL_SECRET=feyblade-2026
+Environment=FEYBLET_CALL_VOICE=clone:iannis
+Environment=FEYBLET_CALL_BRIDGE_URL=http://127.0.0.1:3334
+Environment=RADIO_BASE_URL=http://192.168.10.97:8000
+Environment=RADIO_STREAM=enabled
 
 [Install]
-WantedBy=multi-user.target
+# Starts whenever feyblet starts (bound to feyblet's lifecycle), and also
+# at boot so a `systemctl enable` of the system brings it up alongside
+# multi-user.target if feyblet is enabled.
+WantedBy=feyblet.service multi-user.target
