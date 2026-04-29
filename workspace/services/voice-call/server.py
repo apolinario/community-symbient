@@ -81,6 +81,17 @@ WHISPER_URL = CONFIG.get("services", {}).get("whisper", {}).get("url", "http://l
 TTS_URL = CONFIG.get("services", {}).get("tts", {}).get("url", "http://localhost:8000") + "/v1/audio/speech"
 RADIO_BASE_URL = os.environ.get("RADIO_BASE_URL", "http://192.168.10.97:8000")
 RADIO_STREAM_ENABLED = os.environ.get("RADIO_STREAM", "enabled") != "disabled"
+
+# Voice mode:
+#   FEYBLET_CALL_VOICE=clone        → caller's first 15s becomes the voice reference (default per-call clone)
+#   FEYBLET_CALL_VOICE=clone:iannis → use the named OmniVoice profile for all replies, skip the clone phase
+#   FEYBLET_CALL_VOICE=clone:<name> → any other community voice from voices.json
+#
+# Fixed voice is useful for quick tests (no 15s wait) and for the radio
+# call format where the *symbient's* voice is the consistent presence,
+# not the caller's.
+FIXED_VOICE = os.environ.get("FEYBLET_CALL_VOICE", "clone:iannis")
+FIXED_VOICE_MODE = FIXED_VOICE != "clone"
 SYMBIENT_NAME = CONFIG.get("name", "feyblet")
 WHISPER_PROMPT = "feyblet, Feÿtopia, château, Beyblade, Feyblade"
 
@@ -236,19 +247,30 @@ async def stream_llm_sentences(transcript: str, history: list[dict], system_prom
 
 
 async def tts_stream_sentence(text: str, voice_b64: str | None, ref_text: str | None):
-    """Stream TTS PCM bytes for one sentence, yielding chunks."""
+    """Stream TTS PCM bytes for one sentence, yielding chunks.
+
+    Voice selection:
+      - If FIXED_VOICE_MODE: pass `voice: "clone:<name>"` and skip
+        voice_data/ref_text entirely. The TTS server resolves the
+        profile from its OmniVoice library.
+      - Else (clone mode): pass voice_data + ref_text from the
+        caller's first 15s.
+    """
     payload = {
         "model": "qwen3-tts",
         "input": text,
-        "voice": "Vivian",
         "response_format": "pcm",
         "stream": True,
         "speed": 1.0,
     }
-    if voice_b64:
-        payload["voice_data"] = voice_b64
-    if ref_text:
-        payload["ref_text"] = ref_text
+    if FIXED_VOICE_MODE:
+        payload["voice"] = FIXED_VOICE
+    else:
+        payload["voice"] = "Vivian"  # base model voice — overridden by voice_data
+        if voice_b64:
+            payload["voice_data"] = voice_b64
+        if ref_text:
+            payload["ref_text"] = ref_text
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
             async with client.stream("POST", TTS_URL, json=payload) as resp:
@@ -392,10 +414,12 @@ async def voice_call(ws: WebSocket, key: str = Query(default="")):
     session_id = f"feyblet-call-{int(datetime.now().timestamp() * 1000)}"
     started_at = datetime.now().isoformat()
 
-    # Per-call state
+    # Per-call state. In FIXED_VOICE_MODE we pre-mark the voice ref as
+    # "saved" so the cycle below skips the 15s collection phase entirely
+    # and goes straight to transcribing + responding.
     all_audio: list[np.ndarray] = []
     total_samples = 0
-    voice_ref_saved = False
+    voice_ref_saved = FIXED_VOICE_MODE
     voice_ref_b64: str | None = None
     voice_ref_text: str | None = None
     pre_buffer = deque(maxlen=PRE_CHUNKS)
@@ -406,11 +430,13 @@ async def voice_call(ws: WebSocket, key: str = Query(default="")):
     system_prompt = build_system_prompt()
 
     await radio.open(session_id)
-    write_call_event("call_started", {"session_id": session_id, "started_at": started_at})
-    await ws.send_json({
-        "event": "ready",
-        "message": f"Connected to {SYMBIENT_NAME}. Talk for ~15 seconds first so we can clone your voice. Then it's a real conversation.",
-    })
+    write_call_event("call_started", {"session_id": session_id, "started_at": started_at, "voice": FIXED_VOICE})
+    ready_msg = (
+        f"Connected to {SYMBIENT_NAME}. Talk anytime — replies use the {FIXED_VOICE.split(':',1)[1]} voice."
+        if FIXED_VOICE_MODE
+        else f"Connected to {SYMBIENT_NAME}. Talk for ~15 seconds first so we can clone your voice. Then it's a real conversation."
+    )
+    await ws.send_json({"event": "ready", "message": ready_msg, "voice_mode": "fixed" if FIXED_VOICE_MODE else "clone"})
 
     try:
         while True:
@@ -553,6 +579,7 @@ if __name__ == "__main__":
     print(f"  Whisper: {WHISPER_URL}")
     print(f"  TTS:     {TTS_URL}")
     print(f"  Radio:   {RADIO_BASE_URL} ({'enabled' if RADIO_STREAM_ENABLED else 'DISABLED'})")
+    print(f"  Voice:   {FIXED_VOICE if FIXED_VOICE_MODE else 'clone (per-caller, 15s reference)'}")
     print(f"  TLS:     {'on (' + str(cert) + ')' if use_tls else 'OFF — mic-permission will fail outside localhost'}")
     print(f"  Caller URL: {scheme}://<host>:{port}/?key={SHARED_SECRET}")
 
