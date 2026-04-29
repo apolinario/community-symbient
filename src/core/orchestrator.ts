@@ -42,6 +42,17 @@ export class Orchestrator {
     this.piApiKey = apiKey;
   }
 
+  /**
+   * Expose the Pi context so non-module consumers (e.g. the dashboard
+   * server's voice-call agent endpoint) can spawn their own Pi Agents
+   * with the same tools, model, and credentials the modules use. The
+   * tools array is shared by reference — MCP reconnects mutate it in
+   * place, so callers see the latest tool list automatically.
+   */
+  getPiContext(): { model: any; tools: any[]; apiKey: string } {
+    return { model: this.piModel, tools: this.piTools, apiKey: this.piApiKey };
+  }
+
   /** Replace MCP tools in the shared tools array (called on MCP reconnect). */
   replaceMCPTools(oldMcpTools: any[], newMcpTools: any[]): void {
     // Remove old MCP tools

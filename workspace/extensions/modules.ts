@@ -16,6 +16,7 @@
  */
 
 import type { MemoryManager } from "../../src/memory/manager.js";
+import type { Orchestrator } from "../../src/core/orchestrator.js";
 import {
   registerBuiltInModule,
   loadWatches,
@@ -27,6 +28,7 @@ import {
 import type { FeyOpsDB } from "../services/feyops/db.js";
 import { createFeyEnricher } from "../services/feyops/enricher.js";
 import { configureFeyProviders } from "./providers.js";
+import { startCallAgentBridge } from "../services/voice-call/agent-bridge.js";
 import { createConversationModule } from "../services/conversation/index.js";
 import { createSaunaModule } from "../services/sauna/index.js";
 import { createBookingsModule } from "../services/bookings/index.js";
@@ -44,6 +46,7 @@ export interface WorkspaceModulesDeps {
   chatAdapter?: ChatAdapter;
   workspacePath: string;
   llm: ReturnType<typeof createLLMClient>;
+  orchestrator: Orchestrator;
   [key: string]: unknown;
 }
 
@@ -61,6 +64,13 @@ export default function feySetup(deps: WorkspaceModulesDeps): unknown[] {
 
   // --- Memory append-listener: rebuild daily summaries via LLM ---
   attachDailySummarizer(deps.memory, deps.llm);
+
+  // --- Voice-call agent bridge: HTTP listener that the Python audio
+  //     relay POSTs transcripts to, returns SSE of `speak` events. The
+  //     bridge runs an in-process Pi Agent with the full feyblet tool
+  //     set + a special `call_response` tool — see
+  //     workspace/services/voice-call/agent-bridge.ts.
+  startCallAgentBridge(deps.orchestrator);
 
   // --- Register deployment-specific modules ---
 

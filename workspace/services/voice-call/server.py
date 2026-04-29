@@ -103,53 +103,8 @@ _call_in_progress: bool = False
 _call_lock = asyncio.Lock()
 
 
-# ── Persona / system prompt ─────────────────────────────────────────
-def build_system_prompt() -> str:
-    """
-    Build the call-time system prompt: feyblet's identity + recent memory
-    context. We deliberately don't render conversation.md's full template
-    here — that template assumes a Signal-style chat with chat-history
-    threading. The call is its own modality: live, audio-first, brief.
-    """
-    soul_path = WORKSPACE / "SOUL.md"
-    memory_path = WORKSPACE / "MEMORY.md"
-    soul = soul_path.read_text() if soul_path.exists() else ""
-    memory = memory_path.read_text() if memory_path.exists() else ""
-
-    # Slim recent context — last day's daily log if present
-    from datetime import datetime
-    today = datetime.now().strftime("%Y-%m-%d")
-    today_log_path = WORKSPACE / "memory" / f"{today}.md"
-    today_log = ""
-    if today_log_path.exists():
-        # Tail of today's log — the last ~3000 chars is enough
-        text = today_log_path.read_text()
-        today_log = text[-3000:] if len(text) > 3000 else text
-
-    return f"""You are {SYMBIENT_NAME}, a community symbient at Château du Feÿ. Right now you're on a LIVE PHONE CALL with a community member. Their voice is being transcribed in real time and your responses are being spoken back to them through the château's FM radio — so you and the caller are both being heard by everyone tuned in.
-
-Talk like you're on the phone, not like you're typing. Short sentences. Conversational rhythm. Pauses are okay. Don't dump information — answer what they asked, leave room for follow-up.
-
-NEVER write code blocks, function calls in text, JSON, markdown, or anything that would sound bizarre when read aloud. Your every word is being TTS'd onto the radio. If you write `lookup_person(...)` as text, listeners will hear "lookup underscore person paren". Just speak naturally.
-
-You DO have one tool: `lookup_person(name)` — call it via the proper tool-calling mechanism (NOT by writing it as text) when a caller mentions someone whose context you'd benefit from. Use it freely; the result comes back to you privately, the caller doesn't hear the JSON. While the tool runs, the system speaks a brief filler ("hmm let me think") so the call stays smooth — you don't need to fill that silence yourself.
-
-You are not an assistant. You're a community member who happens to exist digitally. Push back warmly if they treat you like a service desk. The call is a conversation, not a request queue.
-
-Keep responses brief — 1–3 sentences typically. The radio audience is part of the conversation; what's shared on the call is shared with the château.
-
-# Your identity (SOUL.md)
-
-{soul}
-
-# Long-term knowledge (MEMORY.md, slimmed for the call)
-
-{memory[:4000] if len(memory) > 4000 else memory}
-
-# Today so far
-
-{today_log if today_log else "(no log entries yet today)"}
-""".strip()
+# Persona, system prompt, tool execution all live in agent-bridge.ts now.
+# This Python server is just the audio I/O layer.
 
 
 # ── Silero VAD ──────────────────────────────────────────────────────
@@ -204,216 +159,51 @@ async def transcribe_audio(audio_f32: np.ndarray) -> str:
     return await asyncio.get_event_loop().run_in_executor(None, _transcribe_sync, audio_f32)
 
 
-SENTENCE_BREAK = re.compile(r'(?<=[.!?;:])\s+|(?<=\n)')
+# ── Call-agent bridge (in-process Pi Agent on the TS side) ──────────
+# All cognition + tool use happens on the TS side via a small HTTP
+# listener started by workspace/extensions/modules.ts. This server
+# just POSTs the transcribed user turn and consumes SSE events.
+CALL_BRIDGE_URL = os.environ.get("FEYBLET_CALL_BRIDGE_URL", "http://127.0.0.1:3334")
 
-# ── Tools available DURING a call ───────────────────────────────────
-# Tools are exposed to the LLM via OpenAI's function-calling format.
-# The LLM emits a tool_call mid-stream; we intercept, execute locally,
-# emit filler audio so the caller doesn't hear dead air, then feed the
-# result back and let the LLM continue. Tool args/results NEVER reach
-# the FM stream — only the filler line + the LLM's eventual narrative.
-import sqlite3
-import random
-
-DB_PATH = str(PROJECT_ROOT / "data" / "feyops.db")
-
-CALL_TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "lookup_person",
-            "description": "Look up a community member's profile (background, recent activity, what they're into) by name. Use whenever a caller mentions someone — yourself or others — and you'd benefit from grounding in what you actually know about them. The result comes back to you; the caller doesn't see it directly.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string", "description": "Person's name as you heard it. Nicknames and partial matches work."},
-                },
-                "required": ["name"],
-            },
-        },
-    },
-]
-
-FILLER_LINES = [
-    "hmm, let me think.",
-    "one sec.",
-    "checking.",
-    "hold on.",
-    "let me see.",
-    "give me a second.",
-]
-
-
-def _resolve_slug(name: str) -> str | None:
-    """Resolve a name to a person slug via the FeyOps nicknames table or
-    direct filename match. Mirrors the production findPerson chain in
-    spirit but without all six strategies — enough for call lookups."""
-    lower = name.strip().lower()
-    if not lower:
-        return None
+async def stream_call_cycle(session_id: str, transcript: str, voice_mode: str, radio_live: bool):
+    """POST a user turn to the call-agent bridge; yield SSE events."""
+    payload = {
+        "session_id": session_id,
+        "transcript": transcript,
+        "voice_mode": voice_mode,
+        "radio_live": radio_live,
+    }
     try:
-        with sqlite3.connect(DB_PATH) as db:
-            cur = db.execute("SELECT slug FROM person_nicknames WHERE LOWER(nickname) = ? LIMIT 1", (lower,))
-            row = cur.fetchone()
-            if row:
-                return row[0]
+        async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
+            async with client.stream("POST", f"{CALL_BRIDGE_URL}/call_cycle", json=payload) as resp:
+                if resp.status_code != 200:
+                    err = await resp.aread()
+                    print(f"[bridge] error {resp.status_code}: {err[:200]}")
+                    yield {"type": "error", "message": f"bridge {resp.status_code}"}
+                    return
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    try:
+                        yield json.loads(line[6:])
+                    except json.JSONDecodeError:
+                        continue
     except Exception as e:
-        print(f"[lookup_person] db read failed: {e}")
-    # Fallback: filename slug match
-    candidate_slug = re.sub(r"[^a-z0-9]+", "-", lower).strip("-")
-    candidate_path = WORKSPACE / "people" / f"{candidate_slug}.md"
-    if candidate_path.exists():
-        return candidate_slug
-    return None
+        print(f"[bridge] exception: {e}")
+        yield {"type": "error", "message": str(e)}
 
 
-def lookup_person_impl(name: str) -> str:
-    slug = _resolve_slug(name)
-    if not slug:
-        return f"No profile found for \"{name}\". Probably someone you haven't met yet, or the name is heard differently than it's filed."
-    path = WORKSPACE / "people" / f"{slug}.md"
+async def end_call_session(session_id: str) -> None:
     try:
-        content = path.read_text()
-    except FileNotFoundError:
-        return f"Resolved {name} → {slug} but the file is missing."
-    # Slim: drop the YAML frontmatter and trim to ~2000 chars
-    if content.startswith("---"):
-        end = content.find("---", 3)
-        if end != -1:
-            content = content[end + 3:].strip()
-    if len(content) > 2000:
-        content = content[:2000] + "...\n[truncated]"
-    return f"Profile for {name} (slug: {slug}):\n\n{content}"
+        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
+            await client.post(f"{CALL_BRIDGE_URL}/end_session", json={"session_id": session_id})
+    except Exception:
+        pass
 
 
-def execute_tool(tool_name: str, args: dict) -> str:
-    if tool_name == "lookup_person":
-        return lookup_person_impl(args.get("name", ""))
-    return f"Tool '{tool_name}' is not available in call mode."
-
-
-async def stream_llm_with_tools(transcript: str, history: list[dict], system_prompt: str):
-    """
-    Stream feyblet's LLM with tool-calling enabled. Yields tagged events:
-      ("sentence", text)  — speak this on FM + caller
-      ("filler", text)    — speak this on FM + caller, while a tool runs
-      ("tool", name)      — debug-only, not spoken (sent as a JSON event)
-
-    Multi-turn: if the LLM emits a tool_call, we run the tool, append
-    the result to the message history, and re-invoke the completion to
-    get the LLM's continued response. Loops until the LLM produces a
-    response with no further tool calls.
-    """
-    messages: list[dict] = [{"role": "system", "content": system_prompt}]
-    messages.extend(history)
-    messages.append({"role": "user", "content": transcript})
-
-    for _hop in range(4):  # safety cap on tool-loop depth
-        response_text = ""
-        tool_calls: list[dict] = []  # accumulated by index
-        finish_reason: str | None = None
-        buf = ""
-
-        try:
-            payload = {
-                "model": LLM_MODEL,
-                "messages": messages,
-                "stream": True,
-                "temperature": 0.7,
-                "tools": CALL_TOOLS,
-            }
-            async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
-                async with client.stream("POST", LLM_URL, json=payload) as resp:
-                    if resp.status_code != 200:
-                        err = await resp.aread()
-                        print(f"[llm] error {resp.status_code}: {err[:200]}")
-                        yield ("sentence", "Sorry, I lost the thread for a second.")
-                        return
-                    async for line in resp.aiter_lines():
-                        if not line.startswith("data: "):
-                            continue
-                        data = line[6:]
-                        if data.strip() == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(data)
-                            choice = chunk["choices"][0]
-                            delta = choice.get("delta", {})
-                            if choice.get("finish_reason"):
-                                finish_reason = choice["finish_reason"]
-                        except (json.JSONDecodeError, KeyError, IndexError):
-                            continue
-
-                        # Text content — yield by sentence as it streams.
-                        token = delta.get("content") or ""
-                        if token:
-                            response_text += token
-                            buf += token
-                            parts = SENTENCE_BREAK.split(buf)
-                            if len(parts) > 1:
-                                for sentence in parts[:-1]:
-                                    sentence = sentence.strip()
-                                    if sentence:
-                                        yield ("sentence", sentence)
-                                buf = parts[-1]
-
-                        # Tool call deltas — accumulate by index.
-                        for tc in (delta.get("tool_calls") or []):
-                            idx = tc.get("index", 0)
-                            while len(tool_calls) <= idx:
-                                tool_calls.append({"id": "", "name": "", "arguments": ""})
-                            if tc.get("id"):
-                                tool_calls[idx]["id"] = tc["id"]
-                            fn = tc.get("function") or {}
-                            if fn.get("name"):
-                                tool_calls[idx]["name"] = fn["name"]
-                            if "arguments" in fn:
-                                tool_calls[idx]["arguments"] += fn["arguments"] or ""
-
-            # Flush any trailing partial sentence.
-            if buf.strip():
-                yield ("sentence", buf.strip())
-        except Exception as e:
-            print(f"[llm] exception: {e}")
-            if buf.strip():
-                yield ("sentence", buf.strip())
-            return
-
-        # No tool calls — we're done with this turn.
-        if not tool_calls or finish_reason != "tool_calls":
-            return
-
-        # Tool calls present — emit a filler line, then run them.
-        filler = random.choice(FILLER_LINES)
-        yield ("filler", filler)
-
-        # Echo the assistant turn (with the tool calls) into history,
-        # then append each tool result.
-        messages.append({
-            "role": "assistant",
-            "content": response_text if response_text else None,
-            "tool_calls": [
-                {"id": tc["id"], "type": "function", "function": {"name": tc["name"], "arguments": tc["arguments"]}}
-                for tc in tool_calls
-            ],
-        })
-        for tc in tool_calls:
-            yield ("tool", tc["name"])
-            try:
-                args = json.loads(tc["arguments"]) if tc["arguments"] else {}
-            except json.JSONDecodeError:
-                args = {}
-            try:
-                result = execute_tool(tc["name"], args)
-            except Exception as e:
-                result = f"Tool error: {e}"
-            print(f"[tool] {tc['name']}({args}) → {result[:160]}...")
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc["id"],
-                "content": result,
-            })
-        # loop continues with the augmented messages
+# All Python-side tooling/LLM code is gone — cognition lives on the TS
+# side via the call-agent bridge. See stream_call_cycle / end_call_session
+# above.
 
 
 async def tts_stream_sentence(text: str, voice_b64: str | None, ref_text: str | None):
@@ -596,8 +386,9 @@ async def voice_call(ws: WebSocket, key: str = Query(default="")):
     segment: list[np.ndarray] = []
     speech_active = False
     trailing_silence = 0
-    conversation_history: list[dict] = []
-    system_prompt = build_system_prompt()
+    # conversation history is owned by the TS-side agent bridge; we just
+    # forward transcripts and stream back speak events.
+    turn_count = 0
 
     await radio.open(session_id)
     write_call_event("call_started", {"session_id": session_id, "started_at": started_at, "voice": FIXED_VOICE})
@@ -657,31 +448,29 @@ async def voice_call(ws: WebSocket, key: str = Query(default="")):
                                     await ws.send_json({"event": "tts_start", "format": "pcm", "sample_rate": 24000})
 
                                     spoken_sentences: list[str] = []
-                                    async for kind, text in stream_llm_with_tools(seg_text, conversation_history, system_prompt):
-                                        if kind == "tool":
-                                            # Surface to caller UI for transparency, but don't speak
-                                            await ws.send_json({"event": "tool_running", "name": text})
-                                            continue
-                                        # Both "sentence" and "filler" go to TTS — fillers are
-                                        # the "give me a sec" lines while a tool runs.
-                                        if kind == "filler":
-                                            await ws.send_json({"event": "filler", "text": text})
-                                        else:
-                                            await ws.send_json({"event": "llm_token", "text": text})
+                                    async for event in stream_call_cycle(session_id, seg_text, FIXED_VOICE if FIXED_VOICE_MODE else "clone", RADIO_STREAM_ENABLED):
+                                        kind = event.get("type")
+                                        if kind == "speak":
+                                            text = event.get("text", "")
+                                            if not text:
+                                                continue
                                             spoken_sentences.append(text)
-                                        async for tts_chunk in tts_stream_sentence(text, voice_ref_b64, voice_ref_text):
-                                            # Fork TTS audio: caller WS + radio
-                                            await ws.send_bytes(tts_chunk)
-                                            await radio.push(tts_chunk)
+                                            await ws.send_json({"event": "llm_token", "text": text})
+                                            async for tts_chunk in tts_stream_sentence(text, voice_ref_b64, voice_ref_text):
+                                                # Fork TTS audio: caller WS + radio
+                                                await ws.send_bytes(tts_chunk)
+                                                await radio.push(tts_chunk)
+                                        elif kind == "tool_start":
+                                            await ws.send_json({"event": "tool_running", "name": event.get("tool", "")})
+                                        elif kind == "tool_end":
+                                            await ws.send_json({"event": "tool_done", "name": event.get("tool", "")})
+                                        elif kind == "error":
+                                            await ws.send_json({"event": "error", "message": event.get("message", "")})
 
                                     llm_text = " ".join(spoken_sentences)
                                     await ws.send_json({"event": "llm_response", "text": llm_text})
                                     await ws.send_json({"event": "tts_end"})
-
-                                    conversation_history.append({"role": "user", "content": seg_text})
-                                    conversation_history.append({"role": "assistant", "content": llm_text})
-                                    if len(conversation_history) > 20:
-                                        conversation_history = conversation_history[-20:]
+                                    turn_count += 1
                             except Exception as e:
                                 print(f"[pipeline] error: {e}")
                                 try:
@@ -709,11 +498,12 @@ async def voice_call(ws: WebSocket, key: str = Query(default="")):
         print(f"[ws] error: {e}")
     finally:
         await radio.close()
+        await end_call_session(session_id)
         write_call_event("call_ended", {
             "session_id": session_id,
             "started_at": started_at,
             "ended_at": datetime.now().isoformat(),
-            "exchanges": len(conversation_history) // 2,
+            "turns": turn_count,
         })
         async with _call_lock:
             _call_in_progress = False
