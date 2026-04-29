@@ -537,10 +537,26 @@ async def health():
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("FEYBLET_CALL_PORT", "8400"))
-    print(f"Voice-call server starting on :{port}")
+
+    # Browsers require a "secure context" (HTTPS or localhost) for
+    # navigator.mediaDevices.getUserMedia — plain HTTP from a LAN IP
+    # silently returns `undefined`, so the caller page can't access the
+    # mic. Serve TLS by default if cert + key are present alongside
+    # server.py. Defaults match what the install README generates.
+    cert = HERE / "cert.pem"
+    key = HERE / "key.pem"
+    use_tls = cert.exists() and key.exists()
+
+    scheme = "https" if use_tls else "http"
+    print(f"Voice-call server starting on {scheme}://0.0.0.0:{port}")
     print(f"  LLM:     {LLM_URL} ({LLM_MODEL})")
     print(f"  Whisper: {WHISPER_URL}")
     print(f"  TTS:     {TTS_URL}")
     print(f"  Radio:   {RADIO_BASE_URL} ({'enabled' if RADIO_STREAM_ENABLED else 'DISABLED'})")
-    print(f"  Caller URL: http://<host>:{port}/?key={SHARED_SECRET}")
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    print(f"  TLS:     {'on (' + str(cert) + ')' if use_tls else 'OFF — mic-permission will fail outside localhost'}")
+    print(f"  Caller URL: {scheme}://<host>:{port}/?key={SHARED_SECRET}")
+
+    if use_tls:
+        uvicorn.run(app, host="0.0.0.0", port=port, ssl_certfile=str(cert), ssl_keyfile=str(key))
+    else:
+        uvicorn.run(app, host="0.0.0.0", port=port)
