@@ -450,50 +450,18 @@ async def voice_call(ws: WebSocket, key: str = Query(default="")):
             return
         _call_in_progress = True
 
-    await ws.accept()
-    vad = SileroVAD()
+    # CRITICAL: from here on, every code path MUST go through `finally`
+    # below to release `_call_in_progress`. The previous structure had
+    # the setup phase (ws.accept, radio.open, ws.send_json for ready
+    # event, greeting playback) OUTSIDE the try/finally — if the WS
+    # closed during setup (caller refreshed the tab) the lock stayed
+    # stuck and every subsequent call got a 4429 busy.
     radio = RadioStream()
-
     from datetime import datetime
     session_id = f"feyblet-call-{int(datetime.now().timestamp() * 1000)}"
     started_at = datetime.now().isoformat()
-
-    # Per-call state. In FIXED_VOICE_MODE we pre-mark the voice ref as
-    # "saved" so the cycle below skips the 15s collection phase entirely
-    # and goes straight to transcribing + responding.
-    all_audio: list[np.ndarray] = []
-    total_samples = 0
-    voice_ref_saved = FIXED_VOICE_MODE
-    voice_ref_b64: str | None = None
-    voice_ref_text: str | None = None
-    pre_buffer = deque(maxlen=PRE_CHUNKS)
-    segment: list[np.ndarray] = []
-    speech_active = False
-    trailing_silence = 0
-    # conversation history is owned by the TS-side agent bridge; we just
-    # forward transcripts and stream back speak events.
     turn_count = 0
-
-    await radio.open(session_id)
-    write_call_event("call_started", {"session_id": session_id, "started_at": started_at, "voice": FIXED_VOICE})
-    ready_msg = (
-        f"Connected to {SYMBIENT_NAME}. Speak anytime."
-        if FIXED_VOICE_MODE
-        else f"Connected to {SYMBIENT_NAME}. Talk for ~15 seconds first so we can clone your voice. Then it's a real conversation."
-    )
-    await ws.send_json({"event": "ready", "message": ready_msg, "voice_mode": "fixed" if FIXED_VOICE_MODE else "clone"})
-
-    # Play a pre-rendered greeting so feyblet picks up first, like a
-    # radio host answering a call. The greeting also asks who's calling
-    # so the caller's first reply contains their name.
     greeted_with: str | None = None
-    if GREETINGS_CACHE:
-        await ws.send_json({"event": "tts_start", "format": "pcm", "sample_rate": 24000})
-        greeted_with = await play_greeting(ws, radio)
-        if greeted_with:
-            await ws.send_json({"event": "llm_token", "text": greeted_with})
-        await ws.send_json({"event": "tts_end"})
-
     # Stale-session watchdog: if no caller mic frame arrives for
     # IDLE_TIMEOUT_S, assume the tab was closed (browser sends frames
     # every ~128ms during a normal call, so a multi-second silence is
@@ -502,6 +470,39 @@ async def voice_call(ws: WebSocket, key: str = Query(default="")):
     IDLE_TIMEOUT_S = 30.0
 
     try:
+        await ws.accept()
+        vad = SileroVAD()
+
+        # Per-call state. In FIXED_VOICE_MODE we pre-mark the voice ref
+        # as "saved" so the cycle skips the 15s collection phase.
+        all_audio: list[np.ndarray] = []
+        total_samples = 0
+        voice_ref_saved = FIXED_VOICE_MODE
+        voice_ref_b64: str | None = None
+        voice_ref_text: str | None = None
+        pre_buffer = deque(maxlen=PRE_CHUNKS)
+        segment: list[np.ndarray] = []
+        speech_active = False
+        trailing_silence = 0
+
+        await radio.open(session_id)
+        write_call_event("call_started", {"session_id": session_id, "started_at": started_at, "voice": FIXED_VOICE})
+        ready_msg = (
+            f"Connected to {SYMBIENT_NAME}. Speak anytime."
+            if FIXED_VOICE_MODE
+            else f"Connected to {SYMBIENT_NAME}. Talk for ~15 seconds first so we can clone your voice. Then it's a real conversation."
+        )
+        await ws.send_json({"event": "ready", "message": ready_msg, "voice_mode": "fixed" if FIXED_VOICE_MODE else "clone"})
+
+        # Play a pre-rendered greeting so feyblet picks up first, like a
+        # radio host answering a call. The greeting also asks who's
+        # calling so the caller's first reply contains their name.
+        if GREETINGS_CACHE:
+            await ws.send_json({"event": "tts_start", "format": "pcm", "sample_rate": 24000})
+            greeted_with = await play_greeting(ws, radio)
+            if greeted_with:
+                await ws.send_json({"event": "llm_token", "text": greeted_with})
+            await ws.send_json({"event": "tts_end"})
         while True:
             try:
                 msg = await asyncio.wait_for(ws.receive(), timeout=IDLE_TIMEOUT_S)
