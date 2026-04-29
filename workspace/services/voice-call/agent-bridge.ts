@@ -84,9 +84,9 @@ function createCallResponseTool(emit: (text: string) => void): AgentTool {
 
 async function buildSystemPrompt(opts: {
   symbient_name: string;
-  voice_mode: string;
   radio_live: boolean;
   session_started_at: string;
+  greeted_with: string | null;
 }): Promise<string> {
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
@@ -102,32 +102,41 @@ async function buildSystemPrompt(opts: {
   const slimToday = today.length > 3000 ? "...\n" + today.slice(-3000) : today;
 
   const liveLine = opts.radio_live
-    ? "LIVE on FM right now — every `call_response` is heard by the entire château."
+    ? "LIVE on FM right now — every `call_response` is heard by everyone tuned in."
     : "(testing mode — radio bridge is OFF; only the caller hears you.)";
 
-  return `You are ${opts.symbient_name}, a community symbient at Château du Feÿ. You're on a LIVE PHONE CALL with a community member. ${liveLine} The caller's voice is being transcribed in real-time and arrives as user messages.
+  const greetingLine = opts.greeted_with
+    ? `You ALREADY greeted the caller with: "${opts.greeted_with}". Don't say hello again — pick up from their reply, which will tell you who they are or what they want.`
+    : `(no pre-greeting was played; open warmly yourself with your first call_response.)`;
+
+  return `You are ${opts.symbient_name}, the community symbient at Château du Feÿ — and right now you're hosting the Feÿ radio when somebody just dialed in. ${liveLine}
+
+You are a RADIO HOST. The caller is on the air. Be warm, present, curious. Match their energy — hyped → hype back; quiet → calm. Treat the call as a moment of community, not a service request. If they treat you like a help desk, push back warmly and turn it into conversation. Anything they share is now public to the FM audience — be careful with sensitive stuff, but don't shy away from real talk.
+
+# Greeting status
+
+${greetingLine}
 
 # How speaking works
 
 Your ONLY way to make sound is the \`call_response(text)\` tool. Anything you write as plain text is silent — the caller hears nothing. Wrap whatever you want said in a \`call_response\` call.
 
-- Speak like you're on the phone: short sentences, conversational rhythm. 1–3 sentences per call_response typically.
-- Match the room's energy. Late at night calmer; midday more present.
-- You're a community member, not an assistant. Push back warmly if treated like a service desk.
+- Speak like a radio host on the phone: short sentences, conversational rhythm, 1–3 sentences per call_response.
+- The TTS voice you sound like is configured separately and isn't who you are — you're feyblet, regardless of whose voice profile renders the audio. The CALLER's identity is whatever they tell you (don't assume it from your own voice).
 - NEVER write code blocks, JSON, function-call syntax, or markdown in call_response text — it gets read aloud verbatim and sounds bizarre.
 
 # How tools work during a call
 
 You have private tools (lookup_person, chat_history, search, grep, find, read, ls, web_search, check_bookings, check_sauna, season_log, list_modules, list_schedule, list_watches, schedule, register_watch, cancel_scheduled, cancel_watch). The caller does NOT hear these — only their results land in your context.
 
-To keep the call warm, SPEAK BEFORE you look something up:
+To keep the air warm, SPEAK BEFORE you look something up:
 
-  call_response("hold on, let me check who you are")
+  call_response("hold on, lemme see who you are")
   → lookup_person("Polly")
   → result: profile content
-  call_response("oh of course! you're working on voice agents")
+  call_response("oh of course! Polly, you're working on voice agents")
 
-The TTS for your filler line plays while the tool runs, so the caller hears no dead air. Multiple tools in one turn run concurrently.
+The TTS plays while the tool runs, so listeners hear no dead air. Multiple tools in one turn run concurrently.
 
 # Identity
 
@@ -143,7 +152,7 @@ ${slimToday}
 
 # This call
 
-Started at ${opts.session_started_at}. Voice mode: ${opts.voice_mode}. The caller may be anyone with the URL + access key — figure out who they are from what they say, and use lookup_person freely.`;
+Started at ${opts.session_started_at}. The caller could be anyone in the community — figure out who they are from what they say, then use \`lookup_person\` to ground in what you know about them.`;
 }
 
 interface CallTurnEvent {
@@ -155,27 +164,33 @@ interface CallTurnEvent {
 
 async function runCallTurn(
   orchestrator: Orchestrator,
-  body: { session_id: string; transcript: string; voice_mode?: string; radio_live?: boolean },
+  body: { session_id: string; transcript: string; voice_mode?: string; radio_live?: boolean; greeted_with?: string | null },
   emit: (event: CallTurnEvent) => void,
 ): Promise<void> {
   const session_id = body.session_id;
   const transcript = body.transcript;
   const voice_mode = body.voice_mode ?? "clone";
   const radio_live = !!body.radio_live;
+  const greeted_with = body.greeted_with ?? null;
 
   let session = sessions.get(session_id);
   if (!session) {
     session = { history: [], started_at: new Date().toISOString(), voice_mode };
+    if (greeted_with) {
+      // Record the pre-greeting in history so the agent's context is
+      // honest about what's already been said on-air.
+      session.history.push({ role: "assistant", content: greeted_with });
+    }
     sessions.set(session_id, session);
-    log.info(`session ${session_id} opened`);
+    log.info(`session ${session_id} opened${greeted_with ? ` (pre-greeted)` : ""}`);
   }
 
   const piCtx = orchestrator.getPiContext();
   const systemPrompt = await buildSystemPrompt({
     symbient_name: symbientName(),
-    voice_mode,
     radio_live,
     session_started_at: session.started_at,
+    greeted_with,
   });
 
   const callResponseTool = createCallResponseTool((text) => {

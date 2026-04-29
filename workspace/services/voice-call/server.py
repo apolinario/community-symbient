@@ -165,13 +165,18 @@ async def transcribe_audio(audio_f32: np.ndarray) -> str:
 # just POSTs the transcribed user turn and consumes SSE events.
 CALL_BRIDGE_URL = os.environ.get("FEYBLET_CALL_BRIDGE_URL", "http://127.0.0.1:3334")
 
-async def stream_call_cycle(session_id: str, transcript: str, voice_mode: str, radio_live: bool):
-    """POST a user turn to the call-agent bridge; yield SSE events."""
+async def stream_call_cycle(session_id: str, transcript: str, voice_mode: str, radio_live: bool, greeted_with: str | None = None):
+    """POST a user turn to the call-agent bridge; yield SSE events.
+    `greeted_with` is the pre-rendered greeting text spoken on connect
+    (e.g. "Hi! Feÿ radio with feyblet — who's this?"). Passed through to
+    the bridge so the agent knows it has already greeted the caller and
+    shouldn't re-greet."""
     payload = {
         "session_id": session_id,
         "transcript": transcript,
         "voice_mode": voice_mode,
         "radio_live": radio_live,
+        "greeted_with": greeted_with,
     }
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
@@ -204,6 +209,79 @@ async def end_call_session(session_id: str) -> None:
 # All Python-side tooling/LLM code is gone — cognition lives on the TS
 # side via the call-agent bridge. See stream_call_cycle / end_call_session
 # above.
+
+
+# ── Greeting WAVs (pre-rendered TTS that plays the moment a call connects) ──
+# Pre-rendered on first server start (or on first connect if the cache
+# is missing). All five ask the caller who they are so feyblet learns
+# their identity from the very first reply. Playing a cached PCM file
+# at call-open keeps latency low — no TTS round-trip while the caller
+# waits for the line to come alive.
+
+GREETING_TEXTS = [
+    "Hi! Feÿ radio with feyblet — who's this?",
+    "Hello, you're on the Feÿ radio. Feyblet here. Who am I speaking with?",
+    "Hey! Feyblet on the Feÿ radio. Who's calling?",
+    "Hi, this is feyblet from the Feÿ radio. Who is this?",
+    "Hello, Feÿ radio with feyblet. Who do I have the pleasure of?",
+]
+
+GREETINGS_DIR = HERE / "greetings"
+import re as _re_for_voice_key
+
+def _voice_key_for_cache() -> str:
+    base = FIXED_VOICE if FIXED_VOICE_MODE else "clone-default"
+    return _re_for_voice_key.sub(r"[^a-zA-Z0-9]+", "-", base).strip("-")
+
+async def ensure_greetings_cached() -> list[bytes]:
+    """Render each greeting via TTS once and cache the PCM bytes.
+    On subsequent boots reads from disk. Returns the in-memory list
+    so the call handler can pick one cheaply."""
+    GREETINGS_DIR.mkdir(exist_ok=True)
+    voice_key = _voice_key_for_cache()
+    cached: list[bytes] = []
+    for i, text in enumerate(GREETING_TEXTS):
+        path = GREETINGS_DIR / f"{voice_key}-{i}.pcm"
+        if path.exists() and path.stat().st_size > 0:
+            cached.append(path.read_bytes())
+            continue
+        # Render via the same TTS path used for live responses.
+        chunks: list[bytes] = []
+        async for chunk in tts_stream_sentence(text, None, None):
+            chunks.append(chunk)
+        pcm = b"".join(chunks)
+        if pcm:
+            path.write_bytes(pcm)
+            cached.append(pcm)
+            print(f"[greeting] rendered {voice_key}-{i}: \"{text}\" ({len(pcm)} bytes)", flush=True)
+        else:
+            print(f"[greeting] FAILED to render \"{text}\" — TTS returned no bytes", flush=True)
+    return cached
+
+import random as _random_for_greeting
+
+async def play_greeting(ws, radio, cached: list[bytes]) -> str | None:
+    """Pick a random cached greeting and stream it to caller WS + radio.
+    Returns the greeting text that was played (so the agent's first
+    turn knows what was said). Returns None if no cache is available."""
+    if not cached:
+        return None
+    idx = _random_for_greeting.randrange(len(cached))
+    pcm = cached[idx]
+    text = GREETING_TEXTS[idx] if idx < len(GREETING_TEXTS) else ""
+    # Stream in 4800-byte chunks (matches live-TTS chunk size for a
+    # consistent jitter profile in the browser playback queue).
+    CHUNK_BYTES = 4800
+    for i in range(0, len(pcm), CHUNK_BYTES):
+        chunk = pcm[i : i + CHUNK_BYTES]
+        try:
+            await ws.send_bytes(chunk)
+        except Exception as e:
+            print(f"[greeting] caller WS send failed: {e}", flush=True)
+            break
+        await radio.push(chunk)
+    print(f"[greeting] played \"{text}\" ({len(pcm)} bytes)", flush=True)
+    return text
 
 
 async def tts_stream_sentence(text: str, voice_b64: str | None, ref_text: str | None):
@@ -259,11 +337,15 @@ class RadioStream:
     def __init__(self):
         self.ws: websockets.ClientConnection | None = None
         self.session_id: str | None = None
+        self.bytes_sent = 0
+        self.push_failures = 0
 
     async def open(self, session_id: str):
         self.session_id = session_id
+        self.bytes_sent = 0
+        self.push_failures = 0
         if not RADIO_STREAM_ENABLED:
-            print(f"[radio-stream] disabled — call audio not on FM (session={session_id})")
+            print(f"[radio-stream] disabled — call audio not on FM (session={session_id})", flush=True)
             return
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
@@ -280,28 +362,36 @@ class RadioStream:
                 ws_url = body.get("ws_url")
             if ws_url:
                 self.ws = await websockets.connect(ws_url)
-                print(f"[radio-stream] open ({session_id}) → {ws_url}")
+                print(f"[radio-stream] OPEN ok session={session_id} ws={ws_url}", flush=True)
             else:
-                print(f"[radio-stream] open returned no ws_url: {body}")
+                print(f"[radio-stream] OPEN got no ws_url, body={body}", flush=True)
         except Exception as e:
-            print(f"[radio-stream] open failed: {e}")
+            print(f"[radio-stream] OPEN FAILED session={session_id} err={e!r}", flush=True)
             self.ws = None
 
     async def push(self, pcm_bytes: bytes):
         if not self.ws:
+            self.push_failures += 1
+            if self.push_failures == 1:
+                print(f"[radio-stream] PUSH skipped — ws is None (session={self.session_id})", flush=True)
             return
         try:
             await self.ws.send(pcm_bytes)
+            self.bytes_sent += len(pcm_bytes)
+            # Heartbeat every ~64 KB so we know audio is flowing
+            if self.bytes_sent and self.bytes_sent % (64 * 1024) < len(pcm_bytes):
+                print(f"[radio-stream] flowing — {self.bytes_sent} bytes sent (session={self.session_id})", flush=True)
         except Exception as e:
-            print(f"[radio-stream] push failed: {e}")
+            self.push_failures += 1
+            print(f"[radio-stream] PUSH FAILED after {self.bytes_sent} bytes: {e!r}", flush=True)
             self.ws = None
 
     async def close(self):
         if self.ws:
             try:
                 await self.ws.close()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[radio-stream] ws close error: {e!r}", flush=True)
             self.ws = None
         if not RADIO_STREAM_ENABLED or not self.session_id:
             return
@@ -310,7 +400,7 @@ class RadioStream:
                 await client.post(f"{RADIO_BASE_URL}/ai_mic/stream_pcm/close", json={
                     "session_id": self.session_id,
                 })
-            print(f"[radio-stream] closed ({self.session_id})")
+            print(f"[radio-stream] CLOSE session={self.session_id} total_bytes={self.bytes_sent} push_failures={self.push_failures}", flush=True)
         except Exception as e:
             print(f"[radio-stream] close failed: {e}")
 
@@ -393,15 +483,37 @@ async def voice_call(ws: WebSocket, key: str = Query(default="")):
     await radio.open(session_id)
     write_call_event("call_started", {"session_id": session_id, "started_at": started_at, "voice": FIXED_VOICE})
     ready_msg = (
-        f"Connected to {SYMBIENT_NAME}. Talk anytime — replies use the {FIXED_VOICE.split(':',1)[1]} voice."
+        f"Connected to {SYMBIENT_NAME}. Speak anytime."
         if FIXED_VOICE_MODE
         else f"Connected to {SYMBIENT_NAME}. Talk for ~15 seconds first so we can clone your voice. Then it's a real conversation."
     )
     await ws.send_json({"event": "ready", "message": ready_msg, "voice_mode": "fixed" if FIXED_VOICE_MODE else "clone"})
 
+    # Play a pre-rendered greeting so feyblet picks up first, like a
+    # radio host answering a call. The greeting also asks who's calling
+    # so the caller's first reply contains their name.
+    greeted_with: str | None = None
+    if FIXED_VOICE_MODE and GREETINGS_CACHE:
+        await ws.send_json({"event": "tts_start", "format": "pcm", "sample_rate": 24000})
+        greeted_with = await play_greeting(ws, radio, GREETINGS_CACHE)
+        if greeted_with:
+            await ws.send_json({"event": "llm_token", "text": greeted_with})
+        await ws.send_json({"event": "tts_end"})
+
+    # Stale-session watchdog: if no caller mic frame arrives for
+    # IDLE_TIMEOUT_S, assume the tab was closed (browser sends frames
+    # every ~128ms during a normal call, so a multi-second silence is
+    # always abnormal). The agent could be mid-cycle on a long tool
+    # call, so we use a generous-but-finite window.
+    IDLE_TIMEOUT_S = 30.0
+
     try:
         while True:
-            data = await ws.receive_bytes()
+            try:
+                data = await asyncio.wait_for(ws.receive_bytes(), timeout=IDLE_TIMEOUT_S)
+            except asyncio.TimeoutError:
+                print(f"[session] {session_id} idle for {IDLE_TIMEOUT_S}s — closing", flush=True)
+                break
             if not data:
                 break
             int16 = np.frombuffer(data, dtype=np.int16)
@@ -448,7 +560,7 @@ async def voice_call(ws: WebSocket, key: str = Query(default="")):
                                     await ws.send_json({"event": "tts_start", "format": "pcm", "sample_rate": 24000})
 
                                     spoken_sentences: list[str] = []
-                                    async for event in stream_call_cycle(session_id, seg_text, FIXED_VOICE if FIXED_VOICE_MODE else "clone", RADIO_STREAM_ENABLED):
+                                    async for event in stream_call_cycle(session_id, seg_text, FIXED_VOICE if FIXED_VOICE_MODE else "clone", RADIO_STREAM_ENABLED, greeted_with=greeted_with):
                                         kind = event.get("type")
                                         if kind == "speak":
                                             text = event.get("text", "")
@@ -527,6 +639,24 @@ async def health():
         "tts": TTS_URL,
         "whisper": WHISPER_URL,
     }
+
+
+GREETINGS_CACHE: list[bytes] = []
+
+
+@app.on_event("startup")
+async def _on_startup():
+    """Pre-render greeting WAVs on first boot (or load from cache on
+    subsequent boots). One-time cost; the greetings folder ships with
+    the rendered files thereafter."""
+    global GREETINGS_CACHE
+    if FIXED_VOICE_MODE:
+        try:
+            GREETINGS_CACHE = await ensure_greetings_cached()
+            print(f"[startup] {len(GREETINGS_CACHE)} greetings ready", flush=True)
+        except Exception as e:
+            print(f"[startup] greeting cache failed: {e}", flush=True)
+            GREETINGS_CACHE = []
 
 
 if __name__ == "__main__":

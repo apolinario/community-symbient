@@ -451,12 +451,39 @@ export function createCancelScheduleTool(workspacePath: string): AgentTool {
 export function createRegisterWatchTool(senderName: string): AgentTool {
   return {
     name: "register_watch",
-    description: "Register a watch that fires an action when a matching event occurs. Use this instead of a polling cron when the trigger is a specific condition (e.g. a sensor crossing a threshold, a message arriving). The watch evaluator catches the exact moment the condition becomes true.",
+    description: [
+      "Register a watch that fires an action when a matching event occurs. Use instead of a polling cron when the trigger is a structured condition.",
+      "",
+      "WHERE EXPRESSION GRAMMAR — restrictive, read carefully:",
+      "  Operators: == != === !== < <= > >= && ||",
+      "  Field access: bare identifiers (e.g. `from`) and dotted (`from.name`).",
+      "  Literals: numbers, strings (double or single quoted), true/false/null.",
+      "",
+      "NOT SUPPORTED (these will fail to compile and your watch will be rejected):",
+      "  - Regex literals (/.../) and =~ operator. There is NO substring or pattern match.",
+      "  - Method calls (.includes, .startsWith, .toLowerCase, etc.).",
+      "  - Arithmetic, function calls, ternary, array/object literals.",
+      "",
+      "If you want \"someone mentioned X\" — that's NOT possible as a watch. Don't try. Either subscribe via your conversation prompt + react in the moment, or skip it.",
+      "",
+      "FIELDS BY EVENT TYPE — only these are reliable; check via `events_recent` first if unsure:",
+      "  chat_message: type, direction (\"in\"|\"out\"), chat (\"dm\"|\"group\"), from (display name), fromId, to, text, groupId, ts",
+      "  broadcast:    type, message, voice, ts",
+      "  capability_gap: type, id, what, why, ts",
+      "  scheduled_fired: type, id, prompt, target, cron, ts",
+      "  Sensor types (sauna, etc.): type plus the sensor's own fields (e.g. temp, trend, source).",
+      "",
+      "EXAMPLES that actually work:",
+      "  temp >= 30                                     // sensor threshold",
+      "  from == \"Aaron\" && chat == \"dm\"               // exact-match person + channel",
+      "  direction == \"in\" && chat == \"group\"          // group inbound",
+      "  type == \"capability_gap\"                       // (redundant — `on.type` already filters)",
+    ].join("\n"),
     label: "Register Watch",
     parameters: Type.Object({
       on: Type.Object({
-        type: Type.String({ description: "Event type to listen for. Use any type your deployment emits via recordEvent (chat_message, broadcast, tool_call, scheduled_fired, plus any custom sensor types)." }),
-        where: Type.Optional(Type.String({ description: "Filter expression, e.g. 'temp >= 30' or 'from == \"Alice\"'. Supports == != < <= > >= && ||." })),
+        type: Type.String({ description: "Event type to listen for (e.g. chat_message, sauna, capability_gap, broadcast)." }),
+        where: Type.Optional(Type.String({ description: "Filter expression — see tool description for grammar + supported fields. Validated at registration; bad expressions are rejected." })),
         trigger: Type.Optional(Type.Union([
           Type.Literal("always"),
           Type.Literal("crossing_up"),
@@ -470,6 +497,23 @@ export function createRegisterWatchTool(senderName: string): AgentTool {
       description: Type.Optional(Type.String({ description: "Human-readable description for list_watches" })),
     }),
     execute: async (_id, params) => {
+      // Validate the where-expression at registration time so the LLM
+      // gets immediate feedback instead of registering a watch that
+      // silently fails every cycle in the evaluator.
+      if (params.on?.where) {
+        try {
+          const { compileCondition } = await import("../core/condition-eval.js");
+          compileCondition(params.on.where);
+        } catch (err) {
+          return {
+            content: [{
+              type: "text",
+              text: `Watch NOT registered — \`where\` expression failed to compile: ${(err as Error).message}\n\nGrammar reminder: == != < <= > >= && || only. No regex, no =~, no method calls. See the tool description for available fields per event type.`,
+            }],
+            details: { error: String(err) },
+          };
+        }
+      }
       const { addWatch } = await import("../core/watches.js");
       const full = await addWatch({
         on: params.on,
