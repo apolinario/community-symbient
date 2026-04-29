@@ -171,6 +171,8 @@ callBtn.addEventListener('click', async () => {
       else if (msg.event === 'collecting_voice') setStatus(`getting your voice: ${msg.seconds_collected}/${msg.seconds_needed}s`, 'live');
       else if (msg.event === 'transcription') addTurn('you', msg.text);
       else if (msg.event === 'llm_response') addTurn('bot', msg.text);
+      else if (msg.event === 'tool_running') addTurn('bot', `(checking: ${msg.name})`);
+      else if (msg.event === 'filler') addTurn('bot', msg.text + ' …');
       else if (msg.event === 'busy') addTurn('bot', msg.message);
       else if (msg.event === 'error') addTurn('bot', '(error: ' + msg.message + ')');
     } else {
