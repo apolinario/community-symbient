@@ -1,7 +1,7 @@
 ---
 name: radio-calls
 interval: 30s
-startActive: true
+startActive: false  # disabled while voice-call is removed (commit c9022ec). re-enable when the module returns.
 tools: [read, write, edit, radio_broadcast, lookup_person]
 context:
   - source: current-time
