@@ -107,8 +107,9 @@ let ws = null;
 let audioCtx = null;
 let micStream = null;
 let processor = null;
-let playQueue = [];
-let playing = false;
+let ttsCtx = null;
+let nextScheduleTime = 0;     // when in ttsCtx.currentTime to schedule the next chunk
+const PLAYBACK_LEAD_SEC = 0.15; // jitter buffer; bigger = more lag, smaller = more dropouts
 
 function setStatus(text, cls = '') {
   statusText.textContent = text;
@@ -198,36 +199,44 @@ hangupBtn.addEventListener('click', () => {
 function cleanup() {
   if (processor) { processor.disconnect(); processor = null; }
   if (audioCtx) { audioCtx.close(); audioCtx = null; }
+  if (ttsCtx) { ttsCtx.close(); ttsCtx = null; }
   if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
   ws = null;
+  nextScheduleTime = 0;
   setIndicator('');
 }
 
-// PCM playback queue — TTS chunks arrive at 24kHz, we play them in order
-async function enqueuePcm(int16Pcm) {
-  playQueue.push(int16Pcm);
-  if (!playing) {
-    playing = true;
-    await drainQueue();
-    playing = false;
+// PCM playback — TTS chunks arrive at 24kHz int16; schedule them
+// back-to-back on a continuous timeline. The previous version reset
+// the schedule clock to currentTime on every drain, which caused
+// overlap when chunks arrived in bursts and gaps when the queue
+// emptied between bursts. Now we maintain `nextScheduleTime` as a
+// persistent cursor: each chunk plays at the previous chunk's end,
+// snapping forward to currentTime+jitter if we've fallen behind
+// (e.g. after a long idle). This gives continuous playback.
+function enqueuePcm(int16Pcm) {
+  if (!ttsCtx) {
+    ttsCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: TTS_SAMPLE_RATE });
   }
-}
-async function drainQueue() {
-  // Use a separate AudioContext at TTS rate to avoid resampling artifacts
-  if (!window.ttsCtx) window.ttsCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: TTS_SAMPLE_RATE });
-  let nextStart = window.ttsCtx.currentTime;
-  while (playQueue.length) {
-    const i16 = playQueue.shift();
-    const f32 = new Float32Array(i16.length);
-    for (let i = 0; i < i16.length; i++) f32[i] = i16[i] / 32768;
-    const buf = window.ttsCtx.createBuffer(1, f32.length, TTS_SAMPLE_RATE);
-    buf.getChannelData(0).set(f32);
-    const src = window.ttsCtx.createBufferSource();
-    src.buffer = buf;
-    src.connect(window.ttsCtx.destination);
-    src.start(nextStart);
-    nextStart += buf.duration;
+  // Some browsers suspend the AudioContext until a user gesture; the
+  // call button click already qualified, but resume() is idempotent.
+  if (ttsCtx.state === "suspended") ttsCtx.resume();
+
+  const f32 = new Float32Array(int16Pcm.length);
+  for (let i = 0; i < int16Pcm.length; i++) f32[i] = int16Pcm[i] / 32768;
+  const buf = ttsCtx.createBuffer(1, f32.length, TTS_SAMPLE_RATE);
+  buf.getChannelData(0).set(f32);
+
+  // Snap forward if we've fallen behind (very first chunk, or post-idle).
+  if (nextScheduleTime < ttsCtx.currentTime + 0.02) {
+    nextScheduleTime = ttsCtx.currentTime + PLAYBACK_LEAD_SEC;
   }
+
+  const src = ttsCtx.createBufferSource();
+  src.buffer = buf;
+  src.connect(ttsCtx.destination);
+  src.start(nextScheduleTime);
+  nextScheduleTime += buf.duration;
 }
 </script>
 </body>
