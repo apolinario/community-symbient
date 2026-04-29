@@ -609,8 +609,10 @@ async function captureSignalUuid(ctx: ModuleContext, name: string, uuid: string,
   const person = await ctx.memory.findPerson(name, phone || undefined);
   if (!person) return;
 
-  // Check if UUID already in file
-  if (person.content.includes(`signal-uuid:`) && person.content.includes(uuid)) return;
+  // Check if THIS uuid is already in the file — early exit only when the
+  // exact same uuid is already present. A placeholder string or some
+  // OTHER uuid (e.g. account changed) is treated as "needs update."
+  if (person.content.includes(uuid)) return;
 
   const fs = await import("node:fs/promises");
   const pathMod = await import("node:path");
@@ -618,9 +620,18 @@ async function captureSignalUuid(ctx: ModuleContext, name: string, uuid: string,
 
   let content = person.content;
 
-  // Add signal-uuid to frontmatter if missing
-  if (!content.includes("signal-uuid:")) {
+  // Frontmatter UUID handling: add if missing, replace if present-but-invalid.
+  // The previous version only added when missing, so files seeded with
+  // `signal-uuid: "placeholder-uuid-needed"` (or any other malformed value)
+  // never got upgraded to the real uuid even after the person posted in a
+  // group we're in.
+  const VALID_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const existingMatch = content.match(/signal-uuid:\s*["']?([\w-]+)["']?/);
+  const existingUuid = existingMatch?.[1];
+  if (!existingUuid) {
     content = content.replace(/^(---\n)/, `$1signal-uuid: "${uuid}"\n`);
+  } else if (!VALID_UUID.test(existingUuid)) {
+    content = content.replace(existingMatch![0], `signal-uuid: "${uuid}"`);
   }
 
   // Add phone to frontmatter if missing and available
