@@ -56,10 +56,24 @@ export function createSendDMTool(deps: MessagingDeps): AgentTool {
 
       const phoneMatch = person.content.match(/phone:\s*["']?(\+[\d\s]+)["']?/);
       const uuidMatch = person.content.match(/signal-uuid:\s*["']?([\w-]+)["']?/);
-      const chatId = phoneMatch?.[1]?.replace(/\s/g, "") || uuidMatch?.[1];
+      const phone = phoneMatch?.[1]?.replace(/\s/g, "");
+      const uuid = uuidMatch?.[1];
+
+      // Validate identifiers before passing to Signal. A profile with
+      // `signal-uuid: "placeholder-uuid-needed"` (or similar LLM-authored
+      // sentinel) used to silently fall through to Signal and bounce as
+      // a 400, which the LLM then mis-explained as "DMs are down."
+      const VALID_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const VALID_PHONE = /^\+\d{6,16}$/;
+      const goodPhone = phone && VALID_PHONE.test(phone) ? phone : null;
+      const goodUuid = uuid && VALID_UUID.test(uuid) ? uuid : null;
+      const chatId = goodPhone || goodUuid;
 
       if (!chatId) {
-        return { content: [{ type: "text", text: `Found ${params.to} but no phone/UUID in their profile.` }], details: {} };
+        const reason = phone || uuid
+          ? `${params.to}'s profile has an invalid signal-uuid/phone (${uuid || phone}). Edit the profile with a real value or skip DMing this person.`
+          : `Found ${params.to} but no phone/UUID in their profile.`;
+        return { content: [{ type: "text", text: reason }], details: {} };
       }
 
       try {
