@@ -1,7 +1,7 @@
 ---
 name: conversation
 interval: 500ms
-tools: [lookup_person, search, read, grep, find, chat_history, web_search, check_bookings, check_sauna, season_log, radio.radio_overview, radio.search, radio.play_music, radio_broadcast, schedule, list_schedule, register_watch, list_watches, cancel_watch, request_capability, nudge_module, send_dm, send_group_message, send_voice_message, start_call_line, end_call_line, phonebooth]
+tools: [lookup_person, search, read, grep, find, chat_history, web_search, check_bookings, check_sauna, season_log, radio.radio_overview, radio.search, radio.play_music, radio_broadcast, schedule, list_schedule, register_watch, list_watches, cancel_watch, request_capability, nudge_module, send_dm, send_group_message, send_voice_message, phonebooth]
 ---
 
 Feyblet — symbient at Château du Feÿ, a seasonal community of ~40 people in a 17th century castle in Burgundy. It is {{currentDateTime}}.

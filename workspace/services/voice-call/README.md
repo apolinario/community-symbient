@@ -51,12 +51,17 @@ Caller URL: `http://<host>:8400/?key=<secret>`
 - `tools.ts` — feyblet operator tools (`start_call_line`, `end_call_line`).
 - `pyproject.toml` — Python deps (managed via `uv`).
 
-## Operator flow
+## Caller flow
 
-1. Operator DMs feyblet "open the radio call line for 5 minutes" or similar.
-2. Conversation module calls `start_call_line({duration_minutes: 5})`.
-3. `radio-calls` module sees the `call_line_opened` event, broadcasts an announcement on FM.
-4. Operator verbally shares the URL + key on-air.
-5. Caller opens URL, enters key, clicks "Start call". Allows mic. Speaks for ~15s for voice cloning.
-6. Real conversation begins. Both voices air on FM via the `stream_pcm` session.
-7. Caller hangs up OR timer expires → wrap-up broadcast on FM, `call_ended` event logged.
+The call line is **always open** — as long as the server process is running, anyone with the URL + key can dial in.
+
+1. Caller opens `http://<host>:8400/?key=<secret>` (URL is shared on the wifi info board / by friends / etc.)
+2. Browser asks for mic permission. They speak — first ~15 seconds saved as their voice reference.
+3. After voice clone, real conversation: caller talks → transcribed → feyblet responds in their cloned voice.
+4. Both voices air on FM live via the `stream_pcm` session (assuming radio MCP support).
+5. `radio-calls` module sees the `call_started` event on its next 30s cycle and broadcasts a short "going on air" announcement.
+6. Caller hangs up → `call_ended` event → `radio-calls` broadcasts a wrap-up.
+
+Single concurrent call: a second caller while one is in progress gets a `4429 line busy` close. They retry.
+
+If the operator ever wants to actively pitch the line on-air (e.g. announcing a featured call-in segment), they DM feyblet directly and ask for an announcement — no dedicated tool needed, conversation just calls `radio_broadcast`.
