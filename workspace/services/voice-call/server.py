@@ -212,11 +212,10 @@ async def end_call_session(session_id: str) -> None:
 
 
 # ── Greeting WAVs (pre-rendered TTS that plays the moment a call connects) ──
-# Pre-rendered on first server start (or on first connect if the cache
-# is missing). All five ask the caller who they are so feyblet learns
-# their identity from the very first reply. Playing a cached PCM file
-# at call-open keeps latency low — no TTS round-trip while the caller
-# waits for the line to come alive.
+# Greetings are PRE-RENDERED ahead of time and immutable at runtime.
+# To refresh them, run: `uv run render-greetings.py` separately.
+# This server NEVER regenerates them — startup loads from disk; if a
+# file is missing the greeting block is skipped silently for that index.
 
 GREETING_TEXTS = [
     "Hi! Feÿ radio with feyblet — who's this?",
@@ -227,58 +226,53 @@ GREETING_TEXTS = [
 ]
 
 GREETINGS_DIR = HERE / "greetings"
+
 import re as _re_for_voice_key
+import random as _random_for_greeting
+
 
 def _voice_key_for_cache() -> str:
     base = FIXED_VOICE if FIXED_VOICE_MODE else "clone-default"
     return _re_for_voice_key.sub(r"[^a-zA-Z0-9]+", "-", base).strip("-")
 
-async def ensure_greetings_cached() -> list[bytes]:
-    """Render each greeting via TTS once and cache the PCM bytes.
-    On subsequent boots reads from disk. Returns the in-memory list
-    so the call handler can pick one cheaply."""
-    GREETINGS_DIR.mkdir(exist_ok=True)
+
+def _load_greetings_from_disk() -> list[tuple[str, bytes]]:
+    """Synchronous load of pre-rendered greeting PCMs at module import.
+    Skips files that don't exist; the result is the immutable cache the
+    call handler picks from. To refresh, run render-greetings.py."""
     voice_key = _voice_key_for_cache()
-    cached: list[bytes] = []
+    out: list[tuple[str, bytes]] = []
     for i, text in enumerate(GREETING_TEXTS):
         path = GREETINGS_DIR / f"{voice_key}-{i}.pcm"
-        if path.exists() and path.stat().st_size > 0:
-            cached.append(path.read_bytes())
-            continue
-        # Render via the same TTS path used for live responses.
-        chunks: list[bytes] = []
-        async for chunk in tts_stream_sentence(text, None, None):
-            chunks.append(chunk)
-        pcm = b"".join(chunks)
-        if pcm:
-            path.write_bytes(pcm)
-            cached.append(pcm)
-            print(f"[greeting] rendered {voice_key}-{i}: \"{text}\" ({len(pcm)} bytes)", flush=True)
-        else:
-            print(f"[greeting] FAILED to render \"{text}\" — TTS returned no bytes", flush=True)
-    return cached
+        try:
+            data = path.read_bytes()
+            if data:
+                out.append((text, data))
+        except FileNotFoundError:
+            print(f"[greeting] missing {path.name} — run render-greetings.py to create it", flush=True)
+    return out
 
-import random as _random_for_greeting
 
-async def play_greeting(ws, radio, cached: list[bytes]) -> str | None:
-    """Pick a random cached greeting and stream it to caller WS + radio.
-    Returns the greeting text that was played (so the agent's first
-    turn knows what was said). Returns None if no cache is available."""
-    if not cached:
+# Loaded once at import — immutable for the life of the process.
+GREETINGS_CACHE: list[tuple[str, bytes]] = _load_greetings_from_disk()
+print(f"[greeting] loaded {len(GREETINGS_CACHE)} pre-rendered greetings ({_voice_key_for_cache()})", flush=True)
+
+
+async def play_greeting(ws, radio) -> str | None:
+    """Pick a random pre-rendered greeting and stream it to caller WS
+    + radio. Returns the greeting text spoken, or None if cache empty.
+    Streamed in larger 8KB chunks for faster onset."""
+    if not GREETINGS_CACHE:
         return None
-    idx = _random_for_greeting.randrange(len(cached))
-    pcm = cached[idx]
-    text = GREETING_TEXTS[idx] if idx < len(GREETING_TEXTS) else ""
-    # Stream in 4800-byte chunks (matches live-TTS chunk size for a
-    # consistent jitter profile in the browser playback queue).
-    CHUNK_BYTES = 4800
+    text, pcm = _random_for_greeting.choice(GREETINGS_CACHE)
+    CHUNK_BYTES = 8192  # ~170ms of audio per chunk at 24kHz int16
     for i in range(0, len(pcm), CHUNK_BYTES):
         chunk = pcm[i : i + CHUNK_BYTES]
         try:
             await ws.send_bytes(chunk)
         except Exception as e:
             print(f"[greeting] caller WS send failed: {e}", flush=True)
-            break
+            return text
         await radio.push(chunk)
     print(f"[greeting] played \"{text}\" ({len(pcm)} bytes)", flush=True)
     return text
@@ -493,9 +487,9 @@ async def voice_call(ws: WebSocket, key: str = Query(default="")):
     # radio host answering a call. The greeting also asks who's calling
     # so the caller's first reply contains their name.
     greeted_with: str | None = None
-    if FIXED_VOICE_MODE and GREETINGS_CACHE:
+    if GREETINGS_CACHE:
         await ws.send_json({"event": "tts_start", "format": "pcm", "sample_rate": 24000})
-        greeted_with = await play_greeting(ws, radio, GREETINGS_CACHE)
+        greeted_with = await play_greeting(ws, radio)
         if greeted_with:
             await ws.send_json({"event": "llm_token", "text": greeted_with})
         await ws.send_json({"event": "tts_end"})
@@ -510,12 +504,24 @@ async def voice_call(ws: WebSocket, key: str = Query(default="")):
     try:
         while True:
             try:
-                data = await asyncio.wait_for(ws.receive_bytes(), timeout=IDLE_TIMEOUT_S)
+                msg = await asyncio.wait_for(ws.receive(), timeout=IDLE_TIMEOUT_S)
             except asyncio.TimeoutError:
                 print(f"[session] {session_id} idle for {IDLE_TIMEOUT_S}s — closing", flush=True)
                 break
-            if not data:
+            # Browser sends a JSON text frame `{"hangup":true}` on the
+            # Hang up button click, before closing the WS. This is the
+            # snappy-hangup path; for unclean closes the watchdog catches.
+            if msg.get("type") == "websocket.disconnect":
+                print(f"[session] {session_id} client disconnected", flush=True)
                 break
+            if msg.get("text") is not None:
+                if '"hangup"' in msg["text"]:
+                    print(f"[session] {session_id} caller hung up", flush=True)
+                    break
+                continue
+            data = msg.get("bytes")
+            if not data:
+                continue
             int16 = np.frombuffer(data, dtype=np.int16)
             f32 = int16.astype(np.float32) / 32768.0
 
@@ -560,7 +566,14 @@ async def voice_call(ws: WebSocket, key: str = Query(default="")):
                                     await ws.send_json({"event": "tts_start", "format": "pcm", "sample_rate": 24000})
 
                                     spoken_sentences: list[str] = []
+                                    from starlette.websockets import WebSocketState
                                     async for event in stream_call_cycle(session_id, seg_text, FIXED_VOICE if FIXED_VOICE_MODE else "clone", RADIO_STREAM_ENABLED, greeted_with=greeted_with):
+                                        # Snappy-hangup: if the caller closed the WS while
+                                        # the agent was mid-stream, drop the rest of this
+                                        # turn rather than narrating to a dead socket.
+                                        if ws.client_state != WebSocketState.CONNECTED:
+                                            print(f"[session] {session_id} client gone mid-cycle — aborting turn", flush=True)
+                                            break
                                         kind = event.get("type")
                                         if kind == "speak":
                                             text = event.get("text", "")
@@ -639,24 +652,6 @@ async def health():
         "tts": TTS_URL,
         "whisper": WHISPER_URL,
     }
-
-
-GREETINGS_CACHE: list[bytes] = []
-
-
-@app.on_event("startup")
-async def _on_startup():
-    """Pre-render greeting WAVs on first boot (or load from cache on
-    subsequent boots). One-time cost; the greetings folder ships with
-    the rendered files thereafter."""
-    global GREETINGS_CACHE
-    if FIXED_VOICE_MODE:
-        try:
-            GREETINGS_CACHE = await ensure_greetings_cached()
-            print(f"[startup] {len(GREETINGS_CACHE)} greetings ready", flush=True)
-        except Exception as e:
-            print(f"[startup] greeting cache failed: {e}", flush=True)
-            GREETINGS_CACHE = []
 
 
 if __name__ == "__main__":

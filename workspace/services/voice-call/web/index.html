@@ -194,7 +194,11 @@ callBtn.addEventListener('click', async () => {
 });
 
 hangupBtn.addEventListener('click', () => {
-  if (ws) ws.close();
+  // Notify the server we're going (best-effort) before closing the WS.
+  // The server's existing watchdog catches dropped sockets too; this
+  // just makes hang-up snappy when the agent is mid-stream.
+  try { if (ws && ws.readyState === WebSocket.OPEN) ws.send('{"hangup":true}'); } catch {}
+  try { if (ws) ws.close(); } catch {}
   cleanup();
 });
 
@@ -206,6 +210,12 @@ function cleanup() {
   ws = null;
   nextScheduleTime = 0;
   setIndicator('');
+  // Restore UI to the setup view so the caller can call again
+  // without refreshing.
+  activeEl.style.display = 'none';
+  setupEl.style.display = 'block';
+  transcript.innerHTML = '';
+  setStatus('connecting…');
 }
 
 // PCM playback — TTS chunks arrive at 24kHz int16; schedule them
