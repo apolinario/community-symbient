@@ -79,7 +79,7 @@ LLM_URL = (CONFIG.get("llm", {}).get("baseUrl") or "http://localhost:1234") + "/
 LLM_MODEL = CONFIG.get("llm", {}).get("model", "qwen/qwen3.6-27b")
 WHISPER_URL = CONFIG.get("services", {}).get("whisper", {}).get("url", "http://localhost:8001") + "/v1/audio/transcriptions"
 TTS_URL = CONFIG.get("services", {}).get("tts", {}).get("url", "http://localhost:8000") + "/v1/audio/speech"
-RADIO_MCP_URL = os.environ.get("RADIO_MCP_URL", "http://192.168.10.97:8001/mcp")
+RADIO_BASE_URL = os.environ.get("RADIO_BASE_URL", "http://192.168.10.97:8000")
 RADIO_STREAM_ENABLED = os.environ.get("RADIO_STREAM", "enabled") != "disabled"
 SYMBIENT_NAME = CONFIG.get("name", "feyblet")
 WHISPER_PROMPT = "feyblet, Feÿtopia, château, Beyblade, Feyblade"
@@ -265,9 +265,14 @@ async def tts_stream_sentence(text: str, voice_b64: str | None, ref_text: str | 
 # ── Radio MCP streaming bridge ──────────────────────────────────────
 
 class RadioStream:
-    """Wraps the radio MCP `stream_pcm_open`/`stream_pcm_close` actions.
-    Falls back to a no-op if RADIO_STREAM_ENABLED is false (so the call
-    still works pre-MCP-feature-landing)."""
+    """Wraps the radio service's stream_pcm endpoints. The radio runs a
+    plain FastAPI server on port 8000 with REST endpoints:
+      POST /ai_mic/stream_pcm/open   — opens session, returns {ws_url, ...}
+      POST /ai_mic/stream_pcm/close  — closes by session_id
+      WS   /stream_pcm/{session_id}  — push raw PCM frames
+
+    Set RADIO_STREAM=disabled to skip the FM bridge (testing without
+    locking the radio's mic)."""
 
     def __init__(self):
         self.ws: websockets.ClientConnection | None = None
@@ -280,23 +285,22 @@ class RadioStream:
             return
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
-                resp = await client.post(RADIO_MCP_URL, json={
-                    "tool": "ai_mic",
-                    "args": {
-                        "action": "stream_pcm_open",
-                        "sample_rate": RATE,
-                        "channels": 1,
-                        "format": "s16le",
-                        "session_id": session_id,
-                        "ducking": True,
-                        "max_duration_seconds": 600,
-                    },
+                resp = await client.post(f"{RADIO_BASE_URL}/ai_mic/stream_pcm/open", json={
+                    "session_id": session_id,
+                    "sample_rate": RATE,
+                    "channels": 1,
+                    "format": "s16le",
+                    "ducking": True,
+                    "max_duration_seconds": 600,
                 })
                 resp.raise_for_status()
-                ws_url = resp.json().get("ws_url")
+                body = resp.json()
+                ws_url = body.get("ws_url")
             if ws_url:
                 self.ws = await websockets.connect(ws_url)
                 print(f"[radio-stream] open ({session_id}) → {ws_url}")
+            else:
+                print(f"[radio-stream] open returned no ws_url: {body}")
         except Exception as e:
             print(f"[radio-stream] open failed: {e}")
             self.ws = None
@@ -321,9 +325,8 @@ class RadioStream:
             return
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
-                await client.post(RADIO_MCP_URL, json={
-                    "tool": "ai_mic",
-                    "args": {"action": "stream_pcm_close", "session_id": self.session_id},
+                await client.post(f"{RADIO_BASE_URL}/ai_mic/stream_pcm/close", json={
+                    "session_id": self.session_id,
                 })
             print(f"[radio-stream] closed ({self.session_id})")
         except Exception as e:
@@ -538,6 +541,6 @@ if __name__ == "__main__":
     print(f"  LLM:     {LLM_URL} ({LLM_MODEL})")
     print(f"  Whisper: {WHISPER_URL}")
     print(f"  TTS:     {TTS_URL}")
-    print(f"  Radio:   {RADIO_MCP_URL} ({'enabled' if RADIO_STREAM_ENABLED else 'DISABLED'})")
+    print(f"  Radio:   {RADIO_BASE_URL} ({'enabled' if RADIO_STREAM_ENABLED else 'DISABLED'})")
     print(f"  Caller URL: http://<host>:{port}/?key={SHARED_SECRET}")
     uvicorn.run(app, host="0.0.0.0", port=port)

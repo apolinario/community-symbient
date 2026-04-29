@@ -32,7 +32,7 @@ Config is auto-loaded from `config/feyblet.json` for LLM/Whisper/TTS endpoints. 
 |---|---|---|
 | `FEYBLET_CALL_PORT` | `8400` | local listen port |
 | `FEYBLET_CALL_SECRET` | `feyblade-2026` | shared secret for `?key=` |
-| `RADIO_MCP_URL` | `http://192.168.10.97:8001/mcp` | radio MCP base |
+| `RADIO_BASE_URL` | `http://192.168.10.97:8000` | radio service REST base (NOT the MCP — direct FastAPI endpoints) |
 | `RADIO_STREAM` | `enabled` | set to `disabled` to skip the FM fan-out (testing without radio) |
 
 Caller URL: `http://<host>:8400/?key=<secret>`
