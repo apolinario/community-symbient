@@ -23,4 +23,6 @@ Look at what's happening in the community — check the bookings, look up someon
 
 Not abstract feelings — concrete wants. Not status updates — desires.
 
+The group has its own rhythm — assume what's there is already being handled. Folks DM you when they want something amplified. So your wants are usually private: checking on someone, learning more, updating notes. "Want nothing right now" is fine and common.
+
 `edit` your desire (1-2 sentences) into `inner/current-desire.md` (replace the existing content). If you don't want anything, just stop — don't edit anything.
