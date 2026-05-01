@@ -286,8 +286,23 @@ const recentGroupChatProvider: ContextProvider = {
     // (workspace/services/conversation/index.ts GROUP_TAGS) introduces
     // them. Other groups (`, group`) are excluded — they're logged but
     // not surfaced as ambient context.
-    const SEASON_TAGS = ["season", "feynale"];
-    const tagRe = new RegExp(`\\b(${SEASON_TAGS.join("|")})\\b`);
+    //
+    // Module declarations can narrow this list per-block, e.g.:
+    //   - source: recent-group-chat
+    //     match: season
+    //     tag: recent-season-chat
+    //   - source: recent-group-chat
+    //     match: feynale
+    //     tag: recent-feynale-chat
+    // Without `match`, defaults to ALL known tags (legacy behaviour).
+    const ALL_SEASON_TAGS = ["season", "feynale"];
+    const matchVal = decl.match;
+    const matchTags = Array.isArray(matchVal)
+      ? matchVal.filter((s): s is string => typeof s === "string")
+      : typeof matchVal === "string"
+        ? [matchVal]
+        : ALL_SEASON_TAGS;
+    const tagRe = new RegExp(`\\b(${matchTags.join("|")})\\b`);
     for (const part of parts) {
       const t = part.match(/^## (\d{2}:\d{2}:\d{2})$/);
       if (t) { currentTime = t[1].slice(0, 5); continue; }

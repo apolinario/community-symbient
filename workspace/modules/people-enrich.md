@@ -6,6 +6,11 @@ startActive: true
 context:
   - source: house-status
   - source: recent-group-chat
+    match: season
+    tag: recent-season-chat
+  - source: recent-group-chat
+    match: feynale
+    tag: recent-feynale-chat
 ---
 
 **It is {{currentDateTime}}.** Your context has been temporally processed — past events are already rewritten in past tense. <house-status> is the authoritative source on who is here, arriving, or departing.

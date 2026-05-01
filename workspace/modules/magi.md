@@ -8,6 +8,11 @@ dashboardLogTag: "Feyblet magi"
 context:
   - source: house-status
   - source: recent-group-chat
+    match: season
+    tag: recent-season-chat
+  - source: recent-group-chat
+    match: feynale
+    tag: recent-feynale-chat
   - source: recent-days
   - source: inner-mood
 ---

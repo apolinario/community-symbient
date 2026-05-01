@@ -9,6 +9,11 @@ context:
   - source: recent-days
     count: 7
   - source: recent-group-chat
+    match: season
+    tag: recent-season-chat
+  - source: recent-group-chat
+    match: feynale
+    tag: recent-feynale-chat
   - source: inner-mood
   - source: house-status
 ---

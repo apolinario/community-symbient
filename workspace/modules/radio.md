@@ -12,6 +12,11 @@ context:
   - source: season-today
   - source: current-meal
   - source: recent-group-chat
+    match: season
+    tag: recent-season-chat
+  - source: recent-group-chat
+    match: feynale
+    tag: recent-feynale-chat
   - source: events
     type: broadcast
     count: 2

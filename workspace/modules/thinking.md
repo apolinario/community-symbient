@@ -8,6 +8,11 @@ context:
   - source: house-status
   - source: sauna
   - source: recent-group-chat
+    match: season
+    tag: recent-season-chat
+  - source: recent-group-chat
+    match: feynale
+    tag: recent-feynale-chat
   - source: season-today
   - source: daily-summary
   - source: inner-mood
