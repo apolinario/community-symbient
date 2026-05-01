@@ -313,15 +313,17 @@ export function createConversationModule(bridge: ChatAdapter, workspacePath?: st
       msg.chatType === "dm" ? fromLabel : undefined,
     );
 
-    // Mark direct-address group messages with an explicit `[You were
-    // tagged/mentioned]` line. This is the agent's clearest signal that
-    // it has triage approval to respond in the group — without it the
-    // agent should default to silence per conversation.md rules.
-    // (Triage at the code layer already gates whether we're here at
-    // all; this just makes the signal visible in the prompt body so the
-    // model doesn't have to re-derive it from the `￼`/@-mention text.)
+    // Mark direct-address group messages with an explicit
+    // `[You were directly addressed]` line. This is the agent's clearest
+    // signal that it has triage approval to respond in the group —
+    // without it the agent should default to silence per conversation.md
+    // rules. Triage at the code layer already gates whether we're here
+    // at all (it matches on @-mention OR feyblet's name in text OR a
+    // quote-reply to a previous feyblet message); this marker just
+    // surfaces the verdict in the prompt body so the model doesn't have
+    // to re-derive it from the `￼`/@-mention/quote-author hints.
     const taggedHeader = (msg.chatType === "group" && directlyAddressed)
-      ? "[You were tagged/mentioned in the latest message — this is your green light to respond in the group; otherwise you default to silence in groups.]\n\n"
+      ? "[You were directly addressed in the latest message — tagged, @-mentioned, or quote-replying to a previous feyblet message. This is your green light to respond in the group; otherwise you default to silence in groups.]\n\n"
       : "";
 
     const userContent = msg.chatType === "group"
