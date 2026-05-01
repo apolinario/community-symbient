@@ -84,9 +84,17 @@ export function createConversationModule(bridge: ChatAdapter, workspacePath?: st
     const fromLabel = msg.from.name || msg.from.id;
 
     // --- ALWAYS observe: log every message to memory ---
-    const SEASON_GROUP = "aX/mc0Cl/SsJQp6ngVqbBL/NYJi0FanGsqn7HMo9Lw4=";
+    // Groups treated as "season-importance" — their messages are tagged
+    // `, season` in the daily log and surface in the recent-group-chat
+    // context provider. Other groups still get logged but with the
+    // generic `, group` tag and don't enrich the agent's context the
+    // same way.
+    const SEASON_GROUPS = new Set([
+      "aX/mc0Cl/SsJQp6ngVqbBL/NYJi0FanGsqn7HMo9Lw4=",  // FEŸTOPIA 2026 - Season 7
+      "MlrDH7A7wjAra6c1JxBoA1NHTZyMq3dDZwTQEgAko1c=",  // joined 2026-05-01 via invite link (request pending admin approval)
+    ]);
     let groupTag = "";
-    if (msg.groupId === SEASON_GROUP) groupTag = ", season";
+    if (msg.groupId && SEASON_GROUPS.has(msg.groupId)) groupTag = ", season";
     else if (msg.groupId) groupTag = ", group";
 
     // Track known groups so the feyblet can look them up when needed
