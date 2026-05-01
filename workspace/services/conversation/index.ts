@@ -35,7 +35,7 @@ const FEYBLET_UUID = process.env.FEYBLET_UUID || "26876cef-04fb-4292-b35e-c4ef91
 // (useful when the operator wants to let the agent post for a one-off).
 const NO_SPONTANEOUS_POST_GROUPS = new Set([
   "aX/mc0Cl/SsJQp6ngVqbBL/NYJi0FanGsqn7HMo9Lw4=",  // FEŸTOPIA 2026 - Season 7
-  "MlrDH7A7wjAra6c1JxBoA1NHTZyMq3dDZwTQEgAko1c=",  // joined 2026-05-01 via invite link
+  "MlrDH7A7wjAra6c1JxBoA1NHTZyMq3dDZwTQEgAko1c=",  // Feÿnale 2026 ✨
 ]);
 
 function isSpontaneousGroupPostsAllowed(): boolean {
@@ -148,17 +148,16 @@ export function createConversationModule(bridge: ChatAdapter, workspacePath?: st
     const fromLabel = msg.from.name || msg.from.id;
 
     // --- ALWAYS observe: log every message to memory ---
-    // Groups treated as "season-importance" — their messages are tagged
-    // `, season` in the daily log and surface in the recent-group-chat
-    // context provider. Other groups still get logged but with the
-    // generic `, group` tag and don't enrich the agent's context the
-    // same way.
-    const SEASON_GROUPS = new Set([
-      "aX/mc0Cl/SsJQp6ngVqbBL/NYJi0FanGsqn7HMo9Lw4=",  // FEŸTOPIA 2026 - Season 7
-      "MlrDH7A7wjAra6c1JxBoA1NHTZyMq3dDZwTQEgAko1c=",  // joined 2026-05-01 via invite link (request pending admin approval)
-    ]);
+    // Per-group tag map for season-importance groups. Each gets its own
+    // tag (e.g. `, season`, `, feynale`) so daily-log greps can tell
+    // them apart while the recent-group-chat context provider can pull
+    // from either by including each tag in its filter.
+    const GROUP_TAGS: Record<string, string> = {
+      "aX/mc0Cl/SsJQp6ngVqbBL/NYJi0FanGsqn7HMo9Lw4=": "season",   // FEŸTOPIA 2026 - Season 7
+      "MlrDH7A7wjAra6c1JxBoA1NHTZyMq3dDZwTQEgAko1c=": "feynale",  // Feÿnale 2026 ✨
+    };
     let groupTag = "";
-    if (msg.groupId && SEASON_GROUPS.has(msg.groupId)) groupTag = ", season";
+    if (msg.groupId && GROUP_TAGS[msg.groupId]) groupTag = `, ${GROUP_TAGS[msg.groupId]}`;
     else if (msg.groupId) groupTag = ", group";
 
     // Track known groups so the feyblet can look them up when needed

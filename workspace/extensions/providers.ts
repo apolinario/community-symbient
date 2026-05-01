@@ -281,12 +281,19 @@ const recentGroupChatProvider: ContextProvider = {
     const groupMessages: string[] = [];
     const parts = log.split(/^(## \d{2}:\d{2}:\d{2})/m);
     let currentTime = "";
+    // Tags that count as a "main" group whose messages should appear in
+    // recent-group-chat context. Add new tags here when chat-reactor
+    // (workspace/services/conversation/index.ts GROUP_TAGS) introduces
+    // them. Other groups (`, group`) are excluded — they're logged but
+    // not surfaced as ambient context.
+    const SEASON_TAGS = ["season", "feynale"];
+    const tagRe = new RegExp(`\\b(${SEASON_TAGS.join("|")})\\b`);
     for (const part of parts) {
       const t = part.match(/^## (\d{2}:\d{2}:\d{2})$/);
       if (t) { currentTime = t[1].slice(0, 5); continue; }
       const trimmed = part.trim();
       const match = trimmed.match(/^\*\*([^*]+)\*\*\s*\(([^)]*)\):\s*([\s\S]+)/);
-      if (match && match[2].includes("season")) {
+      if (match && tagRe.test(match[2])) {
         groupMessages.push(`[${currentTime}] ${match[1]}: ${match[3].trim()}`);
       }
     }
