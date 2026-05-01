@@ -438,6 +438,41 @@ function workspacePathOf(ctx: ModuleContext): string {
   return ctx.memory.workspacePath;
 }
 
+/** recent-recordings — surfaces the last N completed recording sessions
+ *  produced by workspace/services/recording-transcriber. Returns each
+ *  recording's frontmatter (started, ended, duration) + the Summary
+ *  section only — NOT the full transcript, which can run to many KB
+ *  per recording. Modules opt in via `- source: recent-recordings` in
+ *  their frontmatter `context:` declaration. */
+const recentRecordingsProvider: ContextProvider = {
+  async execute(decl, ctx) {
+    const count = (decl.count as number) ?? 3;
+    const ws = workspacePathOf(ctx);
+    const dir = join(ws, "recordings");
+    const fs = await import("node:fs/promises");
+    let files: string[];
+    try {
+      files = (await fs.readdir(dir)).filter((f) => f.endsWith(".md"));
+    } catch {
+      return null;
+    }
+    if (files.length === 0) return null;
+    files.sort();                         // timestamped names → chronological
+    const tail = files.slice(-count);
+    const blocks: string[] = [];
+    for (const f of tail) {
+      const content = await safeRead(join(dir, f));
+      if (!content) continue;
+      // Frontmatter (between first `---` markers)
+      const fm = content.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? "";
+      // Summary section: between `## Summary` and the next `## ` heading
+      const summary = content.match(/##\s+Summary\s*\n([\s\S]*?)(?=\n##\s|\n*$)/)?.[1]?.trim() ?? "(in-progress / no summary yet)";
+      blocks.push(`### ${f.replace(/\.md$/, "")}\n${fm}\n\n${summary}`);
+    }
+    return blocks.length > 0 ? blocks.join("\n\n---\n\n") : null;
+  },
+};
+
 export default {
   "house-status": houseStatusProvider,
   "sauna": saunaProvider,
@@ -453,4 +488,5 @@ export default {
   "most-played-songs": mostPlayedSongsProvider,
   "active-threads": activeThreadsProvider,
   "pending-capability-gaps": pendingCapabilityGapsProvider,
+  "recent-recordings": recentRecordingsProvider,
 };

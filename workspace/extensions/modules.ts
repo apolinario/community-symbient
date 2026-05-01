@@ -28,6 +28,7 @@ import {
 import type { FeyOpsDB } from "../services/feyops/db.js";
 import { createFeyEnricher } from "../services/feyops/enricher.js";
 import { configureFeyProviders } from "./providers.js";
+import { startRecordingTranscriber } from "../services/recording-transcriber/index.js";
 import { createConversationModule } from "../services/conversation/index.js";
 import { createSaunaModule } from "../services/sauna/index.js";
 import { createBookingsModule } from "../services/bookings/index.js";
@@ -63,6 +64,13 @@ export default function feySetup(deps: WorkspaceModulesDeps): unknown[] {
 
   // --- Memory append-listener: rebuild daily summaries via LLM ---
   attachDailySummarizer(deps.memory, deps.llm);
+
+  // --- Recording transcriber: passive helper that watches the radio
+  //     MCP's recording state, transcribes the live MP3 stream via
+  //     Whisper while recording is on, and produces a per-session
+  //     summary markdown in workspace/recordings/. Independent of
+  //     feyblet's modules; just polls the MCP.
+  startRecordingTranscriber({ workspacePath: deps.workspacePath, llm: deps.llm });
 
   // --- Register deployment-specific modules ---
 
