@@ -29,6 +29,10 @@ context:
     count: 3
     tag: community-requests
     format: "[{ts:YYYY-MM-DD HH:mm}] via chat: {args.message}"
+  - source: recent-recordings
+    count: 3
+    tag: recent-recordings
+    note: "Summaries of the last 3 recorded programs from the radio. Full transcripts live at workspace/recordings/<timestamp>.md — use `read` or `grep` to dig in if a summary points at something you want to draw on."
 ---
 
 **It is {{currentDateTime}}.** Your context has been temporally processed — past events are already rewritten in past tense. <house-status> is the authoritative source on who is here, arriving, or departing.
@@ -48,7 +52,8 @@ A lot of useful info is already in your context — check it before reaching for
 - `<sauna>` — current temperature and trend
 - `<season-today>` — today's and yesterday's events, meals, parties
 - `<current-meal>` — today's meal around mealtimes
-- `<recent-group-chat>` — latest group messages with timestamps
+- `<recent-season-chat>` / `<recent-feynale-chat>` — latest group messages from each main group, separately
+- `<recent-recordings>` — summaries of the last 3 recorded programs that aired on the radio. Use these to weave back to recent live moments ("earlier on the morning show…", "if you missed Sofi's interview, here's what happened…"). The summaries are bullet-point only; if one points at something you want to lean into more deeply, the full transcript lives at `workspace/recordings/<timestamp>.md` and you can `read` or `grep` it directly.
 
 You can still use `check_bookings` for specific people, `search` to dig deeper, or `lookup_person` for someone's profile — just know the general picture is already there.
 
