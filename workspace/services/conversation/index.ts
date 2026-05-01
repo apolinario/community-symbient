@@ -120,20 +120,19 @@ function isSpontaneousGroupPostsAllowed(): boolean {
   return v === "1" || v?.toLowerCase() === "true";
 }
 
-/** Wrap `send_group_message` so calls targeting a no-spontaneous-post
- *  group short-circuit with a clear error result — telling the agent to
- *  DM the relevant person instead.
+/** Wrap `send_group_message` so ALL agent-tool-driven sends targeting a
+ *  no-spontaneous-post group are blocked with a clear error result.
+ *  There is no carve-out for "the agent is responding to a direct-
+ *  address" — that path goes through `bridge.send` directly with quote
+ *  fields and never touches this tool. So the only way feyblet can
+ *  post in a season group is via that path, which by construction is a
+ *  quote-reply to a triaged direct-address message.
  *
- *  Allow-list logic (in priority order):
- *    1. If FEYBLET_ALLOW_SPONTANEOUS_GROUP_POSTS=1, all sends pass.
- *    2. If groupId is NOT in NO_SPONTANEOUS_POST_GROUPS, the send passes.
- *    3. If groupId === allowGroupId (the group where a direct-address
- *       was triaged in for this call), the send passes — this is the
- *       "quote-reply to a tagged/mentioned message" path.
- *    4. Otherwise, blocked.
+ *  Operator override: FEYBLET_ALLOW_SPONTANEOUS_GROUP_POSTS=1 lets the
+ *  tool through unconditionally (off by default).
  *
- *  Other tools + DMs flow through unchanged. */
-function wrapNoSpontaneousGroupPosts(tools: AgentTool[], allowGroupId: string | null): AgentTool[] {
+ *  Other groups (`, group`-tagged) and DMs flow through unchanged. */
+function wrapNoSpontaneousGroupPosts(tools: AgentTool[]): AgentTool[] {
   return tools.map((t) => {
     if (t.name !== "send_group_message") return t;
     const original = t;
@@ -146,14 +145,13 @@ function wrapNoSpontaneousGroupPosts(tools: AgentTool[], allowGroupId: string | 
         const passes =
           isSpontaneousGroupPostsAllowed() ||
           !groupId ||
-          !NO_SPONTANEOUS_POST_GROUPS.has(groupId) ||
-          groupId === allowGroupId;
+          !NO_SPONTANEOUS_POST_GROUPS.has(groupId);
 
         if (!passes) {
           return {
             content: [{
               type: "text" as const,
-              text: "(blocked: spontaneous posts to this group are disabled. You're allowed to post in this group only when responding to a message that directly tagged or mentioned you in it — and this isn't that. If you want this to reach someone, DM them directly instead. Operator override: set FEYBLET_ALLOW_SPONTANEOUS_GROUP_POSTS=1 in feyblet's env.)",
+              text: "(blocked: agent-tool-driven posts to this group are disabled. The only way you can post here is by replying to a message in the group that directly tagged or mentioned you — and that path doesn't use this tool, it happens automatically when you reply naturally to such a message. If you want this to reach someone, DM them directly instead. Operator override: set FEYBLET_ALLOW_SPONTANEOUS_GROUP_POSTS=1.)",
             }],
             isError: true,
             details: { blocked: true, groupId },
@@ -315,8 +313,19 @@ export function createConversationModule(bridge: ChatAdapter, workspacePath?: st
       msg.chatType === "dm" ? fromLabel : undefined,
     );
 
+    // Mark direct-address group messages with an explicit `[You were
+    // tagged/mentioned]` line. This is the agent's clearest signal that
+    // it has triage approval to respond in the group — without it the
+    // agent should default to silence per conversation.md rules.
+    // (Triage at the code layer already gates whether we're here at
+    // all; this just makes the signal visible in the prompt body so the
+    // model doesn't have to re-derive it from the `￼`/@-mention text.)
+    const taggedHeader = (msg.chatType === "group" && directlyAddressed)
+      ? "[You were tagged/mentioned in the latest message — this is your green light to respond in the group; otherwise you default to silence in groups.]\n\n"
+      : "";
+
     const userContent = msg.chatType === "group"
-      ? `[Recent group conversation]\n${groupBuffer.slice(-15).map(m => `${m.from}: ${m.text}`).join("\n")}\n\n[Latest message from ${fromLabel}]\n${expandedText}`
+      ? `${taggedHeader}[Recent group conversation]\n${groupBuffer.slice(-15).map(m => `${m.from}: ${m.text}`).join("\n")}\n\n[Latest message from ${fromLabel}]\n${expandedText}`
       : expandedText;
 
     // Process attachments (images → vision, audio → transcription)
@@ -361,12 +370,12 @@ export function createConversationModule(bridge: ChatAdapter, workspacePath?: st
     const rawAllowedTools = conversationToolNames.length > 0
       ? filterToolsByWhitelist(ctx.tools, conversationToolNames)
       : ctx.tools;
-    // Group-post gate: only the group where this triaged direct-address
-    // came in is whitelisted for `send_group_message`. All other season
-    // groups (and DMs that try to splash into a group) are blocked at
-    // the tool layer with a clear error pointing the agent toward DMs.
-    const allowGroupId = (msg.chatType === "group" && directlyAddressed && msg.groupId) ? msg.groupId : null;
-    const allowedTools = wrapNoSpontaneousGroupPosts(rawAllowedTools, allowGroupId);
+    // Group-post gate: every agent-tool-driven `send_group_message`
+    // call to a season-importance group is blocked. The only route to
+    // posting in a season group is the natural-text-reply path
+    // (bridge.send below) which is itself gated by the directly-
+    // addressed triage and sends as a quote-reply.
+    const allowedTools = wrapNoSpontaneousGroupPosts(rawAllowedTools);
     agent.setTools(allowedTools);
 
     // Seed with recent exchanges
@@ -698,10 +707,10 @@ async function handleModuleNudge(
   const rawAllowedTools = conversationToolNames.length > 0
     ? filterToolsByWhitelist(ctx.tools, conversationToolNames)
     : ctx.tools;
-  // Module nudges never come with a triaged direct-address-in-group
-  // context, so allowGroupId is always null here — every season-group
-  // post attempt from a sibling part is blocked.
-  const allowedTools = wrapNoSpontaneousGroupPosts(rawAllowedTools, null);
+  // Same gate as the main path — see wrapNoSpontaneousGroupPosts docs
+  // for the details. Sibling-part nudges asking conversation to post in
+  // a season group fail at the tool layer.
+  const allowedTools = wrapNoSpontaneousGroupPosts(rawAllowedTools);
   agent.setTools(allowedTools);
 
   let response = "";
