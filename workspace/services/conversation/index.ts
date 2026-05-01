@@ -24,6 +24,18 @@ import { join } from "node:path";
 const FEYBLET_NAMES = ["feyblet", "feyby", "feybling", "feybient", "feytus", "feyble", "symbient", "simbient", "radio host"];
 const FEYBLET_UUID = process.env.FEYBLET_UUID || "26876cef-04fb-4292-b35e-c4ef9194b064";
 
+// Vision pass-through gate. When the loaded LLM has no mmproj/vision
+// adapter (e.g. running Qwen3.6-35B-A3B without its mmproj-F16 to save
+// VRAM), passing image content blocks to the model either errors out
+// or silently strips them. Set SYMBIENT_VISION_ENABLED=false to skip
+// passing images to the agent and append a clear marker to the user
+// content instead, so the agent knows an image arrived but can't see
+// it. Default = true (preserves prior behaviour).
+const VISION_ENABLED = (() => {
+  const v = (process.env.SYMBIENT_VISION_ENABLED ?? "true").toLowerCase();
+  return v !== "false" && v !== "0" && v !== "off" && v !== "no";
+})();
+
 // ── Mention expansion ────────────────────────────────────────────────
 // Signal renders inline @-mentions as a single object-replacement
 // character (`￼`, U+FFFC) in the message body, with a parallel
@@ -357,8 +369,19 @@ export function createConversationModule(bridge: ChatAdapter, workspacePath?: st
         : `[Voice message]: ${voiceTranscription}`;
     }
 
-    // If images are attached, tell the model they're already visible (no need for view_image)
-    if (images.length > 0) {
+    // Image handling: gated on SYMBIENT_VISION_ENABLED. When vision is
+    // OFF, drop the image array (don't pass to the agent — would error
+    // or get silently stripped by a model with no mmproj loaded) and
+    // append a factual marker to the user content. The agent reads the
+    // marker and reacts naturally based on context — in a DM it might
+    // mention it; in a group with no direct address the existing
+    // silence rules still apply, so no spontaneous apology gets posted.
+    if (images.length > 0 && !VISION_ENABLED) {
+      const marker = `[${images.length} image attachment${images.length > 1 ? "s" : ""} arrived but the current model has no vision enabled.]`;
+      finalUserContent = `${finalUserContent}\n\n${marker}`;
+      ctx.log(`vision disabled — ${images.length} image(s) skipped from agent context`);
+    } else if (images.length > 0) {
+      // Vision is on — tell the model the images are already in context.
       systemPrompt += `\n\nThe user has sent ${images.length} image(s) with this message. You can already see them — do NOT use the view_image tool, the images are already in your context.`;
     }
 
@@ -408,7 +431,11 @@ export function createConversationModule(bridge: ChatAdapter, workspacePath?: st
       }
     });
 
-    await agent.prompt(finalUserContent, images.length > 0 ? images : undefined);
+    // Pass images to the agent only when vision is enabled. With it
+    // off, the marker added to finalUserContent above is the only
+    // signal the agent gets.
+    const agentImages = (VISION_ENABLED && images.length > 0) ? images : undefined;
+    await agent.prompt(finalUserContent, agentImages);
     await agent.waitForIdle();
 
     // Treat bare status markers as silence. The model sometimes emits
