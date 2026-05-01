@@ -24,6 +24,83 @@ import { join } from "node:path";
 const FEYBLET_NAMES = ["feyblet", "feyby", "feybling", "feybient", "feytus", "feyble", "symbient", "simbient", "radio host"];
 const FEYBLET_UUID = process.env.FEYBLET_UUID || "26876cef-04fb-4292-b35e-c4ef9194b064";
 
+// ── Mention expansion ────────────────────────────────────────────────
+// Signal renders inline @-mentions as a single object-replacement
+// character (`￼`, U+FFFC) in the message body, with a parallel
+// `mentions: [{start, length, uuid}]` array carrying the actual
+// recipients. Without expansion, the agent reads `Welcome ￼ how are
+// you` and reasons "nobody named me" — which is what caused the
+// Sofi-tagged-feyblet leak. expandMentions resolves each placeholder
+// into `@<name>` so the agent (and the daily log) actually see who
+// got tagged.
+//
+// Lookup chain per UUID: feyblet's own UUID → "@Feyblet" (we have no
+// .md file for the symbient). Else scan workspace/people/*.md
+// frontmatter (cached for UUID_CACHE_TTL_MS to keep the hot path
+// cheap). Else fall back to a short uuid stub.
+
+const UUID_CACHE_TTL_MS = 5 * 60 * 1000;
+let uuidNameCache: Map<string, string> | null = null;
+let uuidCacheLoadedAt = 0;
+
+async function getUuidNameCache(workspacePath: string): Promise<Map<string, string>> {
+  const now = Date.now();
+  if (uuidNameCache && (now - uuidCacheLoadedAt) < UUID_CACHE_TTL_MS) return uuidNameCache;
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const peopleDir = path.join(workspacePath, "people");
+  const map = new Map<string, string>();
+  try {
+    const files = await fs.readdir(peopleDir);
+    await Promise.all(files.map(async (f) => {
+      if (!f.endsWith(".md")) return;
+      try {
+        const content = await fs.readFile(path.join(peopleDir, f), "utf-8");
+        const uuid = content.match(/^signal-uuid:\s*"?([a-f0-9-]{36})"?\s*$/m)?.[1];
+        if (!uuid) return;
+        const nameRaw = content.match(/^name:\s*(.+)$/m)?.[1]?.trim();
+        const name = nameRaw?.replace(/^["']|["']$/g, "") || f.replace(/\.md$/, "");
+        map.set(uuid, name);
+      } catch { /* malformed file — skip */ }
+    }));
+  } catch { /* no people dir — empty cache */ }
+  uuidNameCache = map;
+  uuidCacheLoadedAt = now;
+  return map;
+}
+
+function expandMentionsSync(
+  text: string,
+  mentions: { uuid: string; start?: number; length?: number }[] | undefined,
+  uuidToName: Map<string, string>,
+): string {
+  if (!mentions?.length || !text.includes("￼")) return text;
+  // Mentions are usually in document order but sort by start to be safe.
+  const sorted = [...mentions].sort((a, b) => (a.start ?? 0) - (b.start ?? 0));
+  let i = 0;
+  return text.replace(/￼/g, () => {
+    const m = sorted[i++];
+    if (!m) return "￼";
+    if (m.uuid === FEYBLET_UUID) return "@Feyblet";
+    const name = uuidToName.get(m.uuid);
+    // Unmatched tag → short, semantically-meaningful placeholder. The
+    // agent reads this as "someone got tagged here whose identity we
+    // couldn't resolve" rather than treating a 6-char hex stub as a
+    // real handle.
+    return name ? `@${name}` : "@someone";
+  });
+}
+
+async function expandMentions(
+  text: string,
+  mentions: { uuid: string; start?: number; length?: number }[] | undefined,
+  workspacePath: string,
+): Promise<string> {
+  if (!mentions?.length || !text.includes("￼")) return text;
+  const cache = await getUuidNameCache(workspacePath);
+  return expandMentionsSync(text, mentions, cache);
+}
+
 // Group ids where the conversation agent's `send_group_message` tool is
 // hard-blocked by default — every spontaneous post the agent tries gets
 // returned as an error result instead of reaching Signal. Direct-address
@@ -160,6 +237,12 @@ export function createConversationModule(bridge: ChatAdapter, workspacePath?: st
     if (msg.groupId && GROUP_TAGS[msg.groupId]) groupTag = `, ${GROUP_TAGS[msg.groupId]}`;
     else if (msg.groupId) groupTag = ", group";
 
+    // Expand inline @-mention placeholders to `@<name>` so the daily
+    // log + agent prompt + group buffer all see who was tagged. The
+    // original msg.text (with `￼`) is replaced by `expandedText` for
+    // every downstream use.
+    const expandedText = await expandMentions(msg.text, msg.mentions, ctx.memory.workspacePath);
+
     // Track known groups so the feyblet can look them up when needed
     if (msg.groupId && msg.groupName) {
       trackKnownGroup(ctx.memory.workspacePath, msg.groupId, msg.groupName).catch(() => {});
@@ -168,7 +251,7 @@ export function createConversationModule(bridge: ChatAdapter, workspacePath?: st
       ? ` [+${msg.attachments.filter(a => a.contentType?.startsWith("image/")).length} image(s)]`
       : "";
     await ctx.memory.appendLog(
-      `**${fromLabel}** (${msg.chatType}${groupTag}): ${msg.text || "(image)"}${imageNote}`,
+      `**${fromLabel}** (${msg.chatType}${groupTag}): ${expandedText || "(image)"}${imageNote}`,
     );
 
     // --- Capture Signal UUID to person file ---
@@ -178,13 +261,13 @@ export function createConversationModule(bridge: ChatAdapter, workspacePath?: st
 
     // --- Silent season logging ---
     if (msg.chatType === "group") {
-      detectAndLogSeason(ctx, msg.text, fromLabel).catch((err) => {
+      detectAndLogSeason(ctx, expandedText, fromLabel).catch((err) => {
         ctx.log(`Season detect error: ${err}`);
       });
     }
 
     // --- State triggers from chat ---
-    const textLower = msg.text.toLowerCase();
+    const textLower = expandedText.toLowerCase();
     if (textLower.includes("party mode") || textLower.includes("party time")) {
       await (ctx.memory as any).setState("party-mode", true);
       ctx.log("Party mode activated via chat!");
@@ -192,7 +275,7 @@ export function createConversationModule(bridge: ChatAdapter, workspacePath?: st
 
     // --- Silent groups: observe only, never respond ---
     if (msg.chatType === "group" && msg.groupId && SILENT_GROUPS.has(msg.groupId)) {
-      groupBuffer.push({ from: fromLabel, text: msg.text, timestamp: msg.timestamp });
+      groupBuffer.push({ from: fromLabel, text: expandedText, timestamp: msg.timestamp });
       if (groupBuffer.length > MAX_GROUP_BUFFER) groupBuffer.shift();
       return;
     }
@@ -200,7 +283,7 @@ export function createConversationModule(bridge: ChatAdapter, workspacePath?: st
     // --- GROUP messages: triage before responding ---
     let directlyAddressed = false;
     if (msg.chatType === "group") {
-      groupBuffer.push({ from: fromLabel, text: msg.text, timestamp: msg.timestamp });
+      groupBuffer.push({ from: fromLabel, text: expandedText, timestamp: msg.timestamp });
       if (groupBuffer.length > MAX_GROUP_BUFFER) groupBuffer.shift();
 
       const shouldRespond = await triageGroupMessage(ctx, msg, groupBuffer);
@@ -210,11 +293,11 @@ export function createConversationModule(bridge: ChatAdapter, workspacePath?: st
     }
 
     // --- Respond using Pi Agent ---
-    ctx.log(`${msg.chatType} from ${fromLabel}: ${msg.text.slice(0, 80)}`);
+    ctx.log(`${msg.chatType} from ${fromLabel}: ${expandedText.slice(0, 80)}`);
     await bridge.sendTyping?.(msg.from.phone || msg.from.id, msg.groupId);
 
     const memoryContext = await ctx.memory.assembleConversationContext(
-      msg.text,
+      expandedText,
       msg.from.name || undefined,
       msg.from.phone || undefined,
     );
@@ -233,8 +316,8 @@ export function createConversationModule(bridge: ChatAdapter, workspacePath?: st
     );
 
     const userContent = msg.chatType === "group"
-      ? `[Recent group conversation]\n${groupBuffer.slice(-15).map(m => `${m.from}: ${m.text}`).join("\n")}\n\n[Latest message from ${fromLabel}]\n${msg.text}`
-      : msg.text;
+      ? `[Recent group conversation]\n${groupBuffer.slice(-15).map(m => `${m.from}: ${m.text}`).join("\n")}\n\n[Latest message from ${fromLabel}]\n${expandedText}`
+      : expandedText;
 
     // Process attachments (images → vision, audio → transcription)
     const images: Array<{ type: "image"; data: string; mimeType: string }> = [];
@@ -258,8 +341,8 @@ export function createConversationModule(bridge: ChatAdapter, workspacePath?: st
     // Prepend voice transcription to user content
     let finalUserContent = userContent;
     if (voiceTranscription) {
-      finalUserContent = msg.text
-        ? `${msg.text}\n\n[Voice message transcription]: ${voiceTranscription}`
+      finalUserContent = expandedText
+        ? `${expandedText}\n\n[Voice message transcription]: ${voiceTranscription}`
         : `[Voice message]: ${voiceTranscription}`;
     }
 
@@ -355,10 +438,24 @@ export function createConversationModule(bridge: ChatAdapter, workspacePath?: st
     await ctx.memory.appendLog(`**Feyblet** ${replyTag}: ${response}`);
     ctx.log(`Response: ${response.slice(0, 300)}`);
 
+    // Quote-reply when answering a directly-addressed group message.
+    // Signal threads the reply to the original message so it's visible
+    // who feyblet is responding to. DMs don't need quoting; nudge-driven
+    // group sends never use this path (they go through the wrapped
+    // send_group_message tool).
+    const quoteFields = (msg.chatType === "group" && directlyAddressed)
+      ? {
+          quoteTimestamp: msg.id,
+          quoteAuthorUuid: msg.from.id,
+          quoteText: expandedText.slice(0, 500),
+        }
+      : {};
+
     await bridge.send({
       to: msg.from.phone || msg.from.id,
       text: response,
       groupId: msg.groupId,
+      ...quoteFields,
     });
 
     recordEvent({
@@ -386,7 +483,7 @@ export function createConversationModule(bridge: ChatAdapter, workspacePath?: st
     // Detect coordination-heavy DMs and write to active-threads for executive awareness
     if (msg.chatType === "dm") {
       const coordKeywords = /coordinat|plan|organiz|schedul|follow.?up|remind me|let.?s.*together|can you.*help.*with/i;
-      if (coordKeywords.test(msg.text) || coordKeywords.test(response)) {
+      if (coordKeywords.test(expandedText) || coordKeywords.test(response)) {
         try {
           const fs = await import("node:fs/promises");
           const path = await import("node:path");
@@ -394,7 +491,7 @@ export function createConversationModule(bridge: ChatAdapter, workspacePath?: st
           const now = new Date();
           const dateStr = now.toISOString().slice(0, 10);
           const timeStr = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-          const threadEntry = `\n## ${fromLabel} (${dateStr} ${timeStr})\n${msg.text.slice(0, 200)}\nFeyblet responded: ${response.slice(0, 200)}\n`;
+          const threadEntry = `\n## ${fromLabel} (${dateStr} ${timeStr})\n${expandedText.slice(0, 200)}\nFeyblet responded: ${response.slice(0, 200)}\n`;
           await fs.mkdir(path.dirname(threadsPath), { recursive: true });
           await fs.appendFile(threadsPath, threadEntry, "utf-8");
           ctx.log(`Active thread logged: ${fromLabel}`);

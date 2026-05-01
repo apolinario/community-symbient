@@ -204,6 +204,16 @@ export interface OutboundMessage {
   text: string;
   groupId?: string;
   attachments?: string[];
+  /** When set, the send becomes a quote-reply to the message identified
+   *  by these three fields. Adapters that don't support quoting should
+   *  ignore them silently. For Signal: `quoteTimestamp` is the integer
+   *  timestamp of the original message (used as Signal's message id).
+   *  `quoteAuthorUuid` is the original sender's UUID. `quoteText` is
+   *  the original body the recipient client uses to render the quote
+   *  preview (Signal won't show the quote preview without it). */
+  quoteTimestamp?: string;
+  quoteAuthorUuid?: string;
+  quoteText?: string;
 }
 
 // --- Symbient Config ---

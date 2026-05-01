@@ -90,6 +90,18 @@ export class SignalBridge implements ChatAdapter {
       body.base64_attachments = msg.attachments;
     }
 
+    // Quote-reply: bbernhard signal-cli-rest-api accepts these fields
+    // alongside the regular send. quote_timestamp is the original
+    // message's Signal timestamp; quote_author is the original sender's
+    // UUID; quote_message is the original body used to render the
+    // recipient's quote preview. All three need to be present for
+    // Signal to show the preview correctly.
+    if (msg.quoteTimestamp && msg.quoteAuthorUuid) {
+      body.quote_timestamp = Number(msg.quoteTimestamp);
+      body.quote_author = msg.quoteAuthorUuid;
+      if (msg.quoteText) body.quote_message = msg.quoteText;
+    }
+
     const res = await fetch(`${this.baseUrl}/v2/send`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
