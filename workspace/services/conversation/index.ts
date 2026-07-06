@@ -743,12 +743,17 @@ async function handleModuleNudge(
   agent.setTools(allowedTools);
 
   let response = "";
+  // The send tools log to memory themselves — when the agent used one,
+  // the fallback below must not deliver or log a second time.
+  let sentViaTool = false;
+  const SEND_TOOL_NAMES = new Set(["send_dm", "send_group_message", "send_voice_message"]);
   agent.subscribe((event) => {
     if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
       response += event.assistantMessageEvent.delta;
     }
     if (event.type === "tool_execution_start") {
       ctx.log(`Nudge tool: ${event.toolName}(${JSON.stringify(event.args).slice(0, 100)})`);
+      if (SEND_TOOL_NAMES.has(event.toolName)) sentViaTool = true;
     }
   });
 
@@ -772,27 +777,67 @@ async function handleModuleNudge(
     return;
   }
 
-  // Determine what to do with the response
+  if (sentViaTool) {
+    ctx.log(`Nudge from ${moduleMsg.from}: delivered via tool. Remaining note: ${response.slice(0, 100)}`);
+    return;
+  }
+
+  // Fallback delivery when the agent composed text without calling a send
+  // tool. Routes through the same (wrapped) tools the agent holds, so
+  // identifier validation, dedup, and the no-spontaneous-post gate all
+  // still apply.
   if (moduleMsg.content.startsWith("send_dm:")) {
-    // Extract the target person from the nudge content
-    const toMatch = moduleMsg.content.match(/to['":\s]+(\w[\w\s]*?)['",\}]/);
-    const to = toMatch?.[1]?.trim();
-    if (to) {
-      const person = await ctx.memory.findPerson(to);
-      if (person) {
-        // TODO: resolve to Signal ID and send — for now log
-        ctx.log(`Nudge DM to ${to}: ${response.slice(0, 100)}`);
-        await ctx.memory.appendLog(`**Feyblet** (dm to ${to}, via ${moduleMsg.from}): ${response}`);
-      }
+    const payload = parseNudgePayload(moduleMsg.content, "send_dm:");
+    // Legacy loose match for pre-JSON payloads
+    const to = payload?.to ?? moduleMsg.content.match(/to['":\s]+(\w[\w\s]*?)['",\}]/)?.[1]?.trim();
+    const dmTool = allowedTools.find((t) => t.name === "send_dm");
+    if (to && dmTool) {
+      const result = await dmTool.execute("nudge-dm-fallback", { to, message: response } as never);
+      ctx.log(`Nudge DM to ${to} (via ${moduleMsg.from}): ${toolResultText(result)}`);
+    } else {
+      ctx.log(`Nudge DM undeliverable (to=${to ?? "?"}): ${response.slice(0, 100)}`);
+      await ctx.memory.appendLog(`**Feyblet** (dm to ${to ?? "unknown"}, via ${moduleMsg.from}, undelivered): ${response}`);
     }
   } else if (moduleMsg.content.startsWith("send_group:")) {
-    ctx.log(`Nudge group message: ${response.slice(0, 100)}`);
-    await ctx.memory.appendLog(`**Feyblet** (group, via ${moduleMsg.from}): ${response}`);
-    // TODO: send to group via bridge
+    const payload = parseNudgePayload(moduleMsg.content, "send_group:");
+    const group = payload?.group ?? (await defaultGroupId(ctx.memory.workspacePath));
+    const groupTool = allowedTools.find((t) => t.name === "send_group_message");
+    if (group && groupTool) {
+      const result = await groupTool.execute("nudge-group-fallback", { group_id: group, message: response } as never);
+      ctx.log(`Nudge group post (via ${moduleMsg.from}): ${toolResultText(result)}`);
+    } else {
+      ctx.log(`Nudge group post undeliverable: ${response.slice(0, 100)}`);
+      await ctx.memory.appendLog(`**Feyblet** (group, via ${moduleMsg.from}, undelivered): ${response}`);
+    }
   } else {
     // Generic request — just log what the agent decided
     ctx.log(`Nudge response (${moduleMsg.from}): ${response.slice(0, 100)}`);
     await ctx.memory.appendLog(`**Feyblet** (via ${moduleMsg.from}): ${response}`);
+  }
+}
+
+function parseNudgePayload(content: string, prefix: string): Record<string, string> | null {
+  try {
+    const parsed = JSON.parse(content.slice(prefix.length));
+    return typeof parsed === "object" && parsed !== null ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function toolResultText(result: { content?: Array<{ type: string; text?: string }> }): string {
+  return result.content?.find((c) => c.type === "text")?.text ?? "(no result text)";
+}
+
+/** First entry in known-groups.md — the community's main group. */
+async function defaultGroupId(workspacePath: string): Promise<string | null> {
+  try {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const content = await fs.readFile(path.join(workspacePath, "community", "known-groups.md"), "utf-8");
+    return content.match(/\*\*.+?\*\*:\s*`(.+?)`/)?.[1] ?? null;
+  } catch {
+    return null;
   }
 }
 

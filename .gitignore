@@ -69,3 +69,7 @@ workspace/services/voice-call/silero_vad.onnx
 workspace/services/voice-call/uv.lock
 workspace/services/voice-call/.venv/
 workspace/services/voice-call/voice_references/
+
+# Deployment-local operations + transient state — private
+workspace/scripts/
+workspace/state/
