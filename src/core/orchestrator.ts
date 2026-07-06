@@ -15,6 +15,7 @@ import type {
 } from "./types.js";
 import { MQTTBus } from "./mqtt-bus.js";
 import { createLLMClient } from "./llm.js";
+import { createModel, getApiKey } from "./pi-model.js";
 import { createLogger } from "./logger.js";
 import { Cron } from "croner";
 
@@ -123,21 +124,22 @@ export class Orchestrator {
     signal: AbortSignal,
   ): Promise<void> {
     const modLog = createLogger(name);
-    // Bind a per-module LLM client. mod.config.model overrides config.llm.model
-    // when set; createLLMClient then honours per-call overrides on top of that.
-    const llmConfig = mod.config.model
-      ? { ...this.config.llm, model: mod.config.model }
-      : this.config.llm;
-    const llm = createLLMClient(llmConfig);
+    // Per-module LLM override: `llm:` (endpoint object) and/or `model:`
+    // (shorthand) from the module config merge over config.llm, and apply
+    // to BOTH the text-completion client and the tool-calling Agent model.
+    const override = mod.config.llm || mod.config.model
+      ? { ...this.config.llm, ...(mod.config.llm ?? {}), ...(mod.config.model ? { model: mod.config.model } : {}) }
+      : null;
+    const llm = createLLMClient(override ?? this.config.llm);
 
     const ctx: ModuleContext = {
       config: mod.config,
       memory: this.memory,
       messages: this.bus.clientFor(name),
       llm,
-      model: this.piModel,
+      model: override ? createModel(override) : this.piModel,
       tools: this.piTools,
-      apiKey: this.piApiKey,
+      apiKey: override ? getApiKey(override) : this.piApiKey,
       log: (msg: string) => modLog.info(msg),
       logDebug: (msg: string) => modLog.debug(msg),
       signal,

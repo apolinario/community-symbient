@@ -62,6 +62,10 @@ export async function loadModuleConfigs(workspacePath: string): Promise<ParsedMo
     const follows = typeof fields.follows === "string" ? fields.follows : undefined;
     const runImmediately = typeof fields.runImmediately === "boolean" ? fields.runImmediately : undefined;
     const cron = typeof fields.cron === "string" ? fields.cron : undefined;
+    const model = typeof fields.model === "string" ? fields.model : undefined;
+    const llm = fields.llm && typeof fields.llm === "object" && !Array.isArray(fields.llm)
+      ? (fields.llm as ModuleConfig["llm"])
+      : undefined;
 
     // Skip any module already owned by the built-in registry (framework
     // built-ins like schedule-checker, watch-evaluator, module-sync, plus
@@ -82,7 +86,7 @@ export async function loadModuleConfigs(workspacePath: string): Promise<ParsedMo
       : undefined;
 
     modules.push({
-      config: { name, intervalMs: interval, cron, startActive, follows, runImmediately, description: template.split("\n")[0] },
+      config: { name, intervalMs: interval, cron, startActive, follows, runImmediately, model, llm, description: template.split("\n")[0] },
       fn: createAgentModule({
         name,
         prompt: body,

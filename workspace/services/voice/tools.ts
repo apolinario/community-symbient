@@ -91,6 +91,10 @@ function parseFrontmatter(content: string): Record<string, string> {
 export function createSendVoiceMessageTool(deps: {
   workspacePath: string;
   ttsUrl: string;
+  /** Model name sent to the TTS endpoint. Default "qwen3-tts". */
+  ttsModel?: string;
+  /** Env var holding a Bearer token for hosted /v1/audio/speech endpoints. */
+  ttsApiKeyEnv?: string;
   chatAdapter: ChatAdapter;
   memory: MemoryManager;
 }): AgentTool {
@@ -152,15 +156,19 @@ export function createSendVoiceMessageTool(deps: {
         log.info(`voice=${voiceId}`);
 
         const ttsBody: Record<string, unknown> = {
-          model: "qwen3-tts",
+          model: deps.ttsModel ?? "qwen3-tts",
           voice: voiceId,
           input: params.message,
           response_format: "wav",
         };
 
+        const apiKey = deps.ttsApiKeyEnv ? process.env[deps.ttsApiKeyEnv] : undefined;
         const ttsRes = await fetch(`${deps.ttsUrl}/v1/audio/speech`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+          },
           body: JSON.stringify(ttsBody),
           signal: AbortSignal.timeout(120000),
         });

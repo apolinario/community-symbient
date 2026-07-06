@@ -52,6 +52,8 @@ export default function feyToolset(deps: ToolDeps): AgentTool[] {
       tools.push(createSendVoiceMessageTool({
         workspacePath: deps.workspacePath,
         ttsUrl,
+        ttsModel: deps.services?.tts?.model as string | undefined,
+        ttsApiKeyEnv: deps.services?.tts?.apiKeyEnv as string | undefined,
         chatAdapter: deps.chatAdapter,
         memory: deps.memory,
       }));

@@ -26,6 +26,18 @@ export interface ModuleConfig {
   startActive: boolean;
   /** LLM model to use for this module's reasoning. */
   model?: string;
+  /**
+   * Per-module LLM endpoint override, merged over the deployment's
+   * `config.llm` — lets one module escalate to a bigger or hosted model
+   * (e.g. magi deliberating on a frontier API while everything else runs
+   * local). `model` above is shorthand for `llm: { model }`.
+   */
+  llm?: {
+    provider?: string;
+    model?: string;
+    baseUrl?: string;
+    apiKeyEnv?: string;
+  };
   /** If set, this module runs after the named module completes instead of on a timer. */
   follows?: string;
   /**
@@ -262,17 +274,21 @@ export interface SymbientConfig {
   };
   llm: {
     /**
-     * Provider identifier — informational only. The framework currently
-     * always speaks the OpenAI-completions API regardless of this value;
-     * route to a different backend by pointing `baseUrl` at it (e.g.
-     * Ollama or LM Studio expose the same shape locally). Pre-defined
-     * names ("anthropic" | "openai" | "ollama") are accepted for
-     * convenience; any string is allowed.
+     * Provider identifier. With no `baseUrl`, a provider the Pi SDK knows
+     * ("anthropic", "openai", ...) resolves `model` from the SDK registry
+     * and speaks that provider's native API. With a `baseUrl` (or an
+     * unknown provider/model), the framework speaks OpenAI-completions to
+     * it — llama.cpp, LM Studio, Ollama, and vLLM all expose that shape.
      */
     provider: "anthropic" | "openai" | "ollama" | (string & {});
     model: string;
     apiKey?: string;
+    /** Env var holding the API key, e.g. "ANTHROPIC_API_KEY". */
+    apiKeyEnv?: string;
     baseUrl?: string;
+    /** Context window / completion cap for compat endpoints the SDK can't introspect. */
+    contextWindow?: number;
+    maxTokens?: number;
     /**
      * Optional smaller/faster model for minor tasks (time parsing,
      * temporal rewrites, image descriptions). If omitted, the main
@@ -297,6 +313,11 @@ export interface SymbientConfig {
    *     `/query {searches:[{type:"vec"|"lex",query}], collections, limit}`.
    *   - `services.searxng.url` — optional; enables `web_search` tool.
    *   - `services.whisper.url` — optional; enables voice-message transcription.
+   *   - `services.tts.url` — optional; enables voice tools. Any endpoint
+   *     speaking the OpenAI `/v1/audio/speech` shape works (local Qwen3-TTS,
+   *     hosted OpenAI, a compat proxy). `services.tts.model` overrides the
+   *     model name sent (default "qwen3-tts"); `services.tts.apiKeyEnv`
+   *     names an env var to send as a Bearer token for hosted endpoints.
    *
    * All other keys are deployment-defined.
    */
