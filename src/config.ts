@@ -9,6 +9,7 @@
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { SymbientConfig } from "./core/types.js";
+import { validateConfig } from "./core/config-schema.js";
 
 /**
  * Build the env-derived default config. Computed inside loadConfig() rather
@@ -74,7 +75,17 @@ export async function loadConfig(): Promise<SymbientConfig> {
     console.log(`Loaded config from ${usedPath}`);
   }
 
-  return deepMerge(buildDefaultConfig(), fileConfig) as SymbientConfig;
+  const merged = deepMerge(buildDefaultConfig(), fileConfig) as SymbientConfig;
+
+  // Fail loudly at startup on a structurally broken config — a symbient
+  // half-booting on garbage is worse than not booting.
+  const problems = validateConfig(merged);
+  if (problems.length > 0) {
+    for (const p of problems) console.error(`Config error — ${p}`);
+    throw new Error(`Invalid config (${usedPath ?? "defaults"}): ${problems.length} problem(s), see above.`);
+  }
+
+  return merged;
 }
 
 function deepMerge(target: Record<string, any>, source: Record<string, any>): Record<string, any> {

@@ -16,6 +16,7 @@
     "@mariozechner/pi-agent-core": "file:../pi-mono/packages/agent",
     "@mariozechner/pi-ai": "file:../pi-mono/packages/ai",
     "@mariozechner/pi-coding-agent": "file:../pi-mono/packages/coding-agent",
+    "@sinclair/typebox": "^0.34.49",
     "better-sqlite3": "^11.7.0",
     "croner": "^10.0.1",
     "glob": "^11.0.0",
