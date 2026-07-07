@@ -1,0 +1,27 @@
+# Optional sidecar containers. Enable per component:
+#   docker compose -f infra/compose.yaml up -d searxng
+#   docker compose -f infra/compose.yaml up -d signal-api
+services:
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    ports:
+      - "127.0.0.1:4000:8080"
+    volumes:
+      - ./searxng-settings.yml:/etc/searxng/settings.yml
+    restart: always
+
+  signal-api:
+    image: bbernhard/signal-cli-rest-api:latest
+    container_name: signal-api
+    environment:
+      # json-rpc keeps the websocket /v1/receive stream the chat adapter uses
+      - MODE=json-rpc
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - signal-data:/home/.local/share/signal-cli
+    restart: always
+
+volumes:
+  signal-data:

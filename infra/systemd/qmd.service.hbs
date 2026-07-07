@@ -1,0 +1,17 @@
+[Unit]
+Description=QMD — markdown search daemon (BM25 + vectors + rerank)
+After=network.target
+
+[Service]
+Type=simple
+User={{user}}
+WorkingDirectory={{repoDir}}
+ExecStart={{qmdExec}} mcp --http --port {{qmdPort}}
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=qmd
+
+[Install]
+WantedBy=multi-user.target

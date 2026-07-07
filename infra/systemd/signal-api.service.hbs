@@ -1,0 +1,15 @@
+[Unit]
+Description=Signal REST API (signal-cli-rest-api container)
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User={{user}}
+WorkingDirectory={{repoDir}}/infra
+ExecStart=/usr/bin/docker compose -f compose.yaml up -d signal-api
+ExecStop=/usr/bin/docker compose -f compose.yaml stop signal-api
+
+[Install]
+WantedBy=multi-user.target

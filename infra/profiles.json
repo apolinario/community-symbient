@@ -1,0 +1,30 @@
+{
+  "full-local": {
+    "describe": "24 GB+ VRAM (or multi-GPU). Everything local — the reference experience.",
+    "units": ["symbient", "qmd"],
+    "optionalUnits": ["searxng", "signal-api", "signal-watchdog"],
+    "llm": "Serve a 30-35B-class MoE at Q4 with llama.cpp / LM Studio / Ollama / vLLM and point config.llm.baseUrl at it. See docs/choosing-your-llm.md.",
+    "search": "qmd with GPU embeddings and reranking on — best quality."
+  },
+  "small-gpu": {
+    "describe": "8-16 GB VRAM. Fully local with a smaller model.",
+    "units": ["symbient", "qmd"],
+    "optionalUnits": ["searxng", "signal-api", "signal-watchdog"],
+    "llm": "Serve a 4-14B model at Q4 locally. See docs/choosing-your-llm.md for the tier table.",
+    "search": "qmd with GPU embeddings and reranking on."
+  },
+  "cpu-only": {
+    "describe": "No GPU. Local memory + search; inference is the honest tradeoff.",
+    "units": ["symbient", "qmd"],
+    "optionalUnits": ["searxng", "signal-api", "signal-watchdog"],
+    "llm": "Small GGUF models run on CPU but cycle slowly; a hosted API (config.llm.provider anthropic/openai + apiKeyEnv) is usually the honest choice — memory stays local, prompts reach the provider.",
+    "search": "qmd runs its GGUF embedding model on CPU — fine for thousands of markdown docs. Skip reranking (use search/vsearch, not query). If indexing is still too slow: set services.search.backend to \"local-bm25\" (zero-dep, built in) or use a hosted embedding API — with the data-locality tradeoff that implies."
+  },
+  "api-first": {
+    "describe": "Hosted LLM, local everything else.",
+    "units": ["symbient"],
+    "optionalUnits": ["qmd", "searxng", "signal-api", "signal-watchdog"],
+    "llm": "config.llm { provider: \"anthropic\" | \"openai\", model, apiKeyEnv } — no baseUrl. Memory stays on disk here; prompts quoting it reach the provider.",
+    "search": "qmd on CPU or services.search.backend \"local-bm25\"."
+  }
+}

@@ -1,0 +1,15 @@
+[Unit]
+Description=SearXNG — self-hosted web search
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User={{user}}
+WorkingDirectory={{repoDir}}/infra
+ExecStart=/usr/bin/docker compose -f compose.yaml up -d searxng
+ExecStop=/usr/bin/docker compose -f compose.yaml stop searxng
+
+[Install]
+WantedBy=multi-user.target

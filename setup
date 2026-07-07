@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Symbient setup — see scripts/setup/index.ts and infra/profiles.json.
+set -e
+cd "$(dirname "$0")"
+command -v node >/dev/null 2>&1 || { echo "Error: Node.js 20+ is required."; exit 1; }
+[ -d node_modules ] || npm install
+exec npx tsx scripts/setup/index.ts "$@"

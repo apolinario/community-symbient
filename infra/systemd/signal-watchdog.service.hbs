@@ -1,0 +1,13 @@
+[Unit]
+Description=Signal REST API watchdog
+After=docker.service {{name}}.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Environment=FEYBLET_UNIT={{name}}.service
+ExecStart={{repoDir}}/scripts/signal-watchdog.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=signal-watchdog

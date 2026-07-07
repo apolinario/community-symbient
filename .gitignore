@@ -73,3 +73,6 @@ workspace/services/voice-call/voice_references/
 # Deployment-local operations + transient state — private
 workspace/scripts/
 workspace/state/
+
+# setup output — rendered per machine
+infra/rendered/
