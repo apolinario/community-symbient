@@ -12,8 +12,8 @@
  */
 
 import { execSync, spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, readdirSync, writeFileSync, existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { mkdirSync, readFileSync, readdirSync, writeFileSync, existsSync, cpSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
 import { userInfo } from "node:os";
 import Handlebars from "handlebars";
 import { loadConfig } from "../../src/config.js";
@@ -69,8 +69,42 @@ async function ping(label: string, url: string): Promise<string> {
   }
 }
 
+function initCommand(args: string[]): void {
+  const template = args.find((a) => !a.startsWith("--")) ?? "minimal";
+  const flag = (name: string) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : undefined; };
+  const into = flag("into") ? resolve(flag("into")!) : null;
+  const tmplDir = join(repoDir, "starter-templates", template);
+  if (!existsSync(tmplDir)) {
+    console.error(`Unknown template "${template}". Available: ${readdirSync(join(repoDir, "starter-templates")).join(", ")}`);
+    process.exit(1);
+  }
+  if (!into) {
+    console.error("Usage: ./setup init <minimal|community> --into <dir> [--name <symbient-name>]");
+    process.exit(1);
+  }
+  if (existsSync(join(into, "workspace"))) {
+    console.error(`${join(into, "workspace")} already exists — refusing to overwrite.`);
+    process.exit(1);
+  }
+  const name = flag("name") ?? basename(into);
+  mkdirSync(into, { recursive: true });
+  cpSync(join(tmplDir, "workspace"), join(into, "workspace"), { recursive: true });
+  const tmplConfig = JSON.parse(readFileSync(join(into, "workspace", "config", "config.json"), "utf-8"));
+  const configPath = join(into, "config.json");
+  writeFileSync(configPath, JSON.stringify({ ...tmplConfig, name, workspacePath: join(into, "workspace") }, null, 2) + "\n");
+  console.log(`Initialized "${name}" from the ${template} template at ${into}
+
+Next:
+  1. Write ${into}/workspace/SOUL.md — who is this symbient?
+  2. Point llm at your endpoint in ${configPath} — see docs/choosing-your-llm.md
+  3. Configure the chat adapter (adapters.chat), or leave it null to start
+  4. Run:  SYMBIENT_CONFIG=${configPath} npx tsx src/index.ts   (from ${repoDir})
+  5. For systemd units:  SYMBIENT_CONFIG=${configPath} ./setup --profile <p>`);
+}
+
 async function main() {
   const args = process.argv.slice(2);
+  if (args[0] === "init") return initCommand(args.slice(1));
   const getFlag = (name: string): string | undefined => {
     const i = args.indexOf(`--${name}`);
     return i >= 0 ? args[i + 1] : undefined;
@@ -112,6 +146,8 @@ async function main() {
     qmdPort: new URL(config?.services?.search?.url ?? "http://localhost:8181").port || "8181",
     withQmd: unitNames.includes("qmd"),
     withSearxng: unitNames.includes("searxng"),
+    // External deployments run with SYMBIENT_CONFIG pointing at their dir
+    configPath: process.env.SYMBIENT_CONFIG ?? "",
   };
 
   mkdirSync(outDir, { recursive: true });

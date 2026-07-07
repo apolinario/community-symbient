@@ -1,0 +1,53 @@
+name: CI
+on:
+  push:
+    branches: [alpha-rc, generic-framework, main]
+  pull_request:
+
+env:
+  # Pi SDK is consumed as file:../pi-mono — build it at the pinned commit.
+  PI_MONO_REF: 576e5e1a2fbe1abbbad96b696f4058cffd8391ca
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: symbient
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Cache pi-mono build
+        id: pi-mono-cache
+        uses: actions/cache@v4
+        with:
+          path: pi-mono
+          key: pi-mono-${{ env.PI_MONO_REF }}
+
+      - name: Build pi-mono (pinned)
+        if: steps.pi-mono-cache.outputs.cache-hit != 'true'
+        run: |
+          git init pi-mono
+          cd pi-mono
+          git remote add origin https://github.com/badlogic/pi-mono.git
+          git fetch --depth 1 origin "$PI_MONO_REF"
+          git checkout FETCH_HEAD
+          npm ci
+          for p in tui ai agent coding-agent; do (cd "packages/$p" && npm run build); done
+
+      - name: Install
+        run: cd symbient && npm install
+
+      # tsc gate intentionally absent: src/ carries pre-existing type errors
+      # under tsx (tracked for cleanup). Add `npx tsc --noEmit` here once zeroed.
+      - name: Unit tests
+        run: cd symbient && npm test
+
+      - name: Boot smoke (cpu-only shape — local-bm25, mock LLM, no GPU)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq mosquitto
+          sudo systemctl start mosquitto
+          cd symbient && npm run smoke

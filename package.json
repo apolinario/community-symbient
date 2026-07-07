@@ -9,7 +9,8 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "smoke": "tsx scripts/smoke/boot-smoke.ts"
   },
   "dependencies": {
     "@jsep-plugin/regex": "^1.0.4",

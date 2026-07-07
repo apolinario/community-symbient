@@ -9,6 +9,8 @@ User={{user}}
 WorkingDirectory={{repoDir}}
 EnvironmentFile=-{{repoDir}}/.env
 Environment=NODE_OPTIONS=--dns-result-order=ipv4first
+{{#if configPath}}Environment=SYMBIENT_CONFIG={{configPath}}
+{{/if}}
 ExecStart={{npxBin}} tsx src/index.ts
 Restart=always
 RestartSec=10
