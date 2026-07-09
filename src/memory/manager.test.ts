@@ -5,7 +5,7 @@ import path from "node:path";
 import os from "node:os";
 
 function tmpWorkspace(): string {
-  const dir = path.join(os.tmpdir(), `feyblet-ws-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = path.join(os.tmpdir(), `symbient-ws-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -62,7 +62,7 @@ describe("MemoryManager", () => {
 
   describe("readSoul / readMemory", () => {
     it("reads SOUL.md when it exists", async () => {
-      await mm.writeFile("SOUL.md", "# Feyblet\nI am a symbient.");
+      await mm.writeFile("SOUL.md", "# Willow\nI am a symbient.");
       const soul = await mm.readSoul();
       expect(soul).toContain("symbient");
     });
@@ -131,12 +131,12 @@ describe("MemoryManager", () => {
 
   describe("assembleContext", () => {
     it("includes SOUL and MEMORY when they exist", async () => {
-      await mm.writeFile("SOUL.md", "I am Feyblet.");
+      await mm.writeFile("SOUL.md", "I am Willow.");
       await mm.writeFile("MEMORY.md", "I remember things.");
 
       const ctx = await mm.assembleContext();
       expect(ctx).toContain("<soul>");
-      expect(ctx).toContain("I am Feyblet.");
+      expect(ctx).toContain("I am Willow.");
       expect(ctx).toContain("<memory>");
       expect(ctx).toContain("I remember things.");
     });

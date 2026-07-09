@@ -14,7 +14,7 @@ export interface ModuleConfig {
   /**
    * Optional cron expression (5-field, e.g. "0 12 * * *"). When set, the
    * orchestrator schedules each cycle for the cron's next-fire time instead
-   * of waiting `intervalMs`. If feyblet is down at the scheduled time, the
+   * of waiting `intervalMs`. If the symbient is down at the scheduled time, the
    * tick is missed — no catch-up. Use this for capabilities that need to
    * fire at specific clock times (daily-at-noon, weekdays-at-9am) rather
    * than every-N-minutes. `intervalMs` is still required as a hard upper

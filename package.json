@@ -1,8 +1,9 @@
 {
-  "name": "feyblet",
+  "name": "community-symbient",
   "version": "0.1.0",
   "type": "module",
-  "description": "Feyblet - A community symbient built on Pi SDK with CMA-inspired concurrent modules",
+  "license": "MIT",
+  "description": "Framework for community symbients — concurrent modular agents with markdown memory, built on the Pi SDK",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

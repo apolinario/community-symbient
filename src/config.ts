@@ -51,12 +51,10 @@ async function readJsonIfExists(path: string): Promise<Partial<SymbientConfig> |
 }
 
 export async function loadConfig(): Promise<SymbientConfig> {
-  // SYMBIENT_CONFIG is the canonical env var. FEYBLET_CONFIG is honoured
-  // as a fallback so existing deployments keep working through the rename.
-  const explicitPath = process.env.SYMBIENT_CONFIG || process.env.FEYBLET_CONFIG;
+  const explicitPath = process.env.SYMBIENT_CONFIG;
   const candidates = explicitPath
     ? [explicitPath]
-    : [join("config", "symbient.json"), join("config", "feyblet.json")];
+    : [join("config", "symbient.json")];
 
   let fileConfig: Partial<SymbientConfig> | null = null;
   let usedPath: string | null = null;

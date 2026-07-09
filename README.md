@@ -91,5 +91,6 @@ private memory is not in the repo; yours won't be either (see `.gitignore`).
 ## Status
 
 Pre-release, working toward open publication — roadmap in the issues
-(spec: `docs/specs/generic-community-harness.md`). License to be finalized
-before the public flip.
+(spec: `docs/specs/generic-community-harness.md`).
+
+MIT license.

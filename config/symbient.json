@@ -27,10 +27,7 @@
       }
     }
   },
-  "mcp_servers": [
-    { "name": "radio", "url": "http://192.168.10.97:8001/mcp" },
-    { "name": "phonebooth", "url": "http://192.168.10.97:3001/mcp" }
-  ],
+  "mcp_servers": [],
   "services": {
     "search": { "url": "http://localhost:8181" },
     "whisper": { "url": "http://localhost:8001" },
