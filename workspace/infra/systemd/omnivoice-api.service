@@ -1,0 +1,25 @@
+[Unit]
+Description=OmniVoice — OpenAI-compatible TTS API (600+ languages)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=plantoidz
+WorkingDirectory=/home/plantoidz/OmniVoice-API
+Environment=PATH=/home/plantoidz/OmniVoice-API/.venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PORT=8000
+Environment=OMNIVOICE_MODEL=k2-fsa/OmniVoice
+Environment=OMNIVOICE_DEVICE=cuda:1
+Environment=OMNIVOICE_LOAD_ASR=false
+Environment=PYTHONPATH=/home/plantoidz/OmniVoice
+Environment=VOICE_LIBRARY_DIR=/home/plantoidz/Documents/Qwen3-TTS-Openai-Fastapi/voice_library
+Environment=HF_HUB_OFFLINE=1
+ExecStart=/home/plantoidz/OmniVoice-API/.venv/bin/python3 -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 1
+StandardOutput=append:/home/plantoidz/OmniVoice-API/omnivoice.log
+StandardError=append:/home/plantoidz/OmniVoice-API/omnivoice.log
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

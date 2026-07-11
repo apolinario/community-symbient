@@ -7,7 +7,7 @@ data/
 .desloppify/
 .claude/
 heretic/
-feyops-ui/dist/
+workspace/feyops-ui/dist/
 conversation-log.jsonl
 package-lock.json
 
