@@ -42,6 +42,11 @@ Then:
 SYMBIENT_CONFIG=../my-symbient/config.json npx tsx src/index.ts
 ```
 
+Every config field is documented in [config/README.md](config/README.md),
+with a complete sample at `config/symbient.example.json` (an in-repo
+deployment can just `cp` it to `config/symbient.json` — gitignored by
+default).
+
 To run as a service: `SYMBIENT_CONFIG=... ./setup --profile <p>` renders
 systemd units into `infra/rendered/` and prints the install commands.
 Sidecar containers (SearXNG web search, Signal REST API) live in

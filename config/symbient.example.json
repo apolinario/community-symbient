@@ -1,0 +1,49 @@
+{
+  "name": "my-symbient",
+  "workspacePath": "./workspace",
+  "workspace": {
+    "writablePaths": ["inner/"]
+  },
+  "mqtt": {
+    "brokerUrl": "localhost",
+    "port": 1883
+  },
+  "llm": {
+    "provider": "openai",
+    "model": "Qwen3.6-8B-Q4_K_M.gguf",
+    "baseUrl": "http://localhost:1234",
+    "tinyModel": "",
+    "tinyBaseUrl": ""
+  },
+  "services": {
+    "search": { "backend": "local-bm25" },
+    "whisper": { "url": "" },
+    "tts": { "url": "", "model": "", "apiKeyEnv": "" },
+    "searxng": { "url": "" }
+  },
+  "adapters": {
+    "chat": {
+      "adapter": "signal",
+      "params": {
+        "account": "+1XXXXXXXXXX",
+        "httpHost": "127.0.0.1",
+        "httpPort": 8080,
+        "dmPolicy": "open",
+        "groupPolicy": "open",
+        "allowFrom": [],
+        "groupAllowFrom": []
+      }
+    },
+    "directory": null
+  },
+  "scheduling": {
+    "defaultTarget": "conversation"
+  },
+  "mcp_servers": [],
+  "modules": {
+    "thinking": { "intervalMs": 10800000 },
+    "desire": { "intervalMs": 3600000 },
+    "magi": { "intervalMs": 21600000, "startActive": false },
+    "autobiographical": { "intervalMs": 21600000 }
+  }
+}
