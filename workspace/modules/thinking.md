@@ -1,6 +1,6 @@
 ---
 name: thinking
-interval: 30m
+interval: 48h
 tools: [search, read, edit, grep, lookup_person]
 dashboardFiles: [inner/current-state.md]
 dashboardLogTag: "Feyblet thinking"

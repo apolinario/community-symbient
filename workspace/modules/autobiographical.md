@@ -1,6 +1,6 @@
 ---
 name: autobiographical
-interval: 6h
+interval: 72h
 runImmediately: true
 tools: [search, read, write, edit, grep, find, lookup_person, check_bookings, chat_history]
 startActive: true

@@ -67,7 +67,9 @@ export function createSendDMTool(deps: MessagingDeps): AgentTool {
       const VALID_PHONE = /^\+\d{6,16}$/;
       const goodPhone = phone && VALID_PHONE.test(phone) ? phone : null;
       const goodUuid = uuid && VALID_UUID.test(uuid) ? uuid : null;
-      const chatId = goodPhone || goodUuid;
+      // UUID is Signal's canonical identity; phones can go stale when someone
+      // re-registers on a new number (Sofi's old phone 400s, her UUID works).
+      const chatId = goodUuid || goodPhone;
 
       if (!chatId) {
         const reason = phone || uuid

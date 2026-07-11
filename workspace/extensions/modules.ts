@@ -83,18 +83,18 @@ export default function feySetup(deps: WorkspaceModulesDeps): unknown[] {
   });
 
   registerBuiltInModule("sauna", {
-    config: { name: "sauna", intervalMs: 60_000, startActive: true },
+    config: { name: "sauna", intervalMs: 24 * 60 * 60_000, startActive: true },
     factory: () => createSaunaModule(),
   });
 
   registerBuiltInModule("bookings", {
-    config: { name: "bookings", intervalMs: 30 * 60_000, startActive: true, runImmediately: true, description: "FeyOps arrivals/departures" },
+    config: { name: "bookings", intervalMs: 30 * 60_000, startActive: false, runImmediately: true, description: "FeyOps arrivals/departures" },
     factory: (d) => createBookingsModule(d.directory as unknown as FeyOpsDB),
     requires: ["directory"],
   });
 
   registerBuiltInModule("people-sync", {
-    config: { name: "people-sync", intervalMs: 30 * 60_000, startActive: true, description: "Create/enrich person files from bookings + messages" },
+    config: { name: "people-sync", intervalMs: 30 * 60_000, startActive: false, description: "Create/enrich person files from bookings + messages" },
     factory: (d) => createPeopleSyncModule(d.directory as unknown as FeyOpsDB, d.memory),
     requires: ["directory"],
   });
@@ -106,7 +106,7 @@ export default function feySetup(deps: WorkspaceModulesDeps): unknown[] {
   });
 
   registerBuiltInModule("radio-calendar", {
-    config: { name: "radio-calendar", intervalMs: 5 * 60_000, startActive: true, description: "Process scheduled radio calendar items" },
+    config: { name: "radio-calendar", intervalMs: 5 * 60_000, startActive: false, description: "Process scheduled radio calendar items" },
     factory: () => createRadioModule(),
   });
 

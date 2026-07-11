@@ -1,20 +1,22 @@
 #!/bin/bash
 # Start llama.cpp servers for Feyblet
-# 27B: auto-split across both GPUs, 64K context, parallel 2
-# LFM: 5090 only via CUDA_VISIBLE_DEVICES
-# TTS: 5090 via systemd (separate service)
+# Main: Qwen3.6-35B-A3B (MoE, 3B active params), no vision (mmproj kept on
+# disk for later — set SYMBIENT_VISION_ENABLED in feyblet.service to mirror).
+# Tensor-split 7,3 — 5090 majority, 4090 carries the rest.
+# Tiny: LFM2.5-VL on 5090 only (vision-capable, separate port for tools).
 
 # Clean slate: no CUDA env bleed from parent.
-# Without these two lines, tensor-split can silently invert or become
-# a no-op depending on how CUDA_VISIBLE_DEVICES was inherited.
 unset CUDA_VISIBLE_DEVICES
 # Pin CUDA device ordering to PCI bus order so indices are stable across reboots.
 # Bus 01:00 = 5090 = Device 0; bus 02:00 = 4090 = Device 1.
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 
 LLAMA_SERVER="/home/plantoidz/llama-cpp-build/build/bin/llama-server"
-MAIN_MODEL="/home/plantoidz/.cache/lm-studio/models/lmstudio-community/Qwen3.6-27B-GGUF/Qwen3.6-27B-Q4_K_M.gguf"
-MAIN_MMPROJ="/home/plantoidz/.cache/lm-studio/models/lmstudio-community/Qwen3.6-27B-GGUF/mmproj-Qwen3.6-27B-BF16.gguf"
+MAIN_MODEL="/home/plantoidz/.cache/lm-studio/models/unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
+# Vision adapter for the main model — kept on disk so flipping vision back
+# on later is a one-line uncomment in start_main(). Leave commented while
+# SYMBIENT_VISION_ENABLED=false to save VRAM.
+MAIN_MMPROJ="/home/plantoidz/.cache/lm-studio/models/unsloth/Qwen3.6-35B-A3B-GGUF/mmproj-F16.gguf"
 TINY_MODEL="/home/plantoidz/.cache/lm-studio/models/LiquidAI/LFM2.5-VL-1.6B-GGUF/LFM2.5-VL-1.6B-Q4_0.gguf"
 TINY_MMPROJ="/home/plantoidz/.cache/lm-studio/models/LiquidAI/LFM2.5-VL-1.6B-GGUF/mmproj-LFM2.5-VL-1.6b-Q8_0.gguf"
 MAIN_PORT=1234
@@ -40,14 +42,14 @@ wait_for() {
 start_main() {
     if curl -s --max-time 2 "http://localhost:$MAIN_PORT/v1/models" > /dev/null 2>&1; then
         echo "[llm] main already running"; return; fi
-    echo "[llm] Starting main (128K context, parallel 2, tensor-split 7,3 — 5090 majority)..."
+    echo "[llm] Starting main (Qwen3.6-35B-A3B Q4_K_M, 128K context, parallel 2, tensor-split 9,1 — vision OFF)..."
     $LLAMA_SERVER \
         -m "$MAIN_MODEL" \
-        --mmproj "$MAIN_MMPROJ" \
         --host 0.0.0.0 --port "$MAIN_PORT" \
-        -ngl 99 --tensor-split 7,3 \
+        -ngl 99 --tensor-split 9,1 \
         -c 131072 --parallel 2 --jinja \
         > /tmp/llama-main.log 2>&1 &
+    # To re-enable vision: add `--mmproj "$MAIN_MMPROJ" \` between -m and --host above.
     wait_for "main" "$MAIN_PORT"
 }
 

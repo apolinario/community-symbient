@@ -1,6 +1,6 @@
 ---
 name: desire
-interval: 1h
+interval: 72h
 tools: [search, read, edit, grep, lookup_person, check_bookings]
 dashboardFiles: [inner/current-desire.md]
 dashboardLogTag: "Feyblet desire"
