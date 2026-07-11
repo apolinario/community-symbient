@@ -55,7 +55,6 @@ workspace/community/known-groups.md
 
 # Machine-specific operational scripts and units
 scripts/backfill-summaries.sh
-scripts/signal-watchdog.sh
 signal-watchdog.service
 signal-watchdog.timer
 
@@ -76,3 +75,4 @@ workspace/state/
 
 # setup output — rendered per machine
 infra/rendered/
+workspace/recordings/
