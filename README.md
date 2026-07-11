@@ -81,12 +81,15 @@ Per-module LLM escalation: a module's frontmatter can carry its own
 - [Extending the framework](docs/extending.md) — the `workspace/extensions/` seams
 - [Upgrading](docs/upgrading.md) — why framework updates never touch your workspace
 
-## The reference deployment
+## Deployments
 
-**Feÿ** (feyblet) — the symbient of Château du Feÿ — lives in this repo as
-the worked example: its modules under `workspace/modules/`, its extensions
-under `workspace/extensions/`, its infra as the templates in `infra/`. Its
-private memory is not in the repo; yours won't be either (see `.gitignore`).
+A deployment (the symbient itself — workspace, config, machine-specific
+units) lives in its **own repo**, scaffolded by `./setup init`; this repo
+never tracks one (`/workspace/` and `/config/symbient.json` are ignored by
+default, so private memory can't leak into the distribution). **Feÿ** —
+the symbient of Château du Feÿ and the origin of this framework — runs
+from its own private repo this way; the `community` starter template is
+its generalized shape.
 
 ## Status
 

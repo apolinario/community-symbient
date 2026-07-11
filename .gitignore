@@ -76,3 +76,9 @@ workspace/state/
 # setup output — rendered per machine
 infra/rendered/
 workspace/recordings/
+
+# Deployments live in their own repos (zero-km data); the framework repo never tracks one
+/workspace/
+/config/symbient.json
+/scripts/start-llm.sh
+/data/

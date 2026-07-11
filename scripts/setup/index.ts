@@ -12,7 +12,7 @@
  */
 
 import { execSync, spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, readdirSync, writeFileSync, existsSync, cpSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, writeFileSync, existsSync, cpSync, symlinkSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { userInfo } from "node:os";
 import Handlebars from "handlebars";
@@ -89,6 +89,12 @@ function initCommand(args: string[]): void {
   const name = flag("name") ?? basename(into);
   mkdirSync(into, { recursive: true });
   cpSync(join(tmplDir, "workspace"), join(into, "workspace"), { recursive: true });
+  // Workspace extensions import framework internals via relative ../src
+  // paths and npm packages by bare specifier — both resolve from the
+  // extension file's location, so the deployment dir links back here.
+  for (const link of ["src", "node_modules"]) {
+    try { symlinkSync(join(repoDir, link), join(into, link)); } catch { /* exists */ }
+  }
   const tmplConfig = JSON.parse(readFileSync(join(into, "workspace", "config", "config.json"), "utf-8"));
   const configPath = join(into, "config.json");
   writeFileSync(configPath, JSON.stringify({ ...tmplConfig, name, workspacePath: join(into, "workspace") }, null, 2) + "\n");

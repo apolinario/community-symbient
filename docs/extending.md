@@ -42,8 +42,8 @@ export default function myTools(deps): AgentTool[] {
 }
 ```
 
-The contracts live in `src/core/extension-loader.ts`; the Feÿ deployment's
-own extensions in this repo are the reference implementations.
+The contracts live in `src/core/extension-loader.ts`; the starter
+templates' extensions are the reference implementations.
 
 Tool tips: parameters use TypeBox (`Type` from `@mariozechner/pi-ai`) — the
 same schema language the config validator uses. Return

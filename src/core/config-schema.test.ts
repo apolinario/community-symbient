@@ -3,9 +3,14 @@ import { validateConfig } from "./config-schema.js";
 import { loadConfig } from "../config.js";
 
 describe("validateConfig", () => {
-  it("accepts the deployment's actual merged config", async () => {
-    const config = await loadConfig();
-    expect(validateConfig(config)).toEqual([]);
+  it("accepts a starter-template config merged over defaults", async () => {
+    process.env.SYMBIENT_CONFIG = "starter-templates/minimal/workspace/config/config.json";
+    try {
+      const config = await loadConfig();
+      expect(validateConfig(config)).toEqual([]);
+    } finally {
+      delete process.env.SYMBIENT_CONFIG;
+    }
   });
 
   it("rejects a misshaped llm block", () => {
