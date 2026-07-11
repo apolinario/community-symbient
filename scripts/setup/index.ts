@@ -95,6 +95,13 @@ function initCommand(args: string[]): void {
   for (const link of ["src", "node_modules"]) {
     try { symlinkSync(join(repoDir, link), join(into, link)); } catch { /* exists */ }
   }
+  // Without a type:module package.json in the deployment dir, Node treats
+  // the workspace's .ts files as CommonJS and their imports of ESM-only
+  // packages (pi-ai) fail at extension load.
+  writeFileSync(join(into, "package.json"), JSON.stringify({
+    name, private: true, type: "module",
+    description: `${name} — a symbient deployment on the community-symbient framework`,
+  }, null, 2) + "\n");
   const tmplConfig = JSON.parse(readFileSync(join(into, "workspace", "config", "config.json"), "utf-8"));
   const configPath = join(into, "config.json");
   writeFileSync(configPath, JSON.stringify({ ...tmplConfig, name, workspacePath: join(into, "workspace") }, null, 2) + "\n");
