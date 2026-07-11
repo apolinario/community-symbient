@@ -25,7 +25,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: pi-mono
-          key: pi-mono-${{ env.PI_MONO_REF }}
+          key: pi-mono-${{ env.PI_MONO_REF }}-v2
 
       - name: Build pi-mono (pinned)
         if: steps.pi-mono-cache.outputs.cache-hit != 'true'
@@ -36,7 +36,13 @@ jobs:
           git fetch --depth 1 origin "$PI_MONO_REF"
           git checkout FETCH_HEAD
           npm ci
-          for p in tui ai agent coding-agent; do (cd "packages/$p" && npm run build); done
+          # ai's `npm run build` regenerates its model registry from live
+          # provider APIs — not reproducible at a pinned SHA. Compile from
+          # the checked-in registry instead.
+          (cd packages/tui && npm run build)
+          (cd packages/ai && npx tsgo -p tsconfig.build.json)
+          (cd packages/agent && npm run build)
+          (cd packages/coding-agent && npm run build)
 
       - name: Install
         run: cd symbient && npm install
