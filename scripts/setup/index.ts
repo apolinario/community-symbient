@@ -69,6 +69,9 @@ function deploymentDir(): string {
 function resolveQmdExec(): string {
   const direct = sh("command -v qmd");
   if (direct) return direct;
+  // bun's global bin dir is often missing from PATH (e.g. Homebrew bun)
+  const bunGlobal = join(userInfo().homedir, ".bun", "bin", "qmd");
+  if (existsSync(bunGlobal)) return bunGlobal;
   const bun = sh("command -v bun");
   if (bun) return `${bun} x @tobilu/qmd`;
   const npx = sh("command -v npx") ?? "/usr/bin/npx";
