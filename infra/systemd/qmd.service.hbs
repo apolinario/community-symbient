@@ -6,6 +6,7 @@ After=network.target
 Type=simple
 User={{user}}
 WorkingDirectory={{repoDir}}
+Environment=QMD_HOST=127.0.0.1
 ExecStart={{qmdExec}} mcp --http --port {{qmdPort}}
 Restart=always
 RestartSec=5

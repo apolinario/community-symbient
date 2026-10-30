@@ -11,7 +11,11 @@
     <string>exec {{qmdExec}} mcp --http --port {{qmdPort}}</string>
   </array>
   <key>EnvironmentVariables</key>
-  <dict><key>PATH</key><string>{{path}}</string></dict>
+  <dict>
+    <key>PATH</key><string>{{path}}</string>
+    <!-- pin IPv4: macOS resolves localhost to ::1, symbients dial ipv4first -->
+    <key>QMD_HOST</key><string>127.0.0.1</string>
+  </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>5</integer>
