@@ -3,6 +3,8 @@
 <plist version="1.0">
 <dict>
   <key>Label</key><string>com.symbient.whisper</string>
+  <!-- whisper-server writes temp conversion files to its cwd; launchd defaults to / -->
+  <key>WorkingDirectory</key><string>/tmp</string>
   <!-- whisper.cpp server on Metal, serving the OpenAI transcription route the framework calls -->
   <key>ProgramArguments</key>
   <array>
