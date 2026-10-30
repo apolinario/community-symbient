@@ -41,7 +41,8 @@ export function createModel(config: LlmEndpointConfig): Model<Api> {
     provider: config.provider,
     baseUrl,
     reasoning: true,
-    compat: { thinkingFormat: "qwen-chat-template" },
+    // "developer" is hosted-OpenAI only; some compat servers silently drop it.
+    compat: { thinkingFormat: "qwen-chat-template", supportsDeveloperRole: false },
     input: ["text", "image"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: config.contextWindow ?? 262144,

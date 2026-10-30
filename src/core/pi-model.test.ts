@@ -7,6 +7,7 @@ describe("createModel", () => {
     expect(m.api).toBe("openai-completions");
     expect(m.baseUrl).toBe("http://localhost:1234/v1");
     expect(m.id).toBe("Qwen3.6-35B.gguf");
+    expect((m as any).compat.supportsDeveloperRole).toBe(false);
   });
 
   it("resolves hosted providers from the Pi SDK model registry", () => {
