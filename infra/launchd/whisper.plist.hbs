@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.symbient.whisper</string>
+  <!-- whisper.cpp server on Metal, serving the OpenAI transcription route the framework calls -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>exec whisper-server --model "{{whisperModel}}" --host 127.0.0.1 --port {{whisperPort}} --inference-path /v1/audio/transcriptions --convert</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>{{path}}</string></dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>5</integer>
+  <key>StandardOutPath</key><string>{{logDir}}/whisper.log</string>
+  <key>StandardErrorPath</key><string>{{logDir}}/whisper.log</string>
+</dict>
+</plist>

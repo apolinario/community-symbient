@@ -13,7 +13,7 @@
 
 import { execSync, spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, readdirSync, writeFileSync, existsSync, cpSync, symlinkSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { userInfo } from "node:os";
 import Handlebars from "handlebars";
 import { loadConfig } from "../../src/config.js";
@@ -38,17 +38,32 @@ function sh(cmd: string): string | null {
   }
 }
 
+const isMac = process.platform === "darwin";
+
 function detectVramMb(): number | null {
+  // Apple Silicon: unified memory is the GPU's memory
+  if (isMac) {
+    const bytes = Number(sh("sysctl -n hw.memsize"));
+    return sh("sysctl -n machdep.cpu.brand_string")?.includes("Apple") && bytes ? Math.round(bytes / 1024 / 1024) : null;
+  }
   const out = sh("nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits");
   if (!out) return null;
   return out.split("\n").reduce((sum, line) => sum + (Number(line.trim()) || 0), 0);
 }
 
 function suggestProfile(vramMb: number | null): string {
+  if (isMac && vramMb !== null && vramMb >= 32_000) return "apple-silicon";
   if (vramMb === null || vramMb === 0) return "cpu-only";
   if (vramMb >= 22_000) return "full-local";
   if (vramMb >= 7_000) return "small-gpu";
   return "cpu-only";
+}
+
+/** Deployment root: the SYMBIENT_CONFIG dir, or its parent when the config sits in config/. */
+function deploymentDir(): string {
+  if (!process.env.SYMBIENT_CONFIG) return repoDir;
+  const dir = dirname(resolve(process.env.SYMBIENT_CONFIG));
+  return basename(dir) === "config" ? dirname(dir) : dir;
 }
 
 function resolveQmdExec(): string {
@@ -135,7 +150,8 @@ async function main() {
     console.error(`Unknown profile "${profileName}". Available: ${Object.keys(profiles).join(", ")}`);
     process.exit(1);
   }
-  console.log(`Hardware: ${vram ? `${Math.round(vram / 1024)} GB VRAM detected` : "no NVIDIA GPU detected"} → suggested profile: ${suggested}`);
+  const hwLabel = isMac ? "unified memory (Apple Silicon)" : "VRAM";
+  console.log(`Hardware: ${vram ? `${Math.round(vram / 1024)} GB ${hwLabel} detected` : "no supported GPU detected"} → suggested profile: ${suggested}`);
   console.log(`Profile: ${profileName} — ${profile.describe}\n`);
 
   // ── config (optional at setup time) ────────────────────────────────
@@ -161,17 +177,26 @@ async function main() {
     withSearxng: unitNames.includes("searxng"),
     // External deployments run with SYMBIENT_CONFIG pointing at their dir
     configPath: process.env.SYMBIENT_CONFIG ?? "",
+    // launchd-only: no EnvironmentFile and a minimal default PATH
+    envFile: join(deploymentDir(), ".env"),
+    path: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+    logDir: join(userInfo().homedir, "Library", "Logs"),
+    whisperModel: process.env.WHISPER_MODEL ?? join(userInfo().homedir, "models", "ggml-large-v3-turbo.bin"),
+    whisperPort: new URL(config?.services?.whisper?.url ?? "http://localhost:8001").port || "8001",
   };
 
   mkdirSync(outDir, { recursive: true });
   const rendered: string[] = [];
-  for (const tmpl of readdirSync(join(infraDir, "systemd"))) {
-    const unit = tmpl.replace(/\.(service|timer)\.hbs$/, "");
+  const tmplDir = join(infraDir, isMac ? "launchd" : "systemd");
+  for (const tmpl of readdirSync(tmplDir)) {
+    const unit = tmpl.replace(/\.(service|timer|plist)\.hbs$/, "");
     if (!unitNames.includes(unit)) continue;
-    const suffix = tmpl.endsWith(".timer.hbs") ? ".timer" : ".service";
     // The symbient unit is named after the deployment (feyblet.service etc.)
-    const outName = (unit === "symbient" ? vars.name : unit) + suffix;
-    const template = Handlebars.compile(readFileSync(join(infraDir, "systemd", tmpl), "utf-8"));
+    const unitName = unit === "symbient" ? vars.name : unit;
+    const outName = isMac
+      ? `com.symbient.${unitName}.plist`
+      : unitName + (tmpl.endsWith(".timer.hbs") ? ".timer" : ".service");
+    const template = Handlebars.compile(readFileSync(join(tmplDir, tmpl), "utf-8"));
     writeFileSync(join(outDir, outName), template(vars), "utf-8");
     rendered.push(outName);
   }
@@ -199,11 +224,20 @@ async function main() {
   console.log(`LLM:    ${profile.llm}`);
   console.log(`Search: ${profile.search}\n`);
 
-  const installCmds = [
-    `sudo cp ${rendered.map((r) => `infra/rendered/${r}`).join(" ")} /etc/systemd/system/`,
-    "sudo systemctl daemon-reload",
-    `sudo systemctl enable --now ${rendered.filter((r) => r.endsWith(".service")).map((r) => r.replace(/\.service$/, "")).join(" ")}`,
-  ];
+  const installCmds = isMac
+    ? [
+        // per-user LaunchAgents: no sudo, starts at login
+        `cp ${rendered.map((r) => `infra/rendered/${r}`).join(" ")} ~/Library/LaunchAgents/`,
+        ...rendered.map((r) => `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/${r}`),
+      ]
+    : [
+        `sudo cp ${rendered.map((r) => `infra/rendered/${r}`).join(" ")} /etc/systemd/system/`,
+        "sudo systemctl daemon-reload",
+        `sudo systemctl enable --now ${rendered.filter((r) => r.endsWith(".service")).map((r) => r.replace(/\.service$/, "")).join(" ")}`,
+      ];
+  if (isMac && unitNames.some((u) => u.startsWith("signal") || u === "searxng")) {
+    console.log("macOS: run signal-api / searxng via Docker Desktop or OrbStack (docker compose -f infra/compose.yaml up -d) — restart: always keeps them up.\n");
+  }
   if (has("install")) {
     for (const cmd of installCmds) {
       console.log(`$ ${cmd}`);

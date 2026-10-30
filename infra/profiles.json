@@ -1,30 +1,72 @@
 {
   "full-local": {
-    "describe": "24 GB+ VRAM (or multi-GPU). Everything local — the reference experience.",
-    "units": ["symbient", "qmd"],
-    "optionalUnits": ["searxng", "signal-api", "signal-watchdog"],
+    "describe": "24 GB+ VRAM (or multi-GPU). Everything local \u2014 the reference experience.",
+    "units": [
+      "symbient",
+      "qmd"
+    ],
+    "optionalUnits": [
+      "searxng",
+      "signal-api",
+      "signal-watchdog"
+    ],
     "llm": "Serve a 30-35B-class MoE at Q4 with llama.cpp / LM Studio / Ollama / vLLM and point config.llm.baseUrl at it. See docs/choosing-your-llm.md.",
-    "search": "qmd with GPU embeddings and reranking on — best quality."
+    "search": "qmd with GPU embeddings and reranking on \u2014 best quality."
   },
   "small-gpu": {
     "describe": "8-16 GB VRAM. Fully local with a smaller model.",
-    "units": ["symbient", "qmd"],
-    "optionalUnits": ["searxng", "signal-api", "signal-watchdog"],
+    "units": [
+      "symbient",
+      "qmd"
+    ],
+    "optionalUnits": [
+      "searxng",
+      "signal-api",
+      "signal-watchdog"
+    ],
     "llm": "Serve a 4-14B model at Q4 locally. See docs/choosing-your-llm.md for the tier table.",
     "search": "qmd with GPU embeddings and reranking on."
   },
   "cpu-only": {
     "describe": "No GPU. Local memory + search; inference is the honest tradeoff.",
-    "units": ["symbient", "qmd"],
-    "optionalUnits": ["searxng", "signal-api", "signal-watchdog"],
-    "llm": "Small GGUF models run on CPU but cycle slowly; a hosted API (config.llm.provider anthropic/openai + apiKeyEnv) is usually the honest choice — memory stays local, prompts reach the provider.",
-    "search": "qmd runs its GGUF embedding model on CPU — fine for thousands of markdown docs. Skip reranking (use search/vsearch, not query). If indexing is still too slow: set services.search.backend to \"local-bm25\" (zero-dep, built in) or use a hosted embedding API — with the data-locality tradeoff that implies."
+    "units": [
+      "symbient",
+      "qmd"
+    ],
+    "optionalUnits": [
+      "searxng",
+      "signal-api",
+      "signal-watchdog"
+    ],
+    "llm": "Small GGUF models run on CPU but cycle slowly; a hosted API (config.llm.provider anthropic/openai + apiKeyEnv) is usually the honest choice \u2014 memory stays local, prompts reach the provider.",
+    "search": "qmd runs its GGUF embedding model on CPU \u2014 fine for thousands of markdown docs. Skip reranking (use search/vsearch, not query). If indexing is still too slow: set services.search.backend to \"local-bm25\" (zero-dep, built in) or use a hosted embedding API \u2014 with the data-locality tradeoff that implies."
   },
   "api-first": {
     "describe": "Hosted LLM, local everything else.",
-    "units": ["symbient"],
-    "optionalUnits": ["qmd", "searxng", "signal-api", "signal-watchdog"],
-    "llm": "config.llm { provider: \"anthropic\" | \"openai\", model, apiKeyEnv } — no baseUrl. Memory stays on disk here; prompts quoting it reach the provider.",
+    "units": [
+      "symbient"
+    ],
+    "optionalUnits": [
+      "qmd",
+      "searxng",
+      "signal-api",
+      "signal-watchdog"
+    ],
+    "llm": "config.llm { provider: \"anthropic\" | \"openai\", model, apiKeyEnv } \u2014 no baseUrl. Memory stays on disk here; prompts quoting it reach the provider.",
     "search": "qmd on CPU or services.search.backend \"local-bm25\"."
+  },
+  "apple-silicon": {
+    "describe": "Apple Silicon Mac, 32 GB+ unified memory. Everything local on Metal.",
+    "units": [
+      "symbient",
+      "qmd"
+    ],
+    "optionalUnits": [
+      "whisper",
+      "searxng",
+      "signal-api"
+    ],
+    "llm": "Serve via llama.cpp (Metal), LM Studio or an MLX server and point config.llm.baseUrl at it. Unified memory makes 30B+ MoE models comfortable from 64 GB.",
+    "search": "qmd runs its GGUF embeddings on Metal \u2014 rerank on. STT: --with whisper renders a whisper.cpp server (brew install whisper-cpp ffmpeg; set WHISPER_MODEL to a ggml model path)."
   }
 }

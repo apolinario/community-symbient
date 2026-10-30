@@ -7,7 +7,7 @@ Wants=mosquitto.service{{#if withQmd}} qmd.service{{/if}}{{#if withSearxng}} sea
 Type=simple
 User={{user}}
 WorkingDirectory={{repoDir}}
-EnvironmentFile=-{{repoDir}}/.env
+EnvironmentFile=-{{envFile}}
 Environment=NODE_OPTIONS=--dns-result-order=ipv4first
 {{#if configPath}}Environment=SYMBIENT_CONFIG={{configPath}}
 {{/if}}

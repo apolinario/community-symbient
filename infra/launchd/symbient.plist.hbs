@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.symbient.{{name}}</string>
+  <key>WorkingDirectory</key><string>{{repoDir}}</string>
+  <!-- launchd has no EnvironmentFile; source .env in a shell, then exec -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>set -a; [ -f "{{envFile}}" ] &amp;&amp; . "{{envFile}}"; set +a; exec {{npxBin}} tsx src/index.ts</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>{{path}}</string>
+    <key>NODE_OPTIONS</key><string>--dns-result-order=ipv4first</string>
+    {{#if configPath}}<key>SYMBIENT_CONFIG</key><string>{{configPath}}</string>{{/if}}
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>StandardOutPath</key><string>{{logDir}}/{{name}}.log</string>
+  <key>StandardErrorPath</key><string>{{logDir}}/{{name}}.log</string>
+</dict>
+</plist>
