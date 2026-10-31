@@ -176,11 +176,19 @@ export function createChatHistoryTool(memory: MemoryManager): AgentTool {
         const searchNames = new Set<string>([params.person.toLowerCase()]);
         if (matchName) searchNames.add(matchName.toLowerCase());
 
+        // Events record whatever name was used at the time ("Poli", "Apolinário"), so match by resolved person too.
+        const slugByName = new Map<string, string | null>();
+        const counterparties = new Set(events.map((evt) => evt.direction === "out" ? evt.to : evt.from).filter((n): n is string => typeof n === "string"));
+        for (const name of counterparties) {
+          slugByName.set(name, person ? (await memory.findPerson(name))?.slug ?? null : null);
+        }
+
         const matching = events.filter((evt) => {
           const counterparty = evt.direction === "out"
             ? (typeof evt.to === "string" ? evt.to : null)
             : (typeof evt.from === "string" ? evt.from : null);
-          return counterparty !== null && searchNames.has(counterparty.toLowerCase());
+          if (counterparty === null) return false;
+          return searchNames.has(counterparty.toLowerCase()) || (!!person && slugByName.get(counterparty) === person.slug);
         });
 
         if (matching.length === 0) {
