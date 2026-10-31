@@ -11,7 +11,7 @@ import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { MemoryManager } from "../memory/manager.js";
 import type { MQTTBus } from "../core/mqtt-bus.js";
 import { queryEvents } from "../core/event-log.js";
-import { symbientName, symbientDisplayName } from "../core/symbient-name.js";
+import { symbientName } from "../core/symbient-name.js";
 import { getSearchBackend } from "../core/search.js";
 
 /**
@@ -84,51 +84,44 @@ export function createSearchMemoryTool(): AgentTool {
 
 // --- Chat History (queries the structured event log) ---
 
-/** Pull the counterparty name from a chat_message event — `to` for outbound, `from` for inbound. */
-function counterpartyOf(evt: Record<string, unknown>): string | null {
-  const field = evt.direction === "out" ? evt.to : evt.from;
-  return typeof field === "string" ? field : null;
+/** The counterparty of a chat_message event — `to`/`toId` for outbound, `from`/`fromId` for inbound. */
+function counterpartyOf(evt: Record<string, unknown>): { id: string | null; name: string | null } {
+  const out = evt.direction === "out";
+  const id = out ? evt.toId : evt.fromId;
+  const name = out ? evt.to : evt.from;
+  return { id: typeof id === "string" ? id : null, name: typeof name === "string" ? name : null };
 }
 
 /**
- * Tally counterparties from a list of DM chat_message events and return
- * a "Recent DM contacts" tool response. Lifted out of chat_history so
- * the per-person branch isn't crowded by the contacts-listing branch.
+ * Resolves each event's counterparty to a stable key: the person's slug when
+ * their chat id is in a profile, else the raw chat id, else (legacy events) the name.
  */
-function listDmContacts(
-  events: Array<Record<string, unknown>>,
-  self: string,
-): { content: Array<{ type: "text"; text: string }>; details: Record<string, never> } {
-  const contacts = new Map<string, number>();
-  for (const evt of events) {
-    const counterparty = counterpartyOf(evt);
-    if (!counterparty || counterparty === self) continue;
-    contacts.set(counterparty, (contacts.get(counterparty) || 0) + 1);
-  }
-  if (contacts.size === 0) {
-    return { content: [{ type: "text", text: "No DM contacts in the recent window." }], details: {} };
-  }
-  const sorted = [...contacts.entries()].sort((a, b) => b[1] - a[1]);
-  const list = sorted.map(([name, n]) => `${name} (${n} messages)`).join("\n");
-  return {
-    content: [{
-      type: "text",
-      text: `Recent DM contacts:\n${list}\n\nCall chat_history with a person name to see their conversation.`,
-    }],
-    details: {},
+export function createCounterpartyResolver(memory: Pick<MemoryManager, "findPersonById" | "findPerson">) {
+  const cache = new Map<string, { key: string; name: string } | null>();
+  return async (evt: Record<string, unknown>): Promise<{ key: string; name: string } | null> => {
+    const { id, name } = counterpartyOf(evt);
+    if (!id) {
+      // Events recorded before ids were logged: best-effort name lookup.
+      if (!name) return null;
+      const legacy = `name:${name.toLowerCase()}`;
+      if (!cache.has(legacy)) {
+        const person = await memory.findPerson(name);
+        cache.set(legacy, person ? { key: person.slug, name: person.content.match(/^name:\s*(.+)/m)?.[1]?.trim() ?? name } : { key: legacy, name });
+      }
+      return cache.get(legacy)!;
+    }
+    if (!cache.has(id)) {
+      const person = await memory.findPersonById(id);
+      cache.set(id, person ? { key: person.slug, name: person.name } : { key: `id:${id}`, name: name ?? id });
+    }
+    return cache.get(id)!;
   };
 }
 
-/**
- * Format a chat_message event as a single line. Direction-aware:
- *   [HH:mm] in  Alice: hi
- *   [HH:mm] out → Alice: hi back
- */
-function formatChatLine(evt: Record<string, unknown>, _self: string): string {
+function formatChatLine(evt: Record<string, unknown>, counterparty: string): string {
   const ts = typeof evt.ts === "number" ? new Date(evt.ts) : new Date();
   const time = ts.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   const direction = evt.direction === "out" ? "out →" : "in  ←";
-  const counterparty = counterpartyOf(evt) ?? "?";
   const text = typeof evt.text === "string" ? evt.text : "(no text)";
   return `[${time}] ${direction} ${counterparty}: ${text}`;
 }
@@ -147,65 +140,44 @@ export function createChatHistoryTool(memory: MemoryManager): AgentTool {
       try {
         const count = params.count || 20;
         const days = params.days || 2;
-        const self = symbientDisplayName();
-
-        // All DM chat_message events in the window. The chat-reactor
-        // writes inbound/outbound DMs as `chat_message` events with
-        // chat="dm" and direction="in"|"out".
-        const events = await queryEvents({
-          type: "chat_message",
-          where: { chat: "dm" },
-          days,
-        });
-
+        const events = await queryEvents({ type: "chat_message", where: { chat: "dm" }, days });
         if (events.length === 0) {
           return { content: [{ type: "text", text: "No DM events found in the event log." }], details: {} };
         }
 
-        if (!params.person) return listDmContacts(events, self);
+        const resolve = createCounterpartyResolver(memory);
+        const resolved = await Promise.all(events.map(async (evt) => ({ evt, who: await resolve(evt) })));
 
-        // Resolve the requested name through the memory manager so nicknames
-        // / aliases match. Then build a set of name candidates to compare
-        // against the event log's `from`/`to` fields.
+        if (!params.person) {
+          const contacts = new Map<string, { name: string; n: number }>();
+          for (const { who } of resolved) {
+            if (!who) continue;
+            const c = contacts.get(who.key) ?? { name: who.name, n: 0 };
+            c.n++;
+            contacts.set(who.key, c);
+          }
+          if (contacts.size === 0) {
+            return { content: [{ type: "text", text: "No DM contacts in the recent window." }], details: {} };
+          }
+          const list = [...contacts.values()].sort((a, b) => b.n - a.n).map((c) => `${c.name} (${c.n} messages)`).join("\n");
+          return { content: [{ type: "text", text: `Recent DM contacts:\n${list}\n\nCall chat_history with a person name to see their conversation.` }], details: {} };
+        }
+
         const person = await memory.findPerson(params.person);
-        const matchName = (() => {
-          if (!person) return null;
-          const match = person.content.match(/^name:\s*(.+)/m);
-          return match?.[1]?.trim().replace(/^["']|["']$/g, "") ?? null;
-        })();
-        const searchNames = new Set<string>([params.person.toLowerCase()]);
-        if (matchName) searchNames.add(matchName.toLowerCase());
-
-        // Events record whatever name was used at the time ("Poli", "Apolinário"), so match by resolved person too.
-        const slugByName = new Map<string, string | null>();
-        const counterparties = new Set(events.map((evt) => evt.direction === "out" ? evt.to : evt.from).filter((n): n is string => typeof n === "string"));
-        for (const name of counterparties) {
-          slugByName.set(name, person ? (await memory.findPerson(name))?.slug ?? null : null);
+        const wanted = new Set<string>([`name:${params.person.toLowerCase()}`]);
+        if (person) {
+          wanted.add(person.slug);
+          const name = person.content.match(/^name:\s*(.+)/m)?.[1]?.trim().replace(/^["']|["']$/g, "");
+          if (name) wanted.add(`name:${name.toLowerCase()}`);
         }
-
-        const matching = events.filter((evt) => {
-          const counterparty = evt.direction === "out"
-            ? (typeof evt.to === "string" ? evt.to : null)
-            : (typeof evt.from === "string" ? evt.from : null);
-          if (counterparty === null) return false;
-          return searchNames.has(counterparty.toLowerCase()) || (!!person && slugByName.get(counterparty) === person.slug);
-        });
-
+        // Ids nobody's profile claims yet fall back to the name they were seen with.
+        const matching = resolved.filter(({ who }) => who && (wanted.has(who.key) || (who.key.startsWith("id:") && wanted.has(`name:${who.name.toLowerCase()}`))));
         if (matching.length === 0) {
-          return {
-            content: [{
-              type: "text",
-              text: `No DM history with "${params.person}"${matchName && matchName.toLowerCase() !== params.person.toLowerCase() ? ` (matched: ${matchName})` : ""}.`,
-            }],
-            details: {},
-          };
+          return { content: [{ type: "text", text: `No DM history with "${params.person}".` }], details: {} };
         }
-
-        const header = matchName && matchName.toLowerCase() !== params.person.toLowerCase()
-          ? `DM history with ${matchName} (matched from "${params.person}"):\n`
-          : `DM history with ${params.person}:\n`;
-        const lines = matching.slice(-count).map((evt) => formatChatLine(evt, self));
-        return { content: [{ type: "text", text: header + lines.join("\n") }], details: {} };
+        const label = matching[matching.length - 1].who!.name;
+        const lines = matching.slice(-count).map(({ evt }) => formatChatLine(evt, label));
+        return { content: [{ type: "text", text: `DM history with ${label}:\n${lines.join("\n")}` }], details: {} };
       } catch (err) {
         return { content: [{ type: "text", text: `chat_history error: ${err}` }], details: {} };
       }

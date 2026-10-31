@@ -211,6 +211,17 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     return { slug: match.filename, content };
   }
 
+  /** Find a person by a chat identifier (signal-uuid, phone, …) stored anywhere in their frontmatter. */
+  async findPersonById(id: string): Promise<{ slug: string; name: string } | null> {
+    const norm = (v: string) => v.replace(/\s+/g, "").toLowerCase();
+    const target = norm(id);
+    if (!target) return null;
+    const people = await this.discoverPeople();
+    const match = people.find((p) => Object.values(p.fields).some((v) =>
+      (Array.isArray(v) ? v : [v]).some((x) => typeof x === "string" && norm(x) === target)));
+    return match ? { slug: match.filename, name: match.name } : null;
+  }
+
   /** Legacy interface: find and read person by name only */
   private async findAndReadPerson(name: string): Promise<string | null> {
     const result = await this.findPerson(name);

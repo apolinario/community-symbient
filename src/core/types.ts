@@ -115,6 +115,8 @@ export interface MemoryAccess {
    * undefined and rely on name + the deployment's nickname/alias resolver.
    */
   findPerson(name: string, phone?: string): Promise<{ slug: string; content: string } | null>;
+  /** Find a person by a chat identifier (signal-uuid, phone, …) stored in their frontmatter. */
+  findPersonById(id: string): Promise<{ slug: string; name: string } | null>;
   /** Assemble generic context: SOUL + MEMORY + optional person profile. */
   assembleContext(personName?: string, phone?: string): Promise<string>;
   /**

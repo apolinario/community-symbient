@@ -122,7 +122,7 @@ export function createChatReactor(opts: ChatReactorOpts) {
     await ctx.memory.appendLog(`**${self}** (${chatTag} to ${fromLabel}): ${clean}`);
     recordEvent({
       type: "chat_message", direction: "out", chat: msg.chatType,
-      from: self, to: fromLabel, text: clean, groupId: msg.groupId,
+      from: self, to: fromLabel, toId: msg.from.id, text: clean, groupId: msg.groupId,
     });
   };
 }
