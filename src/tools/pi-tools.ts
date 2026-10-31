@@ -58,7 +58,7 @@ function isWritable(absolutePath: string, workspacePath: string, prefixes: strin
 function assertReadable(absolutePath: string, workspacePath: string): void {
   const resolved = resolve(absolutePath);
   if (!resolved.startsWith(workspacePath)) {
-    throw new Error(`Access denied: ${absolutePath} is outside workspace`);
+    throw new Error("Outside your workspace. Paths are relative to the workspace root, e.g. `inner/current-state.md` or `people/<slug>.md`.");
   }
 }
 
