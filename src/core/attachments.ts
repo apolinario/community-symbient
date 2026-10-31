@@ -112,8 +112,9 @@ async function processImage(
         { type: "text", text: prompt("describe-image") },
         { type: "image_url", image_url: { url: `data:${contentType};base64,${b64}` } },
       ]}],
-      maxTokens: 50,
-      timeoutMs: 10000,
+      maxTokens: 1500,
+      timeoutMs: 60000,
+      think: true,
     });
     if (text) {
       desc = text;

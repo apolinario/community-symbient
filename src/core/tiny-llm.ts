@@ -30,6 +30,8 @@ export async function tinyComplete(opts: {
   maxTokens?: number;
   temperature?: number;
   timeoutMs?: number;
+  /** Let a reasoning-capable tiny model think first (llama-server `enable_thinking`). */
+  think?: boolean;
 }): Promise<string | null> {
   const messages = opts.system
     ? [{ role: "system", content: opts.system }, ...opts.messages]
@@ -44,6 +46,7 @@ export async function tinyComplete(opts: {
         messages,
         temperature: opts.temperature ?? 0.1,
         max_tokens: opts.maxTokens ?? 100,
+        ...(opts.think ? { chat_template_kwargs: { enable_thinking: true } } : {}),
       }),
       signal: AbortSignal.timeout(opts.timeoutMs ?? 10000),
     });
