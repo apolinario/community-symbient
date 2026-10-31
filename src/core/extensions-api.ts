@@ -106,7 +106,7 @@ export { symbientName, symbientDisplayName } from "./symbient-name.js";
 
 // Frontmatter parsing — for extensions that want to read .md files with
 // the same YAML conventions the framework uses for module/people files.
-export { parseFrontmatter, parseInterval } from "./frontmatter.js";
+export { parseFrontmatter, parseInterval, moduleIntervalMs } from "./frontmatter.js";
 
 // Module handler signature, plus base config types in case extensions
 // want to type their own handler factories.

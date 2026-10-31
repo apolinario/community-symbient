@@ -24,7 +24,7 @@ import type { ModuleConfig, ModuleFunction } from "../core/types.js";
 import { createAgentModule } from "./agent-module.js";
 import { getModuleHandler, defaultModuleHandler } from "../core/handler-registry.js";
 import { parseSections } from "../core/prompt-template.js";
-import { parseFrontmatter, parseInterval } from "../core/frontmatter.js";
+import { parseFrontmatter, parseInterval, moduleIntervalMs } from "../core/frontmatter.js";
 import { getBuiltInModule } from "../core/module-factories.js";
 
 // Re-exports kept so existing callers (chat-reactor, module-sync,
@@ -54,9 +54,7 @@ export async function loadModuleConfigs(workspacePath: string): Promise<ParsedMo
     const { fields, body } = parseFrontmatter(content);
 
     const name = (typeof fields.name === "string" ? fields.name : file.replace(".md", ""));
-    const interval = typeof fields.interval === "string"
-      ? parseInterval(fields.interval)
-      : (typeof fields.interval === "number" ? fields.interval : 60_000);
+    const interval = moduleIntervalMs(workspacePath, name, fields);
     const toolNames: string[] = Array.isArray(fields.tools) ? fields.tools.filter((t): t is string => typeof t === "string") : [];
     const startActive = fields.startActive !== false; // default true
     const follows = typeof fields.follows === "string" ? fields.follows : undefined;

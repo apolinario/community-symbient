@@ -102,6 +102,7 @@ export interface ModuleSpec {
  */
 export function createAgentModule(spec: ModuleSpec) {
   return async function agentModule(ctx: ModuleContext): Promise<void> {
+    const startedAt = Date.now();
     ctx.log(`Starting ${spec.name} cycle`);
 
     // Check for pending MQTT nudges from other modules
@@ -249,10 +250,12 @@ export function createAgentModule(spec: ModuleSpec) {
       await agent.waitForIdle();
     } catch (err) {
       ctx.log(`Error in ${spec.name}: ${err}`);
+      recordEvent({ type: "module_run", module: spec.name, ms: Date.now() - startedAt, tools: toolCalls.length, error: String(err).slice(0, 300) });
       return;
     }
 
     checkError();
+    recordEvent({ type: "module_run", module: spec.name, ms: Date.now() - startedAt, tools: toolCalls.length, error: agentError ? String(agentError).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 300) : null });
     ctx.log(`${spec.name} completed (${output.length} chars output, ${allowedTools.length} tools, error: ${agentError || 'none'})`);
     if (output.trim()) {
       ctx.log(`${spec.name} output: ${output.trim()}`);

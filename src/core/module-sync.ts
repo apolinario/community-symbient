@@ -17,7 +17,7 @@ import type { ModuleContext } from "./types.js";
 import type { Orchestrator } from "./orchestrator.js";
 import { readdir, readFile, rename, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { parseFrontmatter, parseInterval } from "./frontmatter.js";
+import { parseFrontmatter, moduleIntervalMs } from "./frontmatter.js";
 import { createAgentModule } from "../modules/agent-module.js";
 import { parseSections } from "./prompt-template.js";
 import { getModuleHandler, defaultModuleHandler } from "./handler-registry.js";
@@ -60,9 +60,7 @@ export function createModuleSyncModule(orchestrator: Orchestrator, workspacePath
         const content = await readFile(filePath, "utf-8");
         const { fields, body } = parseFrontmatter(content);
 
-        const interval = typeof fields.interval === "string"
-          ? parseInterval(fields.interval)
-          : (typeof fields.interval === "number" ? fields.interval : 60_000);
+        const interval = moduleIntervalMs(workspacePath, name, fields);
         const toolNames: string[] = Array.isArray(fields.tools) ? fields.tools.filter((t): t is string => typeof t === "string") : [];
         const startActive = fields.startActive !== false;
         const runImmediately = typeof fields.runImmediately === "boolean" ? fields.runImmediately : undefined;

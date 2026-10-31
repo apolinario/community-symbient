@@ -8,6 +8,8 @@
  */
 
 import { load as yamlLoad } from "js-yaml";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 /**
  * Split a markdown document into its YAML frontmatter (parsed) and body.
@@ -36,4 +38,17 @@ export function parseInterval(s: string): number {
     case "h": return n * 60 * 60 * 1000;
     default: return n;
   }
+}
+
+/**
+ * A module's interval in ms. `state/rhythms.json` ({ "<module>": "2h" }) is runtime state the
+ * symbient can write; it overrides the frontmatter so deploys don't reset a rhythm it chose.
+ */
+export function moduleIntervalMs(workspacePath: string, name: string, fields: Record<string, unknown>): number {
+  let override: unknown;
+  try {
+    override = JSON.parse(readFileSync(join(workspacePath, "state", "rhythms.json"), "utf-8"))[name];
+  } catch {}
+  const raw = typeof override === "string" ? override : fields.interval;
+  return typeof raw === "string" ? parseInterval(raw) : typeof raw === "number" ? raw : 60_000;
 }
