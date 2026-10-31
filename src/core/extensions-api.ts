@@ -31,6 +31,7 @@
 
 // Template rendering (for extensions that build their own prompts)
 export { render, parseSections } from "./prompt-template.js";
+export { prompt } from "./prompts.js";
 
 // Helper registry (helpers.js auto-registers, but extensions can query too)
 export { registerHelper, getHelper, listHelpers, standardVars } from "./prompt-vars.js";

@@ -18,6 +18,7 @@ import { Agent } from "@mariozechner/pi-agent-core";
 import { filterToolsByWhitelist } from "../mcp/bridge.js";
 import { render } from "../core/prompt-template.js";
 import { standardVars } from "../core/prompt-vars.js";
+import { prompt } from "../core/prompts.js";
 import { recordEvent } from "../core/event-log.js";
 import { renderContextBlocks, type ContextDecl } from "../core/context-providers.js";
 
@@ -230,22 +231,17 @@ export function createAgentModule(spec: ModuleSpec) {
     }
 
     if (scheduledActions.length > 0) {
-      const actions = scheduledActions.map((a, i) => {
-        let desc = `Action ${i + 1}: ${a.prompt}`;
-        if (a.context) desc += `\nContext: ${a.context}`;
-        return desc;
-      }).join("\n\n");
-      seedParts.push(`<scheduled-actions>\nYou were woken up to follow through on something your past self scheduled for this moment. Use your tools to carry it out. Stay focused on what was scheduled — no need to run a full cycle or add extra actions.\n\n${actions}\n</scheduled-actions>`);
+      seedParts.push(prompt("scheduled-actions", { actions: scheduledActions.map((a, i) => ({ ...a, n: i + 1 })) }));
     } else if (spec.contextDecl && spec.contextDecl.length > 0) {
       const blocks = await renderContextBlocks(spec.contextDecl, ctx);
       seedParts.push(...blocks);
     }
 
     if (otherNudges.length > 0) {
-      seedParts.push(`<module-nudges>\nMessages from other parts of you:\n${otherNudges.join("\n")}\n</module-nudges>`);
+      seedParts.push(prompt("module-nudges", { nudges: otherNudges }));
     }
 
-    const promptText = seedParts.join("\n\n") || "Begin.";
+    const promptText = seedParts.join("\n\n") || prompt("begin");
     ctx.log(`Seed prompt (${promptText.length} chars, ${allowedTools.length} tools)`);
     ctx.logDebug(`Seed prompt body:\n${promptText}`);
     try {

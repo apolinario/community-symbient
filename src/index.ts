@@ -48,6 +48,7 @@ import { initMCP, onMCPReconnect } from "./mcp/bridge.js";
 import { loadModuleConfigs } from "./modules/load-modules.js";
 import { loadAllExtensions, loadWorkspaceToolsFactory, loadWorkspaceModulesFactory } from "./core/extension-loader.js";
 import { setEventLogWorkspace } from "./core/event-log.js";
+import { setPromptsWorkspace } from "./core/prompts.js";
 import { setWatchesWorkspace } from "./core/watches.js";
 import { setSearchBackend, createQmdHttpBackend, createLocalBm25Backend } from "./core/search.js";
 import { registerBuiltIns } from "./core/register-builtins.js";
@@ -243,6 +244,7 @@ async function main() {
   // --- Event log + watches (stateful singletons; set before modules start) ---
 
   setEventLogWorkspace(config.workspacePath);
+  setPromptsWorkspace(config.workspacePath);
   setWatchesWorkspace(config.workspacePath);
 
   // Deps passed to each factory. Factories whose `requires` aren't

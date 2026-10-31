@@ -13,6 +13,7 @@
  */
 
 import { tinyComplete } from "../core/tiny-llm.js";
+import { prompt } from "../core/prompts.js";
 
 const EVENT_LIKELY_OVER_MS = 2 * 60 * 60 * 1000;
 const EVENT_DEFINITELY_OVER_MS = 3 * 60 * 60 * 1000;
@@ -77,17 +78,11 @@ export async function annotateContextLines(lines: string[], now?: Date): Promise
   }
 
   if (ambiguous.length > 0) {
-    const batchPrompt = ambiguous.map((c, i) =>
-      `${i + 1}. ${c.snippet}`
-    ).join("\n");
-
     try {
       const result = await tinyComplete({
         messages: [{
           role: "user",
-          content: `For each message, does the time mentioned refer to an event or activity happening? Answer Y or N per line.
-
-${batchPrompt}`,
+          content: prompt("time-annotate", { items: ambiguous.map((c, i) => ({ n: i + 1, snippet: c.snippet })) }),
         }],
         maxTokens: ambiguous.length * 5,
         timeoutMs: 5000,

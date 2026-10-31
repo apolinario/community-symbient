@@ -14,6 +14,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tinyComplete } from "./tiny-llm.js";
+import { prompt } from "./prompts.js";
 
 let attachmentBaseUrl = "";
 let whisperUrl = "";
@@ -108,7 +109,7 @@ async function processImage(
   try {
     const text = await tinyComplete({
       messages: [{ role: "user", content: [
-        { type: "text", text: "Describe this image in one sentence." },
+        { type: "text", text: prompt("describe-image") },
         { type: "image_url", image_url: { url: `data:${contentType};base64,${b64}` } },
       ]}],
       maxTokens: 50,
