@@ -76,9 +76,10 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 function ageLabelForFile(file: string): string {
   const dateMatch = file.match(/(\d{4}-\d{2}-\d{2})/);
   if (!dateMatch) return "";
-  const fileDate = new Date(dateMatch[1]);
+  const [y, m, d] = dateMatch[1].split("-").map(Number);
+  const fileDate = new Date(y, m - 1, d);
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const daysAgo = Math.floor((today.getTime() - fileDate.getTime()) / 86400000);
+  const daysAgo = Math.round((today.getTime() - fileDate.getTime()) / 86400000);
   if (daysAgo === 0) return " [today]";
   if (daysAgo === 1) return " [yesterday]";
   if (daysAgo < 7) return ` [${daysAgo} days ago]`;
@@ -442,7 +443,7 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     limit = 8,
   ): Promise<SearchHit[]> {
     return getSearchBackend()
-      .query({ searches, collection: symbientName(), limit })
+      .query({ searches, collection: symbientName(), limit, maxPerFile: 2 })
       .catch(() => [] as SearchHit[]);
   }
 

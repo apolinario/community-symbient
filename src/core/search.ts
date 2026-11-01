@@ -93,14 +93,20 @@ export function createQmdHttpBackend(url: string): SearchBackend {
 
 // --- local-bm25 backend -----------------------------------------------------
 
-interface IndexedDoc {
-  file: string;       // workspace-relative path
+interface IndexedChunk {
   title: string;
   content: string;
-  tokens: string[];
+  length: number;
   termFreq: Map<string, number>;
+}
+
+interface IndexedDoc {
+  file: string;       // workspace-relative path
+  chunks: IndexedChunk[];
   mtimeMs: number;
 }
+
+const CHUNK_CHARS = 900;
 
 const STOP_WORDS = new Set([
   "the","a","an","and","or","but","of","to","in","on","at","by","for","with",
@@ -108,6 +114,7 @@ const STOP_WORDS = new Set([
   "my","your","his","her","its","our","their","this","that","these","those","as","if",
   "from","not","no","do","does","did","have","has","had","will","would","can","could",
   "should","may","might","must","so","than","then","there","here","what","which","who",
+  "me","us","him","them","about","just","also","any","some","get","how","when","where","why",
 ]);
 
 function tokenize(text: string): string[] {
@@ -115,15 +122,27 @@ function tokenize(text: string): string[] {
     .toLowerCase()
     .replace(/[^a-z0-9_À-ſ\s-]/g, " ")
     .split(/\s+/)
-    .filter((t) => t.length >= 2 && !STOP_WORDS.has(t));
+    .filter((t) => t.length >= 2 && !STOP_WORDS.has(t))
+    .map((t) => (t.length > 3 && t.endsWith("s") && !t.endsWith("ss") ? t.slice(0, -1) : t));
 }
 
-function snippetAround(content: string, term: string, radius = 80): string {
-  const idx = content.toLowerCase().indexOf(term);
-  if (idx < 0) return content.slice(0, radius * 2);
-  const start = Math.max(0, idx - radius);
-  const end = Math.min(content.length, idx + term.length + radius);
-  return (start > 0 ? "…" : "") + content.slice(start, end).replace(/\s+/g, " ").trim() + (end < content.length ? "…" : "");
+/** Split a markdown file into heading sections, then into paragraph groups of at most CHUNK_CHARS. */
+function chunkMarkdown(content: string, fileTitle: string): Array<{ title: string; content: string }> {
+  const out: Array<{ title: string; content: string }> = [];
+  for (const section of content.split(/^(?=#{1,6} )/m)) {
+    const heading = section.match(/^#{1,6}\s+(.+)$/m)?.[1]?.trim();
+    const title = heading && heading !== fileTitle ? `${fileTitle} — ${heading}` : fileTitle;
+    let buf = "";
+    for (const para of section.split(/\n\s*\n/)) {
+      if (buf && buf.length + para.length > CHUNK_CHARS) {
+        out.push({ title, content: buf.trim() });
+        buf = "";
+      }
+      buf += para + "\n\n";
+    }
+    if (buf.trim()) out.push({ title, content: buf.trim() });
+  }
+  return out;
 }
 
 /**
@@ -200,61 +219,38 @@ export function createLocalBm25Backend(workspacePath: string): SearchBackend {
       docs.delete(absPath);
       return;
     }
-    const titleMatch = content.match(/^#\s+(.+)$/m);
-    const title = titleMatch?.[1]?.trim() || relative(workspacePath, absPath);
-    const tokens = tokenize(content);
-    const termFreq = new Map<string, number>();
-    for (const t of tokens) termFreq.set(t, (termFreq.get(t) ?? 0) + 1);
-    docs.set(absPath, {
-      file: relative(workspacePath, absPath),
-      title,
-      content,
-      tokens,
-      termFreq,
-      mtimeMs,
+    const fileTitle = content.match(/^#\s+(.+)$/m)?.[1]?.trim() || relative(workspacePath, absPath);
+    const chunks = chunkMarkdown(content, fileTitle).map(({ title, content }) => {
+      const tokens = tokenize(content);
+      const termFreq = new Map<string, number>();
+      for (const t of tokens) termFreq.set(t, (termFreq.get(t) ?? 0) + 1);
+      return { title, content, length: tokens.length, termFreq };
     });
+    docs.set(absPath, { file: relative(workspacePath, absPath), chunks, mtimeMs });
   }
 
   function score(query: string, k1 = 1.5, b = 0.75): SearchHit[] {
     const queryTerms = [...new Set(tokenize(query))];
     if (queryTerms.length === 0) return [];
 
-    // Collect doc-frequency across the corpus.
-    const N = docs.size || 1;
+    const all: Array<{ absPath: string; file: string; index: number; chunk: IndexedChunk }> = [];
+    for (const [absPath, doc] of docs) doc.chunks.forEach((chunk, index) => all.push({ absPath, file: doc.file, index, chunk }));
+    const N = all.length || 1;
+    const avgdl = all.reduce((n, c) => n + c.chunk.length, 0) / N || 1;
     const dfByTerm = new Map<string, number>();
-    for (const term of queryTerms) {
-      let df = 0;
-      for (const doc of docs.values()) if (doc.termFreq.has(term)) df++;
-      dfByTerm.set(term, df);
-    }
-
-    // Average doc length (in tokens).
-    let totalLen = 0;
-    for (const doc of docs.values()) totalLen += doc.tokens.length;
-    const avgdl = totalLen / N || 1;
-
+    for (const term of queryTerms) dfByTerm.set(term, all.filter((c) => c.chunk.termFreq.has(term)).length);
     const scored: SearchHit[] = [];
-    for (const [absPath, doc] of docs) {
+    for (const { absPath, file, index, chunk } of all) {
       let s = 0;
-      let matched = 0;
       for (const term of queryTerms) {
-        const tf = doc.termFreq.get(term);
+        const tf = chunk.termFreq.get(term);
         if (!tf) continue;
-        matched++;
         const df = dfByTerm.get(term) ?? 0;
         const idf = Math.log(1 + (N - df + 0.5) / (df + 0.5));
-        const norm = tf * (k1 + 1) / (tf + k1 * (1 - b + b * (doc.tokens.length / avgdl)));
-        s += idf * norm;
+        s += idf * tf * (k1 + 1) / (tf + k1 * (1 - b + b * (chunk.length / avgdl)));
       }
-      if (matched === 0) continue;
-      const firstTerm = queryTerms.find((t) => doc.termFreq.has(t)) ?? queryTerms[0];
-      scored.push({
-        docid: absPath,
-        file: doc.file,
-        title: doc.title,
-        score: s,
-        snippet: snippetAround(doc.content, firstTerm),
-      });
+      if (s === 0) continue;
+      scored.push({ docid: `${absPath}#${index}`, file, title: chunk.title, score: s, snippet: chunk.content.length > CHUNK_CHARS * 1.5 ? `${chunk.content.slice(0, CHUNK_CHARS * 1.5)}…` : chunk.content });
     }
     scored.sort((a, b) => b.score - a.score);
     return scored;
@@ -266,13 +262,18 @@ export function createLocalBm25Backend(workspacePath: string): SearchBackend {
       const limit = opts.limit ?? 10;
       const maxPerFile = opts.maxPerFile ?? Infinity;
 
-      // Combine all queries into a single bag-of-terms; BM25 ranks once.
-      // (Backends are free to merge differently — this is the simplest.)
-      const combined = opts.searches.map((s) => s.query).join(" ");
-      const ranked = score(combined);
+      // Each query ranks on its own, then reciprocal-rank fusion merges them,
+      // so a short query (a person's name) can't drown a long one.
+      const fused = new Map<string, { hit: SearchHit; rrf: number }>();
+      for (const s of opts.searches) {
+        score(s.query).forEach((hit, rank) => {
+          const entry = fused.get(hit.docid) ?? { hit, rrf: 0 };
+          entry.rrf += 1 / (60 + rank);
+          fused.set(hit.docid, entry);
+        });
+      }
+      const ranked = [...fused.values()].sort((a, b) => b.rrf - a.rrf).map((e) => e.hit);
 
-      // Per-file cap (qmd has this; local-bm25 already returns one hit per file
-      // but applying the cap consistently keeps API parity).
       const seen = new Map<string, number>();
       const capped: SearchHit[] = [];
       for (const hit of ranked) {
