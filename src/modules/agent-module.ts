@@ -22,7 +22,7 @@ import { standardVars } from "../core/prompt-vars.js";
 import { prompt } from "../core/prompts.js";
 import { recordEvent } from "../core/event-log.js";
 import { renderContextBlocks, type ContextDecl } from "../core/context-providers.js";
-import { appendStream, inCategories } from "../core/stream.js";
+import { appendStream, inCategories, readStream } from "../core/stream.js";
 import { scopeToolsForPublic } from "../core/privacy.js";
 import { membraneLeak } from "../core/membrane.js";
 import { decide, probabilityOf } from "../core/decide.js";
@@ -118,6 +118,17 @@ export function specFields(fields: Record<string, unknown>): Pick<ModuleSpec, "w
     gate: typeof fields.gate === "string" ? fields.gate : undefined,
     gateThreshold: typeof fields.gateThreshold === "number" ? fields.gateThreshold : undefined,
   };
+}
+
+/** When a module's recent entries go in circles, say so in the stream, where the meta parts of the symbient hear it. */
+async function noticeRepetition(author: string, writes: string[], log: (msg: string) => void): Promise<void> {
+  const recent = (await readStream({ categories: writes, includePrivate: true, limit: 60 })).filter((e) => e.author === author).slice(-6);
+  if (recent.length < 4) return;
+  const p = probabilityOf(await decide("repetition", { module: author, "its last entries": recent.map((e) => e.text.slice(0, 400)) }));
+  if (p === null || p < 0.7) return;
+  log(`${author} is repeating itself (${p.toFixed(2)})`);
+  recordEvent({ type: "module_repeating", module: author, p });
+  await appendStream({ category: "meta.report", author: "body", text: `${author} has been repeating itself in its last ${recent.length} entries.` });
 }
 
 /** A module's `privacy` from frontmatter; anything unrecognised is public. */
@@ -358,6 +369,7 @@ export function createAgentModule(spec: ModuleSpec) {
       }
       await appendStream({ category: spec.writes[0], author: spec.name, text: output.trim(), private: writesPrivate || Boolean(held) });
     }
+    if (spec.writes?.length) await noticeRepetition(spec.name, spec.writes, ctx.log);
     recordEvent({ type: "module_run", module: spec.name, ms: Date.now() - startedAt, tools: toolCalls.length, error: agentError ? String(agentError).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 300) : null });
     ctx.log(`${spec.name} completed (${output.length} chars output, ${allowedTools.length} tools, error: ${agentError || 'none'})`);
     if (output.trim()) {
