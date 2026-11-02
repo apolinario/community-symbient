@@ -49,7 +49,8 @@ export function configureToolServices(options: {
 
 // --- Memory Search ---
 
-export function createSearchMemoryTool(): AgentTool {
+/** `skipFile` leaves out results from files the caller may not read. */
+export function createSearchMemoryTool(opts: { skipFile?: (file: string) => boolean } = {}): AgentTool {
   return {
     name: "search",
     description: "Search everything — memory, people profiles, past conversations, community knowledge, and more",
@@ -69,9 +70,10 @@ export function createSearchMemoryTool(): AgentTool {
           maxPerFile: 5,
           rerank: true,
         });
-        if (results.length === 0) return { content: [{ type: "text", text: `No results for "${params.query}".` }], details: {} };
+        const visible = opts.skipFile ? results.filter((r) => !opts.skipFile!(r.file)) : results;
+        if (visible.length === 0) return { content: [{ type: "text", text: `No results for "${params.query}".` }], details: {} };
 
-        const text = results
+        const text = visible
           .map((r) => `**${r.title}** (${r.file}, ${Math.round(r.score * 100)}%)\n${r.chunk || r.snippet}`)
           .join("\n\n");
         return { content: [{ type: "text", text }], details: {} };

@@ -23,6 +23,7 @@ import { prompt } from "../core/prompts.js";
 import { recordEvent } from "../core/event-log.js";
 import { renderContextBlocks, type ContextDecl } from "../core/context-providers.js";
 import { appendStream, inCategories } from "../core/stream.js";
+import { scopeToolsForPublic } from "../core/privacy.js";
 
 // --- Subscription-callback helpers ---
 
@@ -174,9 +175,13 @@ export function createAgentModule(spec: ModuleSpec) {
 
     // Assemble context — use conversation context (which filters inner monologue)
     // so inner modules don't feed on each other's outputs
+    // Public modules get only the soul: the assembled context carries MEMORY.md and retrieval over private files.
+    const clearedForMemory = ctx.config.privacy === "private" || ctx.config.privacy === "distill";
     let memoryContext: string;
     try {
-      memoryContext = await ctx.memory.assembleConversationContext(spec.prompt);
+      memoryContext = clearedForMemory
+        ? await ctx.memory.assembleConversationContext(spec.prompt)
+        : `<soul>\n${(await ctx.memory.readSoul()) ?? ""}\n</soul>`;
       ctx.log(`Context assembled (${memoryContext.length} chars)`);
       ctx.logDebug(`Context body:\n${memoryContext}`);
     } catch (err) {
@@ -190,8 +195,10 @@ export function createAgentModule(spec: ModuleSpec) {
     // that want all tools simply omit the filter, but here we honour
     // spec.toolNames literally.
     let noted = false;
-    const allowedTools = filterToolsByWhitelist(ctx.tools, spec.toolNames);
     const writesPrivate = ctx.config.privacy === "private";
+    const allowedTools = clearedForMemory
+      ? filterToolsByWhitelist(ctx.tools, spec.toolNames)
+      : scopeToolsForPublic(filterToolsByWhitelist(ctx.tools, spec.toolNames), ctx.memory.workspacePath);
     if (spec.writes?.length) allowedTools.push(createNoteTool(spec.name, spec.writes, writesPrivate, () => { noted = true; }));
 
     // Build system prompt: render the module's Handlebars template with standard vars.

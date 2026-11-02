@@ -71,9 +71,17 @@ membrane where private experience becomes character and mood rather than
 facts. Keep distilling modules few and their output easy to read
 (`meta.self`, `inner.mood`).
 
+Files follow the same clearance. For a public module the mediator scopes the
+file tools: `read`, `ls`, `find` and `grep` refuse private paths and drop them
+from listings and hits, `search` leaves out private files, and the tools that
+read conversations (`chat_history`, `list_schedule`, `list_watches`) are not
+offered. Its `{{memoryContext}}` is the soul alone. Private paths by default:
+`stream.jsonl`, `MEMORY.md`, `memory/`, `logs/`, `inner/`, `people/`, `state/`,
+`tasks/`, `debug/`, `recordings/`.
+
 The frontmatter says everything about a module: what it hears (`context`), what
 it can do (`tools`), what it can say (`writes`). Filtering the stream by
-category is the debugging view. Privacy is structural (below).
+category is the debugging view. Privacy is structural; see Privacy above.
 
 ## Roles
 
