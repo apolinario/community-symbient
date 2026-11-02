@@ -561,7 +561,9 @@ export function createCreateModuleTool(workspacePath: string): AgentTool {
     label: "Create Module",
     parameters: Type.Object({
       name: Type.String({ description: "Module name (becomes filename, no spaces)" }),
-      interval: Type.String({ description: "How often to run: '5m', '30m', '1h', '6h', '12h'" }),
+      interval: Type.Optional(Type.String({ description: "How often to run: '5m', '30m', '1h', '6h', '12h'" })),
+      cron: Type.Optional(Type.String({ description: "Run at set times instead, as a cron expression: '0 18 * * 2' is Tuesdays at 18:00" })),
+      context: Type.Optional(Type.Array(Type.String(), { description: "Context providers to include each cycle (e.g. current-time)" })),
       tools: Type.Array(Type.String(), { description: "Tool whitelist for this module" }),
       prompt: Type.String({ description: "The module's instructions — what it should do each cycle" }),
       expires: Type.Optional(Type.String({ description: "When to auto-disable: ISO datetime or 'in 7d', 'next monday'" })),
@@ -596,9 +598,19 @@ export function createCreateModuleTool(workspacePath: string): AgentTool {
         return { content: [{ type: "text", text: `Module creation rate limit: ${moduleLimits.creationsPerWeek} per week. Last created: ${new Date(recentCreations[0].time).toLocaleDateString()}` }], details: {} };
       }
 
+      if (!params.interval === !params.cron) {
+        return { content: [{ type: "text", text: "Give exactly one of `interval` or `cron`." }], details: {} };
+      }
+      if (params.cron) {
+        const { Cron } = await import("croner");
+        try { new Cron(params.cron, { paused: true }).stop(); } catch (err) {
+          return { content: [{ type: "text", text: `Invalid cron "${params.cron}": ${(err as Error).message}` }], details: {} };
+        }
+      }
+
       // Guard: minimum cycle interval
       const intervalMs = (() => {
-        const m = params.interval.match(/^(\d+)\s*(m|h)$/);
+        const m = params.interval?.match(/^(\d+)\s*(m|h)$/);
         if (!m) return null;
         return m[2] === "h" ? parseInt(m[1]) * 3600_000 : parseInt(m[1]) * 60_000;
       })();
@@ -608,7 +620,8 @@ export function createCreateModuleTool(workspacePath: string): AgentTool {
       }
 
       // Build frontmatter
-      let frontmatter = `---\nname: ${safeName}\ninterval: ${params.interval}\ntools: [${params.tools.join(", ")}]`;
+      let frontmatter = `---\nname: ${safeName}\n${params.cron ? `cron: "${params.cron}"` : `interval: ${params.interval}`}\ntools: [${params.tools.join(", ")}]`;
+      if (params.context?.length) frontmatter += `\ncontext:\n${params.context.map((c: string) => `  - source: ${c}`).join("\n")}`;
       if (params.expires) {
         const expiresTime = await parseTime(params.expires);
         if (expiresTime) {
