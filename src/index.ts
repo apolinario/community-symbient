@@ -173,7 +173,10 @@ async function main() {
       );
     }
     const params: Record<string, unknown> = chatSel.params ? chatSel.params : {};
-    chatAdapter = tapChatIntoStream(factory.create(params), async (id) => (await memory.findPersonById(id))?.name ?? null);
+    chatAdapter = tapChatIntoStream(factory.create(params), async (id) => {
+      const p = await memory.findPersonById(id);
+      return p ? { name: p.name, key: p.slug } : null;
+    });
     console.log(`Chat: ${chatSel.adapter}`);
   }
 

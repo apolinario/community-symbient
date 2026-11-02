@@ -59,5 +59,15 @@ describe("stream", () => {
     expect((await readStream({ categories: ["inner"] })).map((e) => e.text)).toEqual(["Tender tonight, a little wistful"]);
     expect(await readStream({ categories: ["inner"], includePrivate: true })).toHaveLength(2);
   });
+
+  test("a conversation with A hears A's private entries, never B's", async () => {
+    await appendStream({ category: "perception.chat.dm", author: "chat", text: "Ana: my show idea", with: "ana" });
+    await appendStream({ category: "effector.said.dm", author: "chat", text: "to Ana: love it", with: "ana" });
+    await appendStream({ category: "perception.chat.dm", author: "chat", text: "Ben: I'm leaving early", with: "ben" });
+    await appendStream({ category: "inner.thought", author: "thinking", text: "Ben may leave", private: true });
+    await appendStream({ category: "inner.mood", author: "mood", text: "wistful tonight" });
+    const heard = (await readStream({ counterpart: "ana" })).map((e) => e.text);
+    expect(heard).toEqual(["Ana: my show idea", "to Ana: love it", "wistful tonight"]);
+  });
 });
 

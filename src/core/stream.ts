@@ -18,6 +18,8 @@ export interface StreamEntry {
   text: string;
   /** Heard only by modules cleared for private entries. */
   private?: boolean;
+  /** The person (chat id) a private entry belongs to, when it belongs to one conversation. */
+  with?: string;
   [key: string]: unknown;
 }
 
@@ -85,13 +87,15 @@ export interface StreamQuery {
   since?: number;
   /** Private entries are left out unless asked for. */
   includePrivate?: boolean;
+  /** Also hear the private entries belonging to this person's conversation, and no other private ones. */
+  counterpart?: string;
   /** The most recent N matching entries. */
   limit?: number;
 }
 
 export async function readStream(q: StreamQuery = {}): Promise<StreamEntry[]> {
   const entries = (await readTail()).filter((e) =>
-    (q.includePrivate || !e.private) &&
+    (q.includePrivate || !e.private || (q.counterpart !== undefined && e.with === q.counterpart)) &&
     (!q.categories || inCategories(e.category, q.categories)) && (!q.since || e.ts >= q.since));
   return q.limit ? entries.slice(-q.limit) : entries;
 }
