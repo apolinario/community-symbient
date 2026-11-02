@@ -2,7 +2,7 @@
  * Module Loader — reads workspace/modules/*.md and creates module functions.
  *
  * Each markdown file defines a module's behavior:
- * - YAML frontmatter: name, interval, tools whitelist, startActive
+ * - YAML frontmatter: name, interval, tools whitelist, startActive, wake, requires
  * - Markdown body: Handlebars template for the system prompt
  * - Optional `## section` H2 headings: named sub-prompts (extracted into spec.sections)
  *
@@ -21,7 +21,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ModuleConfig, ModuleFunction } from "../core/types.js";
-import { createAgentModule } from "./agent-module.js";
+import { createAgentModule, wakeFields } from "./agent-module.js";
 import { getModuleHandler, defaultModuleHandler } from "../core/handler-registry.js";
 import { parseSections } from "../core/prompt-template.js";
 import { parseFrontmatter, parseInterval, moduleIntervalMs } from "../core/frontmatter.js";
@@ -92,6 +92,7 @@ export async function loadModuleConfigs(workspacePath: string): Promise<ParsedMo
         sections,
         contextDecl,
         toolNames,
+        ...wakeFields(fields),
         outputHandler: handler,
       }),
     });

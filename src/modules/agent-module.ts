@@ -90,7 +90,19 @@ export interface ModuleSpec {
   /** Declarative context blocks from the md's `context:` frontmatter — rendered into the seed user-prompt. */
   contextDecl?: ContextDecl[];
   toolNames: string[];
+  /** `nudge`: a cycle runs only when a nudge is waiting; the interval is just how often the mailbox is checked. */
+  wake?: "interval" | "nudge";
+  /** Context sources that must be non-empty for a cycle to run. */
+  requires?: string[];
   outputHandler: (ctx: ModuleContext, output: string, toolTrace: string[], toolCalls?: Array<{ name: string; args: any; result?: string }>) => Promise<void>;
+}
+
+/** `wake` and `requires` from a module's frontmatter. */
+export function wakeFields(fields: Record<string, unknown>): Pick<ModuleSpec, "wake" | "requires"> {
+  return {
+    wake: fields.wake === "nudge" ? "nudge" : "interval",
+    requires: Array.isArray(fields.requires) ? fields.requires.filter((s): s is string => typeof s === "string") : undefined,
+  };
 }
 
 /**
@@ -103,11 +115,11 @@ export interface ModuleSpec {
 export function createAgentModule(spec: ModuleSpec) {
   return async function agentModule(ctx: ModuleContext): Promise<void> {
     const startedAt = Date.now();
-    ctx.log(`Starting ${spec.name} cycle`);
 
     // Check for pending MQTT nudges from other modules
     const nudges: string[] = [];
     let nudgeMsg = await ctx.messages.receive(50);
+    if (spec.wake === "nudge" && !nudgeMsg) return;
     while (nudgeMsg) {
       nudges.push(`[from ${nudgeMsg.from}] ${nudgeMsg.content}`);
       ctx.log(`Nudge received from ${nudgeMsg.from}: ${nudgeMsg.content.slice(0, 100)}`);
@@ -116,6 +128,15 @@ export function createAgentModule(spec: ModuleSpec) {
       recordEvent({ type: "nudge", from: nudgeMsg.from, to: spec.name, content: nudgeMsg.content });
       nudgeMsg = await ctx.messages.receive(50);
     }
+
+    if (spec.requires?.length) {
+      const decls = spec.requires.map((source) => spec.contextDecl?.find((d) => d.source === source) ?? { source });
+      if ((await renderContextBlocks(decls, ctx)).length < decls.length) {
+        ctx.log(`${spec.name}: skipped, nothing in ${spec.requires.join(", ")}`);
+        return;
+      }
+    }
+    ctx.log(`Starting ${spec.name} cycle`);
 
     // Assemble context — use conversation context (which filters inner monologue)
     // so inner modules don't feed on each other's outputs
