@@ -6,8 +6,6 @@
 
 // --- Module System ---
 
-export type StreamPrivacy = "public" | "private" | "distill";
-
 export interface ModuleConfig {
   name: string;
   description?: string;
@@ -26,12 +24,6 @@ export interface ModuleConfig {
   cron?: string;
   /** Whether the module starts active or waits for activation. */
   startActive: boolean;
-  /**
-   * What the module may hear and how what it writes is marked (docs/stream.md):
-   * `public` (default) hears and writes public entries; `private` hears everything
-   * and its entries are private; `distill` hears everything and writes public.
-   */
-  privacy?: StreamPrivacy;
   /** LLM model to use for this module's reasoning. */
   model?: string;
   /**
@@ -125,8 +117,6 @@ export interface MemoryAccess {
   findPerson(name: string, phone?: string): Promise<{ slug: string; content: string } | null>;
   /** Find a person by a chat identifier (signal-uuid, phone, …) stored in their frontmatter. */
   findPersonById(id: string): Promise<{ slug: string; name: string } | null>;
-  /** Every name and alias in people/, full and first (for checks like the membrane's). */
-  peopleNames(): Promise<string[]>;
   /** Assemble generic context: SOUL + MEMORY + optional person profile. */
   assembleContext(personName?: string, phone?: string): Promise<string>;
   /**

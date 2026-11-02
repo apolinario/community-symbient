@@ -174,10 +174,9 @@ const upcomingScheduledProvider: ContextProvider = {
 
 /** The module's slice of the stream: `categories` it hears, the most recent `limit` entries (docs/stream.md). */
 const streamProvider: ContextProvider = {
-  async execute(decl, ctx) {
+  async execute(decl) {
     const categories = Array.isArray(decl.categories) ? decl.categories.map(String) : undefined;
-    const includePrivate = ctx.config?.privacy === "private" || ctx.config?.privacy === "distill";
-    const entries = await readStream({ categories, limit: typeof decl.limit === "number" ? decl.limit : 40, includePrivate });
+    const entries = await readStream({ categories, limit: typeof decl.limit === "number" ? decl.limit : 40 });
     return entries.length > 0 ? renderStream(entries) : null;
   },
 };

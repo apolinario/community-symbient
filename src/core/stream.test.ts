@@ -40,34 +40,13 @@ describe("stream", () => {
     expect(block).not.toContain("secret");
   });
 
-  test("DMs are private: public modules never hear them, cleared modules do", async () => {
-    await appendStream({ category: "perception.chat.dm", author: "chat", text: "Giulio: between us, I'm leaving early" });
-    await appendStream({ category: "perception.chat.group", author: "chat", text: "Kurt: Sphere free at 22:00" });
-    const slice = [{ source: "stream", categories: ["perception.chat"] }];
-    const [publicView] = await renderContextBlocks(slice, { config: { privacy: "public" }, log: () => {} } as any);
-    const [privateView] = await renderContextBlocks(slice, { config: { privacy: "private" }, log: () => {} } as any);
-    const [unsetView] = await renderContextBlocks(slice, { config: {}, log: () => {} } as any);
-    expect(publicView).not.toContain("leaving early");
-    expect(unsetView).not.toContain("leaving early");
-    expect(publicView).toContain("Sphere");
-    expect(privateView).toContain("leaving early");
-  });
-
-  test("what a private module writes stays private, whatever its category", async () => {
-    await appendStream({ category: "inner.thought", author: "thinking", text: "Giulio may leave; I feel it", private: true });
-    await appendStream({ category: "inner.mood", author: "mood", text: "Tender tonight, a little wistful" });
-    expect((await readStream({ categories: ["inner"] })).map((e) => e.text)).toEqual(["Tender tonight, a little wistful"]);
-    expect(await readStream({ categories: ["inner"], includePrivate: true })).toHaveLength(2);
-  });
-
-  test("a conversation with A hears A's private entries, never B's", async () => {
+  test("a conversation with A hears A's thread and everything shared, not B's thread", async () => {
     await appendStream({ category: "perception.chat.dm", author: "chat", text: "Ana: my show idea", with: "ana" });
     await appendStream({ category: "effector.said.dm", author: "chat", text: "to Ana: love it", with: "ana" });
     await appendStream({ category: "perception.chat.dm", author: "chat", text: "Ben: I'm leaving early", with: "ben" });
-    await appendStream({ category: "inner.thought", author: "thinking", text: "Ben may leave", private: true });
+    await appendStream({ category: "inner.thought", author: "thinking", text: "Ben may leave" });
     await appendStream({ category: "inner.mood", author: "mood", text: "wistful tonight" });
     const heard = (await readStream({ counterpart: "ana" })).map((e) => e.text);
-    expect(heard).toEqual(["Ana: my show idea", "to Ana: love it", "wistful tonight"]);
+    expect(heard).toEqual(["Ana: my show idea", "to Ana: love it", "Ben may leave", "wistful tonight"]);
   });
 });
-

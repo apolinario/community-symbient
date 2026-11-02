@@ -49,8 +49,7 @@ export function configureToolServices(options: {
 
 // --- Memory Search ---
 
-/** `skipFile` leaves out results from files the caller may not read. */
-export function createSearchMemoryTool(opts: { skipFile?: (file: string) => boolean } = {}): AgentTool {
+export function createSearchMemoryTool(): AgentTool {
   return {
     name: "search",
     description: "Search everything — memory, people profiles, past conversations, community knowledge, and more",
@@ -70,7 +69,7 @@ export function createSearchMemoryTool(opts: { skipFile?: (file: string) => bool
           maxPerFile: 5,
           rerank: true,
         });
-        const visible = await rerank(params.query, opts.skipFile ? results.filter((r) => !opts.skipFile!(r.file)) : results, { min: 0.1 });
+        const visible = await rerank(params.query, results, { min: 0.1 });
         if (visible.length === 0) return { content: [{ type: "text", text: `No results for "${params.query}".` }], details: {} };
 
         const text = visible

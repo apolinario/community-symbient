@@ -54,42 +54,25 @@ context:
   categories. A module with exactly one `writes` category has its final output
   recorded there when it wrote no notes that cycle.
 
-## Privacy
+## Conversations and discretion
 
-Some entries are private: DMs (`perception.chat.dm`, `effector.said.dm`) are
-marked private when they enter the stream. A module declares its clearance:
+The inner life hears everything — that is where character forms. DM entries
+carry `with` (the person), so a conversation can be read as seen from it:
+`readStream({ counterpart })` leaves out other people's threads. That is
+context management, not a wall: the conversation with Ana carries Ana's thread
+and what the rest of the symbient thought and felt, and can still look further.
 
-| `privacy` | hears | writes |
-|---|---|---|
-| `public` (default) | public entries only | public entries |
-| `private` | everything | private entries — what is made from private input stays private |
-| `distill` | everything | public entries |
-
-Hearing is deny-by-default: a public module never receives a private entry,
-whatever categories it asks for. `distill` is the one way across — the
-membrane where private experience becomes character and mood rather than
-facts. Keep distilling modules few and their output easy to read
-(`meta.self`, `inner.mood`).
-
-A distilling module has no `note` tool; only its final output crosses, and it
-passes the membrane first (`src/core/membrane.ts`): text that names someone
-known only from private entries, or repeats a phrase from a private
-conversation, is held back as a private entry. Paraphrase can still pass — the
-membrane catches plain leaks, it doesn't understand meaning.
+Discretion happens where people practise it — at the mouth. Before something
+leaves the symbient (a DM, a group message, words on air), a decision model can
+ask whether it passes on something personal about someone other than its
+audience; if so, the speaking module gets a heads-up and decides: send anyway,
+say it differently, or let it go (see `decide` and the deployment's speaking tools).
 
 Every module may write at most two notes a cycle; past that its run stops.
 
-Files follow the same clearance. For a public module the mediator scopes the
-file tools: `read`, `ls`, `find` and `grep` refuse private paths and drop them
-from listings and hits, `search` leaves out private files, and the tools that
-read conversations (`chat_history`, `list_schedule`, `list_watches`) are not
-offered. Its `{{memoryContext}}` is the soul alone. Private paths by default:
-`stream.jsonl`, `MEMORY.md`, `memory/`, `logs/`, `inner/`, `people/`, `state/`,
-`tasks/`, `debug/`, `recordings/`.
-
 The frontmatter says everything about a module: what it hears (`context`), what
 it can do (`tools`), what it can say (`writes`). Filtering the stream by
-category is the debugging view. Privacy is structural; see Privacy above.
+category is the debugging view.
 
 ## Roles
 

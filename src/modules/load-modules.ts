@@ -21,7 +21,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ModuleConfig, ModuleFunction } from "../core/types.js";
-import { createAgentModule, specFields, privacyOf } from "./agent-module.js";
+import { createAgentModule, specFields } from "./agent-module.js";
 import { getModuleHandler, defaultModuleHandler } from "../core/handler-registry.js";
 import { parseSections } from "../core/prompt-template.js";
 import { parseFrontmatter, parseInterval, moduleIntervalMs } from "../core/frontmatter.js";
@@ -84,7 +84,7 @@ export async function loadModuleConfigs(workspacePath: string): Promise<ParsedMo
       : undefined;
 
     modules.push({
-      config: { name, intervalMs: interval, cron, startActive, follows, runImmediately, model, llm, privacy: privacyOf(fields), description: template.split("\n")[0] },
+      config: { name, intervalMs: interval, cron, startActive, follows, runImmediately, model, llm, description: template.split("\n")[0] },
       fn: createAgentModule({
         name,
         prompt: body,

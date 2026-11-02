@@ -13,7 +13,7 @@
  * to today's daily log).
  */
 
-import type { ModuleContext, StreamPrivacy } from "../core/types.js";
+import type { ModuleContext } from "../core/types.js";
 import { Agent, type AgentTool } from "@mariozechner/pi-agent-core";
 import { Type } from "@mariozechner/pi-ai";
 import { filterToolsByWhitelist } from "../mcp/bridge.js";
@@ -23,8 +23,6 @@ import { prompt } from "../core/prompts.js";
 import { recordEvent } from "../core/event-log.js";
 import { renderContextBlocks, type ContextDecl } from "../core/context-providers.js";
 import { appendStream, inCategories, readStream } from "../core/stream.js";
-import { scopeToolsForPublic } from "../core/privacy.js";
-import { membraneLeak } from "../core/membrane.js";
 import { decide, probabilityOf } from "../core/decide.js";
 
 // --- Subscription-callback helpers ---
@@ -122,7 +120,7 @@ export function specFields(fields: Record<string, unknown>): Pick<ModuleSpec, "w
 
 /** When a module's recent entries go in circles, say so in the stream, where the meta parts of the symbient hear it. */
 async function noticeRepetition(author: string, writes: string[], log: (msg: string) => void): Promise<void> {
-  const recent = (await readStream({ categories: writes, includePrivate: true, limit: 60 })).filter((e) => e.author === author).slice(-6);
+  const recent = (await readStream({ categories: writes, limit: 60 })).filter((e) => e.author === author).slice(-6);
   if (recent.length < 4) return;
   const p = probabilityOf(await decide("repetition", { module: author, "its last entries": recent.map((e) => e.text.slice(0, 400)) }));
   if (p === null || p < 0.7) return;
@@ -131,16 +129,11 @@ async function noticeRepetition(author: string, writes: string[], log: (msg: str
   await appendStream({ category: "meta.report", author: "body", text: `${author} has been repeating itself in its last ${recent.length} entries.` });
 }
 
-/** A module's `privacy` from frontmatter; anything unrecognised is public. */
-export function privacyOf(fields: Record<string, unknown>): StreamPrivacy {
-  return fields.privacy === "private" || fields.privacy === "distill" ? fields.privacy : "public";
-}
-
 /** `note`: the module's way to say something into the stream, limited to its `writes`. */
 // A module says a little each cycle; past this the run is stopped (a model that can't end keeps noting).
 const NOTES_PER_CYCLE = 2;
 
-function createNoteTool(author: string, writes: string[], isPrivate: boolean, onLimit: () => void): AgentTool {
+function createNoteTool(author: string, writes: string[], onLimit: () => void): AgentTool {
   let notes = 0;
   return {
     name: "note",
@@ -160,7 +153,7 @@ function createNoteTool(author: string, writes: string[], isPrivate: boolean, on
         return { content: [{ type: "text", text: "That's enough for this cycle." }], details: {}, isError: true };
       }
       notes++;
-      await appendStream({ category: p.category, author, text: p.text, private: isPrivate });
+      await appendStream({ category: p.category, author, text: p.text });
       return { content: [{ type: "text", text: notes >= NOTES_PER_CYCLE ? "Noted. That's all for this cycle." : "Noted." }], details: {} };
     },
   };
@@ -201,13 +194,9 @@ export function createAgentModule(spec: ModuleSpec) {
 
     // Assemble context — use conversation context (which filters inner monologue)
     // so inner modules don't feed on each other's outputs
-    // Public modules get only the soul: the assembled context carries MEMORY.md and retrieval over private files.
-    const clearedForMemory = ctx.config.privacy === "private" || ctx.config.privacy === "distill";
     let memoryContext: string;
     try {
-      memoryContext = clearedForMemory
-        ? await ctx.memory.assembleConversationContext(spec.prompt)
-        : `<soul>\n${(await ctx.memory.readSoul()) ?? ""}\n</soul>`;
+      memoryContext = await ctx.memory.assembleConversationContext(spec.prompt);
       ctx.log(`Context assembled (${memoryContext.length} chars)`);
       ctx.logDebug(`Context body:\n${memoryContext}`);
     } catch (err) {
@@ -220,14 +209,8 @@ export function createAgentModule(spec: ModuleSpec) {
     // matches radio.*). An empty whitelist disables every tool — modules
     // that want all tools simply omit the filter, but here we honour
     // spec.toolNames literally.
-    const writesPrivate = ctx.config.privacy === "private";
-    const allowedTools = clearedForMemory
-      ? filterToolsByWhitelist(ctx.tools, spec.toolNames)
-      : scopeToolsForPublic(filterToolsByWhitelist(ctx.tools, spec.toolNames), ctx.memory.workspacePath);
-    // Distilling modules cross into public only through their final output, after the membrane.
-    if (spec.writes?.length && ctx.config.privacy !== "distill") {
-      allowedTools.push(createNoteTool(spec.name, spec.writes, writesPrivate, () => agent.abort()));
-    }
+    const allowedTools = filterToolsByWhitelist(ctx.tools, spec.toolNames);
+    if (spec.writes?.length) allowedTools.push(createNoteTool(spec.name, spec.writes, () => agent.abort()));
 
     // Build system prompt: render the module's Handlebars template with standard vars.
     // The md file is responsible for whatever preamble, memory context, and instructions
@@ -362,12 +345,7 @@ export function createAgentModule(spec: ModuleSpec) {
     checkError();
     const noted = toolCalls.some((tc) => tc.name === "note");
     if (spec.writes?.length === 1 && !noted && output.trim()) {
-      const held = ctx.config.privacy === "distill" ? await membraneLeak(output, await ctx.memory.peopleNames()) : null;
-      if (held) {
-        ctx.log(`membrane held back ${spec.name}'s output: ${held}`);
-        recordEvent({ type: "membrane_held", module: spec.name, reason: held });
-      }
-      await appendStream({ category: spec.writes[0], author: spec.name, text: output.trim(), private: writesPrivate || Boolean(held) });
+      await appendStream({ category: spec.writes[0], author: spec.name, text: output.trim() });
     }
     if (spec.writes?.length) await noticeRepetition(spec.name, spec.writes, ctx.log);
     recordEvent({ type: "module_run", module: spec.name, ms: Date.now() - startedAt, tools: toolCalls.length, error: agentError ? String(agentError).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 300) : null });

@@ -308,19 +308,6 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     return people;
   }
 
-  async peopleNames(): Promise<string[]> {
-    const names = new Set<string>();
-    for (const p of await this.discoverPeople()) {
-      const aka = typeof p.fields.aka === "string" ? p.fields.aka.split("/").map((s) => s.trim()) : [];
-      for (const n of [p.name, ...aka]) {
-        if (n.length >= 3) names.add(n);
-        const first = n.split(/\s+/)[0];
-        if (first.length >= 3) names.add(first);
-      }
-    }
-    return [...names];
-  }
-
   /** Invalidate the people cache. */
   invalidatePeopleCache(): void {
     this.peopleCache = null;
