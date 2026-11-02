@@ -49,6 +49,7 @@ import { loadModuleConfigs } from "./modules/load-modules.js";
 import { loadAllExtensions, loadWorkspaceToolsFactory, loadWorkspaceModulesFactory } from "./core/extension-loader.js";
 import { setEventLogWorkspace } from "./core/event-log.js";
 import { setStreamWorkspace } from "./core/stream.js";
+import { configureDecider } from "./core/decide.js";
 import { tapChatIntoStream } from "./adapters/chat/stream-tap.js";
 import { setPromptsWorkspace } from "./core/prompts.js";
 import { setWatchesWorkspace } from "./core/watches.js";
@@ -250,6 +251,7 @@ async function main() {
 
   setEventLogWorkspace(config.workspacePath);
   setStreamWorkspace(config.workspacePath);
+  configureDecider({ url: config.services?.decider?.url as string | undefined, workspacePath: config.workspacePath });
   setPromptsWorkspace(config.workspacePath);
   setWatchesWorkspace(config.workspacePath);
 

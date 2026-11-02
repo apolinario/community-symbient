@@ -50,6 +50,8 @@ export { recordEvent, queryEvents } from "./event-log.js";
 export type { Event, QueryFilter } from "./event-log.js";
 export { appendStream, readStream, renderStream, inCategories, setPrivateCategories } from "./stream.js";
 export type { StreamEntry, StreamQuery } from "./stream.js";
+export { decide, decideMany, probabilityOf, deciderAvailable } from "./decide.js";
+export type { DecisionAnswer } from "./decide.js";
 
 // Time annotation utilities — for context providers that want to render
 // timestamps with relative-age labels or tag stale lines for past-tense
