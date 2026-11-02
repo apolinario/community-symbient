@@ -6,6 +6,8 @@
 
 // --- Module System ---
 
+export type StreamPrivacy = "public" | "private" | "distill";
+
 export interface ModuleConfig {
   name: string;
   description?: string;
@@ -24,6 +26,12 @@ export interface ModuleConfig {
   cron?: string;
   /** Whether the module starts active or waits for activation. */
   startActive: boolean;
+  /**
+   * What the module may hear and how what it writes is marked (docs/stream.md):
+   * `public` (default) hears and writes public entries; `private` hears everything
+   * and its entries are private; `distill` hears everything and writes public.
+   */
+  privacy?: StreamPrivacy;
   /** LLM model to use for this module's reasoning. */
   model?: string;
   /**

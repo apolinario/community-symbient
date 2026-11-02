@@ -54,11 +54,26 @@ context:
   categories. A module with exactly one `writes` category has its final output
   recorded there when it wrote no notes that cycle.
 
+## Privacy
+
+Some entries are private: DMs (`perception.chat.dm`, `effector.said.dm`) are
+marked private when they enter the stream. A module declares its clearance:
+
+| `privacy` | hears | writes |
+|---|---|---|
+| `public` (default) | public entries only | public entries |
+| `private` | everything | private entries — what is made from private input stays private |
+| `distill` | everything | public entries |
+
+Hearing is deny-by-default: a public module never receives a private entry,
+whatever categories it asks for. `distill` is the one way across — the
+membrane where private experience becomes character and mood rather than
+facts. Keep distilling modules few and their output easy to read
+(`meta.self`, `inner.mood`).
+
 The frontmatter says everything about a module: what it hears (`context`), what
 it can do (`tools`), what it can say (`writes`). Filtering the stream by
-category is the debugging view. Privacy is structural: a module without a
-slice that includes `perception.chat.dm` never hears a DM, however it is
-prompted.
+category is the debugging view. Privacy is structural (below).
 
 ## Roles
 

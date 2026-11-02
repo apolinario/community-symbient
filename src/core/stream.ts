@@ -16,10 +16,18 @@ export interface StreamEntry {
   category: string;
   author: string;
   text: string;
+  /** Heard only by modules cleared for private entries. */
+  private?: boolean;
   [key: string]: unknown;
 }
 
 let streamPath: string | null = null;
+// Entries in these categories are private wherever they come from.
+let privateCategories = ["perception.chat.dm", "effector.said.dm"];
+
+export function setPrivateCategories(categories: string[]): void {
+  privateCategories = categories;
+}
 
 export function setStreamWorkspace(workspacePath: string): void {
   streamPath = join(workspacePath, "stream.jsonl");
@@ -35,7 +43,8 @@ export async function appendStream(entry: { category: string; author: string; te
   if (!streamPath || !entry.category || !entry.text?.trim()) return;
   try {
     await mkdir(join(streamPath, ".."), { recursive: true });
-    await appendFile(streamPath, JSON.stringify({ ts: Date.now(), ...entry, text: entry.text.trim() }) + "\n", "utf-8");
+    const isPrivate = entry.private === true || inCategories(entry.category, privateCategories);
+    await appendFile(streamPath, JSON.stringify({ ts: Date.now(), ...entry, text: entry.text.trim(), private: isPrivate || undefined }) + "\n", "utf-8");
   } catch (err) {
     log.warn(`append failed: ${(err as Error).message}`);
   }
@@ -74,12 +83,15 @@ async function readTail(): Promise<StreamEntry[]> {
 export interface StreamQuery {
   categories?: string[];
   since?: number;
+  /** Private entries are left out unless asked for. */
+  includePrivate?: boolean;
   /** The most recent N matching entries. */
   limit?: number;
 }
 
 export async function readStream(q: StreamQuery = {}): Promise<StreamEntry[]> {
   const entries = (await readTail()).filter((e) =>
+    (q.includePrivate || !e.private) &&
     (!q.categories || inCategories(e.category, q.categories)) && (!q.since || e.ts >= q.since));
   return q.limit ? entries.slice(-q.limit) : entries;
 }

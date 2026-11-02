@@ -13,7 +13,7 @@
  * to today's daily log).
  */
 
-import type { ModuleContext } from "../core/types.js";
+import type { ModuleContext, StreamPrivacy } from "../core/types.js";
 import { Agent, type AgentTool } from "@mariozechner/pi-agent-core";
 import { Type } from "@mariozechner/pi-ai";
 import { filterToolsByWhitelist } from "../mcp/bridge.js";
@@ -112,8 +112,13 @@ export function specFields(fields: Record<string, unknown>): Pick<ModuleSpec, "w
   };
 }
 
+/** A module's `privacy` from frontmatter; anything unrecognised is public. */
+export function privacyOf(fields: Record<string, unknown>): StreamPrivacy {
+  return fields.privacy === "private" || fields.privacy === "distill" ? fields.privacy : "public";
+}
+
 /** `note`: the module's way to say something into the stream, limited to its `writes`. */
-function createNoteTool(author: string, writes: string[], onNote: () => void): AgentTool {
+function createNoteTool(author: string, writes: string[], isPrivate: boolean, onNote: () => void): AgentTool {
   return {
     name: "note",
     label: "Note",
@@ -127,7 +132,7 @@ function createNoteTool(author: string, writes: string[], onNote: () => void): A
       if (!inCategories(p.category, writes)) {
         return { content: [{ type: "text", text: `You can write ${writes.join(", ")}, not ${p.category}.` }], details: {}, isError: true };
       }
-      await appendStream({ category: p.category, author, text: p.text });
+      await appendStream({ category: p.category, author, text: p.text, private: isPrivate });
       onNote();
       return { content: [{ type: "text", text: "Noted." }], details: {} };
     },
@@ -186,7 +191,8 @@ export function createAgentModule(spec: ModuleSpec) {
     // spec.toolNames literally.
     let noted = false;
     const allowedTools = filterToolsByWhitelist(ctx.tools, spec.toolNames);
-    if (spec.writes?.length) allowedTools.push(createNoteTool(spec.name, spec.writes, () => { noted = true; }));
+    const writesPrivate = ctx.config.privacy === "private";
+    if (spec.writes?.length) allowedTools.push(createNoteTool(spec.name, spec.writes, writesPrivate, () => { noted = true; }));
 
     // Build system prompt: render the module's Handlebars template with standard vars.
     // The md file is responsible for whatever preamble, memory context, and instructions
@@ -308,7 +314,7 @@ export function createAgentModule(spec: ModuleSpec) {
 
     checkError();
     if (spec.writes?.length === 1 && !noted && output.trim()) {
-      await appendStream({ category: spec.writes[0], author: spec.name, text: output.trim() });
+      await appendStream({ category: spec.writes[0], author: spec.name, text: output.trim(), private: writesPrivate });
     }
     recordEvent({ type: "module_run", module: spec.name, ms: Date.now() - startedAt, tools: toolCalls.length, error: agentError ? String(agentError).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 300) : null });
     ctx.log(`${spec.name} completed (${output.length} chars output, ${allowedTools.length} tools, error: ${agentError || 'none'})`);

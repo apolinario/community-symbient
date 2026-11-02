@@ -39,4 +39,25 @@ describe("stream", () => {
     expect(block).toContain("Now playing: Zombie");
     expect(block).not.toContain("secret");
   });
+
+  test("DMs are private: public modules never hear them, cleared modules do", async () => {
+    await appendStream({ category: "perception.chat.dm", author: "chat", text: "Giulio: between us, I'm leaving early" });
+    await appendStream({ category: "perception.chat.group", author: "chat", text: "Kurt: Sphere free at 22:00" });
+    const slice = [{ source: "stream", categories: ["perception.chat"] }];
+    const [publicView] = await renderContextBlocks(slice, { config: { privacy: "public" }, log: () => {} } as any);
+    const [privateView] = await renderContextBlocks(slice, { config: { privacy: "private" }, log: () => {} } as any);
+    const [unsetView] = await renderContextBlocks(slice, { config: {}, log: () => {} } as any);
+    expect(publicView).not.toContain("leaving early");
+    expect(unsetView).not.toContain("leaving early");
+    expect(publicView).toContain("Sphere");
+    expect(privateView).toContain("leaving early");
+  });
+
+  test("what a private module writes stays private, whatever its category", async () => {
+    await appendStream({ category: "inner.thought", author: "thinking", text: "Giulio may leave; I feel it", private: true });
+    await appendStream({ category: "inner.mood", author: "mood", text: "Tender tonight, a little wistful" });
+    expect((await readStream({ categories: ["inner"] })).map((e) => e.text)).toEqual(["Tender tonight, a little wistful"]);
+    expect(await readStream({ categories: ["inner"], includePrivate: true })).toHaveLength(2);
+  });
 });
+
