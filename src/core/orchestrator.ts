@@ -261,15 +261,20 @@ interface RegisteredModule {
   lastRun?: Date;
 }
 
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (signal.aborted) return resolve();
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => {
-      clearTimeout(timer);
-      resolve();
-    }, { once: true });
-  });
+// setTimeout fires at once past 2^31-1 ms (~24.8 days), so a distant cron would run immediately and loop.
+const MAX_TIMEOUT_MS = 2 ** 31 - 1;
+
+async function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  const until = Date.now() + ms;
+  while (!signal.aborted && Date.now() < until) {
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, Math.min(until - Date.now(), MAX_TIMEOUT_MS));
+      signal.addEventListener("abort", () => {
+        clearTimeout(timer);
+        resolve();
+      }, { once: true });
+    });
+  }
 }
 
 /**
