@@ -48,6 +48,8 @@ export type { ContextProvider, ContextDecl } from "./context-providers.js";
 // Event log — the key surface for "log new stuff without changing core"
 export { recordEvent, queryEvents } from "./event-log.js";
 export type { Event, QueryFilter } from "./event-log.js";
+export { appendStream, readStream, renderStream, inCategories } from "./stream.js";
+export type { StreamEntry, StreamQuery } from "./stream.js";
 
 // Time annotation utilities — for context providers that want to render
 // timestamps with relative-age labels or tag stale lines for past-tense

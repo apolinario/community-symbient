@@ -48,6 +48,8 @@ import { initMCP, onMCPReconnect } from "./mcp/bridge.js";
 import { loadModuleConfigs } from "./modules/load-modules.js";
 import { loadAllExtensions, loadWorkspaceToolsFactory, loadWorkspaceModulesFactory } from "./core/extension-loader.js";
 import { setEventLogWorkspace } from "./core/event-log.js";
+import { setStreamWorkspace } from "./core/stream.js";
+import { tapChatIntoStream } from "./adapters/chat/stream-tap.js";
 import { setPromptsWorkspace } from "./core/prompts.js";
 import { setWatchesWorkspace } from "./core/watches.js";
 import { setSearchBackend, createQmdHttpBackend, createLocalBm25Backend } from "./core/search.js";
@@ -171,7 +173,7 @@ async function main() {
       );
     }
     const params: Record<string, unknown> = chatSel.params ? chatSel.params : {};
-    chatAdapter = factory.create(params);
+    chatAdapter = tapChatIntoStream(factory.create(params), async (id) => (await memory.findPersonById(id))?.name ?? null);
     console.log(`Chat: ${chatSel.adapter}`);
   }
 
@@ -244,6 +246,7 @@ async function main() {
   // --- Event log + watches (stateful singletons; set before modules start) ---
 
   setEventLogWorkspace(config.workspacePath);
+  setStreamWorkspace(config.workspacePath);
   setPromptsWorkspace(config.workspacePath);
   setWatchesWorkspace(config.workspacePath);
 

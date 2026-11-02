@@ -18,7 +18,7 @@ import type { Orchestrator } from "./orchestrator.js";
 import { readdir, readFile, rename, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { parseFrontmatter, moduleIntervalMs } from "./frontmatter.js";
-import { createAgentModule, wakeFields } from "../modules/agent-module.js";
+import { createAgentModule, specFields } from "../modules/agent-module.js";
 import { parseSections } from "./prompt-template.js";
 import { getModuleHandler, defaultModuleHandler } from "./handler-registry.js";
 import { getBuiltInModule } from "./module-factories.js";
@@ -111,7 +111,7 @@ export function createModuleSyncModule(orchestrator: Orchestrator, workspacePath
           sections,
           contextDecl,
           toolNames,
-          ...wakeFields(fields),
+          ...specFields(fields),
           outputHandler: handler,
         });
 

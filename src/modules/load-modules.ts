@@ -21,7 +21,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ModuleConfig, ModuleFunction } from "../core/types.js";
-import { createAgentModule, wakeFields } from "./agent-module.js";
+import { createAgentModule, specFields } from "./agent-module.js";
 import { getModuleHandler, defaultModuleHandler } from "../core/handler-registry.js";
 import { parseSections } from "../core/prompt-template.js";
 import { parseFrontmatter, parseInterval, moduleIntervalMs } from "../core/frontmatter.js";
@@ -92,7 +92,7 @@ export async function loadModuleConfigs(workspacePath: string): Promise<ParsedMo
         sections,
         contextDecl,
         toolNames,
-        ...wakeFields(fields),
+        ...specFields(fields),
         outputHandler: handler,
       }),
     });

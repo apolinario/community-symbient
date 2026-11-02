@@ -14,13 +14,15 @@
  */
 
 import type { ModuleContext } from "../core/types.js";
-import { Agent } from "@mariozechner/pi-agent-core";
+import { Agent, type AgentTool } from "@mariozechner/pi-agent-core";
+import { Type } from "@mariozechner/pi-ai";
 import { filterToolsByWhitelist } from "../mcp/bridge.js";
 import { render } from "../core/prompt-template.js";
 import { standardVars } from "../core/prompt-vars.js";
 import { prompt } from "../core/prompts.js";
 import { recordEvent } from "../core/event-log.js";
 import { renderContextBlocks, type ContextDecl } from "../core/context-providers.js";
+import { appendStream, readStream, renderStream, inCategories } from "../core/stream.js";
 
 // --- Subscription-callback helpers ---
 
@@ -94,14 +96,47 @@ export interface ModuleSpec {
   wake?: "interval" | "nudge";
   /** Context sources that must be non-empty for a cycle to run. */
   requires?: string[];
+  /** Stream categories this module hears (docs/stream.md). */
+  reads?: string[];
+  /** Stream categories this module may write. */
+  writes?: string[];
+  /** How many recent stream entries it hears each cycle. */
+  streamLimit?: number;
   outputHandler: (ctx: ModuleContext, output: string, toolTrace: string[], toolCalls?: Array<{ name: string; args: any; result?: string }>) => Promise<void>;
 }
 
-/** `wake` and `requires` from a module's frontmatter. */
-export function wakeFields(fields: Record<string, unknown>): Pick<ModuleSpec, "wake" | "requires"> {
+const stringList = (v: unknown) => (Array.isArray(v) ? v.filter((s): s is string => typeof s === "string") : undefined);
+
+/** Spec fields read from a module's frontmatter. */
+export function specFields(fields: Record<string, unknown>): Pick<ModuleSpec, "wake" | "requires" | "reads" | "writes" | "streamLimit"> {
   return {
     wake: fields.wake === "nudge" ? "nudge" : "interval",
-    requires: Array.isArray(fields.requires) ? fields.requires.filter((s): s is string => typeof s === "string") : undefined,
+    requires: stringList(fields.requires),
+    reads: stringList(fields.reads),
+    writes: stringList(fields.writes),
+    streamLimit: typeof fields.streamLimit === "number" ? fields.streamLimit : undefined,
+  };
+}
+
+/** `note`: the module's way to say something into the stream, limited to its `writes`. */
+function createNoteTool(author: string, writes: string[], onNote: () => void): AgentTool {
+  return {
+    name: "note",
+    label: "Note",
+    description: `Write a short entry into your stream, where the rest of you will hear it. Categories you can write: ${writes.join(", ")}.`,
+    parameters: Type.Object({
+      category: Type.String({ description: `One of: ${writes.join(", ")} (or a sub-category of one)` }),
+      text: Type.String({ description: "The entry, in a sentence or a few" }),
+    }),
+    execute: async (_id, params) => {
+      const p = params as { category: string; text: string };
+      if (!inCategories(p.category, writes)) {
+        return { content: [{ type: "text", text: `You can write ${writes.join(", ")}, not ${p.category}.` }], details: {}, isError: true };
+      }
+      await appendStream({ category: p.category, author, text: p.text });
+      onNote();
+      return { content: [{ type: "text", text: "Noted." }], details: {} };
+    },
   };
 }
 
@@ -155,7 +190,9 @@ export function createAgentModule(spec: ModuleSpec) {
     // matches radio.*). An empty whitelist disables every tool — modules
     // that want all tools simply omit the filter, but here we honour
     // spec.toolNames literally.
+    let noted = false;
     const allowedTools = filterToolsByWhitelist(ctx.tools, spec.toolNames);
+    if (spec.writes?.length) allowedTools.push(createNoteTool(spec.name, spec.writes, () => { noted = true; }));
 
     // Build system prompt: render the module's Handlebars template with standard vars.
     // The md file is responsible for whatever preamble, memory context, and instructions
@@ -236,6 +273,12 @@ export function createAgentModule(spec: ModuleSpec) {
     //   3. Remaining nudges (non-scheduled) get injected as a <module-nudges> block.
     const seedParts: string[] = [];
 
+    // The mediator: the module hears only the stream categories it declares.
+    if (spec.reads?.length) {
+      const heard = await readStream({ categories: spec.reads, limit: spec.streamLimit ?? 40 });
+      if (heard.length) seedParts.push(`<stream>\n${renderStream(heard)}\n</stream>`);
+    }
+
     const scheduledActions: Array<{ prompt: string; context: string | null }> = [];
     const otherNudges: string[] = [];
     for (const nudge of nudges) {
@@ -276,6 +319,9 @@ export function createAgentModule(spec: ModuleSpec) {
     }
 
     checkError();
+    if (spec.writes?.length === 1 && !noted && output.trim()) {
+      await appendStream({ category: spec.writes[0], author: spec.name, text: output.trim() });
+    }
     recordEvent({ type: "module_run", module: spec.name, ms: Date.now() - startedAt, tools: toolCalls.length, error: agentError ? String(agentError).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 300) : null });
     ctx.log(`${spec.name} completed (${output.length} chars output, ${allowedTools.length} tools, error: ${agentError || 'none'})`);
     if (output.trim()) {
