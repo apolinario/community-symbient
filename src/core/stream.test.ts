@@ -1,8 +1,9 @@
-import { describe, expect, test, beforeEach } from "bun:test";
+import { describe, expect, test, beforeEach } from "vitest";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendStream, inCategories, readStream, renderStream, setStreamWorkspace } from "./stream.js";
+import { renderContextBlocks } from "./context-providers.js";
 
 describe("stream", () => {
   beforeEach(() => setStreamWorkspace(mkdtempSync(join(tmpdir(), "stream-"))));
@@ -28,5 +29,14 @@ describe("stream", () => {
     const heard = await readStream({ categories: ["inner"], limit: 2 });
     expect(heard.map((e) => e.text)).toEqual(["t2", "t3"]);
     expect(renderStream(heard)).toMatch(/inner\.thought · thinking: t3$/);
+  });
+
+  test("the stream provider renders a module's slice as a tagged block", async () => {
+    await appendStream({ category: "perception.chat.dm", author: "chat", text: "Ana: a secret" });
+    await appendStream({ category: "perception.radio", author: "station", text: "Now playing: Zombie" });
+    const [block] = await renderContextBlocks([{ source: "stream", categories: ["perception.radio"], tag: "on-air" }], { log: () => {} } as any);
+    expect(block).toContain("<on-air>");
+    expect(block).toContain("Now playing: Zombie");
+    expect(block).not.toContain("secret");
   });
 });

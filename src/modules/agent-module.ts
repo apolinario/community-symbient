@@ -22,7 +22,7 @@ import { standardVars } from "../core/prompt-vars.js";
 import { prompt } from "../core/prompts.js";
 import { recordEvent } from "../core/event-log.js";
 import { renderContextBlocks, type ContextDecl } from "../core/context-providers.js";
-import { appendStream, readStream, renderStream, inCategories } from "../core/stream.js";
+import { appendStream, inCategories } from "../core/stream.js";
 
 // --- Subscription-callback helpers ---
 
@@ -96,25 +96,19 @@ export interface ModuleSpec {
   wake?: "interval" | "nudge";
   /** Context sources that must be non-empty for a cycle to run. */
   requires?: string[];
-  /** Stream categories this module hears (docs/stream.md). */
-  reads?: string[];
-  /** Stream categories this module may write. */
+  /** Stream categories this module may write (what it hears is a `stream` context provider; docs/stream.md). */
   writes?: string[];
-  /** How many recent stream entries it hears each cycle. */
-  streamLimit?: number;
   outputHandler: (ctx: ModuleContext, output: string, toolTrace: string[], toolCalls?: Array<{ name: string; args: any; result?: string }>) => Promise<void>;
 }
 
 const stringList = (v: unknown) => (Array.isArray(v) ? v.filter((s): s is string => typeof s === "string") : undefined);
 
 /** Spec fields read from a module's frontmatter. */
-export function specFields(fields: Record<string, unknown>): Pick<ModuleSpec, "wake" | "requires" | "reads" | "writes" | "streamLimit"> {
+export function specFields(fields: Record<string, unknown>): Pick<ModuleSpec, "wake" | "requires" | "writes"> {
   return {
     wake: fields.wake === "nudge" ? "nudge" : "interval",
     requires: stringList(fields.requires),
-    reads: stringList(fields.reads),
     writes: stringList(fields.writes),
-    streamLimit: typeof fields.streamLimit === "number" ? fields.streamLimit : undefined,
   };
 }
 
@@ -272,12 +266,6 @@ export function createAgentModule(spec: ModuleSpec) {
     //   2. Generic context providers: render each entry in `spec.contextDecl`.
     //   3. Remaining nudges (non-scheduled) get injected as a <module-nudges> block.
     const seedParts: string[] = [];
-
-    // The mediator: the module hears only the stream categories it declares.
-    if (spec.reads?.length) {
-      const heard = await readStream({ categories: spec.reads, limit: spec.streamLimit ?? 40 });
-      if (heard.length) seedParts.push(`<stream>\n${renderStream(heard)}\n</stream>`);
-    }
 
     const scheduledActions: Array<{ prompt: string; context: string | null }> = [];
     const otherNudges: string[] = [];

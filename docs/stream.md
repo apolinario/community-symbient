@@ -33,26 +33,32 @@ itself and anything below it.
 
 ## Mediation
 
-Modules never touch the file. They declare in frontmatter what they hear and
-what they may say:
+Modules never touch the file. Like every other context, what a module hears is
+declared in its frontmatter and built fresh each cycle; what it may say is
+declared next to its tools:
 
 ```yaml
-reads: [perception, inner.want]
-writes: [inner.thought]
+tools: [radio_say, radio_play, radio_status]
+writes: [effector.aired]
+context:
+  - source: current-time
+  - source: stream
+    categories: [perception.radio, perception.sauna, inner.want]
+    limit: 30
 ```
 
-The framework mediates both directions:
-
-- **Hearing.** Each cycle, the module's prompt gets a `<stream>` block: the
-  recent entries in its `reads` categories.
+- **Hearing.** The `stream` provider renders the most recent `limit` entries
+  (default 40) in the given `categories`. A module can declare several slices,
+  each with its own `tag`.
 - **Saying.** A module with `writes` gets a `note` tool that accepts only those
   categories. A module with exactly one `writes` category has its final output
   recorded there when it wrote no notes that cycle.
 
-Routing is visible in the frontmatter: who hears what can be read off the
-module files, and filtering the stream by category is the debugging view.
-Privacy is structural: a module that doesn't read `perception.chat.dm` never
-sees a DM, however it is prompted.
+The frontmatter says everything about a module: what it hears (`context`), what
+it can do (`tools`), what it can say (`writes`). Filtering the stream by
+category is the debugging view. Privacy is structural: a module without a
+slice that includes `perception.chat.dm` never hears a DM, however it is
+prompted.
 
 ## Roles
 

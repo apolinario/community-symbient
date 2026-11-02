@@ -19,7 +19,7 @@
  *
  * Providers come from three registers:
  *   1. Framework built-ins (in this file): `events`, `current-time`,
- *      `upcoming-scheduled`.
+ *      `upcoming-scheduled`, `stream`.
  *   2. Workspace extensions via `workspace/extensions/providers.js`
  *      — register new `source: foo` handlers without editing core.
  *   3. (Future) MCP-backed providers.
@@ -29,6 +29,7 @@
 
 import type { ModuleContext } from "./types.js";
 import { queryEvents, type Event } from "./event-log.js";
+import { readStream, renderStream } from "./stream.js";
 
 export interface ContextDecl {
   source: string;
@@ -171,7 +172,17 @@ const upcomingScheduledProvider: ContextProvider = {
   },
 };
 
+/** The module's slice of the stream: `categories` it hears, the most recent `limit` entries (docs/stream.md). */
+const streamProvider: ContextProvider = {
+  async execute(decl) {
+    const categories = Array.isArray(decl.categories) ? decl.categories.map(String) : undefined;
+    const entries = await readStream({ categories, limit: typeof decl.limit === "number" ? decl.limit : 40 });
+    return entries.length > 0 ? renderStream(entries) : null;
+  },
+};
+
 function registerBuiltInProviders(): void {
+  registerProvider("stream", streamProvider);
   registerProvider("events", eventsProvider);
   registerProvider("current-time", currentTimeProvider);
   registerProvider("upcoming-scheduled", upcomingScheduledProvider);
