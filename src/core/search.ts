@@ -19,6 +19,7 @@
 
 import { readFile, readdir, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { decideMany, deciderAvailable, probabilityOf } from "./decide.js";
 
 export interface SearchQuery {
   /** Hint to the backend. `lex` = BM25-style, `vec` = embedding. Backends without
@@ -123,6 +124,8 @@ function tokenize(text: string): string[] {
     .replace(/[^a-z0-9_À-ſ\s-]/g, " ")
     .split(/\s+/)
     .filter((t) => t.length >= 2 && !STOP_WORDS.has(t))
+    // "wi-fi" is also "wifi": hyphenated words are indexed joined as well.
+    .flatMap((t) => (t.includes("-") ? [t, t.replace(/-/g, "")] : [t]))
     .map((t) => (t.length > 3 && t.endsWith("s") && !t.endsWith("ss") ? t.slice(0, -1) : t));
 }
 
@@ -286,4 +289,20 @@ export function createLocalBm25Backend(workspacePath: string): SearchBackend {
       return capped;
     },
   };
+}
+
+/**
+ * Reorder hits by how well they answer `query`, using the decision model, and
+ * drop those below `min`. Without a decider the hits come back as they were.
+ */
+export async function rerank<T extends SearchHit>(query: string, hits: T[], opts: { keep?: number; min?: number } = {}): Promise<T[]> {
+  if (!deciderAvailable() || hits.length === 0) return hits;
+  const answers = await decideMany("relevance", hits.map((h) => ({ question: query, passage: `${h.title}\n${(h.chunk || h.snippet).slice(0, 1500)}` })));
+  if (answers.every((a) => a === null)) return hits;
+  return hits
+    .map((hit, i) => ({ hit, p: probabilityOf(answers[i]) ?? 0 }))
+    .filter((x) => x.p >= (opts.min ?? 0.2))
+    .sort((a, b) => b.p - a.p)
+    .slice(0, opts.keep ?? hits.length)
+    .map((x) => x.hit);
 }

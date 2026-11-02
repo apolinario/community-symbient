@@ -22,7 +22,8 @@ import type { MemoryReader, MemoryWriter } from "../core/types.js";
 import { slugify } from "../core/slugify.js";
 import { symbientName } from "../core/symbient-name.js";
 import { parseFrontmatter } from "../core/frontmatter.js";
-import { getSearchBackend, type SearchHit } from "../core/search.js";
+import { getSearchBackend, rerank, type SearchHit } from "../core/search.js";
+import { deciderAvailable } from "../core/decide.js";
 import { createLogger } from "../core/logger.js";
 
 const log = createLogger("memory");
@@ -455,9 +456,11 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     searches: Array<{ type: "lex" | "vec"; query: string }>,
     limit = 8,
   ): Promise<SearchHit[]> {
-    return getSearchBackend()
-      .query({ searches, collection: symbientName(), limit, maxPerFile: 2 })
+    // Twice the candidates, then the decision model keeps the ones that bear on the message.
+    const hits = await getSearchBackend()
+      .query({ searches, collection: symbientName(), limit: limit * 2, maxPerFile: 2 })
       .catch(() => [] as SearchHit[]);
+    return deciderAvailable() ? rerank(searches[0]?.query ?? "", hits, { keep: limit }) : hits.slice(0, limit);
   }
 
   // --- Helpers ---

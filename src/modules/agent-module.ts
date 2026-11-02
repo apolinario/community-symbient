@@ -25,6 +25,7 @@ import { renderContextBlocks, type ContextDecl } from "../core/context-providers
 import { appendStream, inCategories } from "../core/stream.js";
 import { scopeToolsForPublic } from "../core/privacy.js";
 import { membraneLeak } from "../core/membrane.js";
+import { decide, probabilityOf } from "../core/decide.js";
 
 // --- Subscription-callback helpers ---
 
@@ -100,17 +101,22 @@ export interface ModuleSpec {
   requires?: string[];
   /** Stream categories this module may write (what it hears is a `stream` context provider; docs/stream.md). */
   writes?: string[];
+  /** A decision (src/decisions/, workspace/decisions/) asked before each run; below `gateThreshold` (default 0.5) the run is skipped. */
+  gate?: string;
+  gateThreshold?: number;
   outputHandler: (ctx: ModuleContext, output: string, toolTrace: string[], toolCalls?: Array<{ name: string; args: any; result?: string }>) => Promise<void>;
 }
 
 const stringList = (v: unknown) => (Array.isArray(v) ? v.filter((s): s is string => typeof s === "string") : undefined);
 
 /** Spec fields read from a module's frontmatter. */
-export function specFields(fields: Record<string, unknown>): Pick<ModuleSpec, "wake" | "requires" | "writes"> {
+export function specFields(fields: Record<string, unknown>): Pick<ModuleSpec, "wake" | "requires" | "writes" | "gate" | "gateThreshold"> {
   return {
     wake: fields.wake === "nudge" ? "nudge" : "interval",
     requires: stringList(fields.requires),
     writes: stringList(fields.writes),
+    gate: typeof fields.gate === "string" ? fields.gate : undefined,
+    gateThreshold: typeof fields.gateThreshold === "number" ? fields.gateThreshold : undefined,
   };
 }
 
@@ -321,6 +327,18 @@ export function createAgentModule(spec: ModuleSpec) {
     const promptText = seedParts.join("\n\n") || prompt("begin");
     ctx.log(`Seed prompt (${promptText.length} chars, ${allowedTools.length} tools)`);
     ctx.logDebug(`Seed prompt body:\n${promptText}`);
+
+    // Sense-making before the run: a gated module asks the decision model, with the context the LLM would get,
+    // whether there is anything worth acting on. Ungated modules, or an unanswered gate, run as usual.
+    if (spec.gate) {
+      const p = probabilityOf(await decide(spec.gate, { module: spec.name, "system prompt": systemPrompt, context: promptText }));
+      recordEvent({ type: "module_gate", module: spec.name, gate: spec.gate, p });
+      if (p !== null && p < (spec.gateThreshold ?? 0.5)) {
+        ctx.log(`${spec.name}: nothing to act on (gate ${spec.gate} ${p.toFixed(2)}), skipping`);
+        return;
+      }
+    }
+
     try {
       await agent.prompt(promptText);
       await agent.waitForIdle();

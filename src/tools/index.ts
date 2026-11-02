@@ -12,7 +12,7 @@ import type { MemoryManager } from "../memory/manager.js";
 import type { MQTTBus } from "../core/mqtt-bus.js";
 import { queryEvents } from "../core/event-log.js";
 import { symbientName } from "../core/symbient-name.js";
-import { getSearchBackend } from "../core/search.js";
+import { getSearchBackend, rerank } from "../core/search.js";
 
 /**
  * Runtime service URLs and policy values — set once at startup from
@@ -70,7 +70,7 @@ export function createSearchMemoryTool(opts: { skipFile?: (file: string) => bool
           maxPerFile: 5,
           rerank: true,
         });
-        const visible = opts.skipFile ? results.filter((r) => !opts.skipFile!(r.file)) : results;
+        const visible = await rerank(params.query, opts.skipFile ? results.filter((r) => !opts.skipFile!(r.file)) : results, { min: 0.1 });
         if (visible.length === 0) return { content: [{ type: "text", text: `No results for "${params.query}".` }], details: {} };
 
         const text = visible
