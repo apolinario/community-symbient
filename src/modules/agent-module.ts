@@ -24,6 +24,7 @@ import { recordEvent } from "../core/event-log.js";
 import { renderContextBlocks, type ContextDecl } from "../core/context-providers.js";
 import { appendStream, inCategories } from "../core/stream.js";
 import { scopeToolsForPublic } from "../core/privacy.js";
+import { membraneLeak } from "../core/membrane.js";
 
 // --- Subscription-callback helpers ---
 
@@ -119,7 +120,11 @@ export function privacyOf(fields: Record<string, unknown>): StreamPrivacy {
 }
 
 /** `note`: the module's way to say something into the stream, limited to its `writes`. */
-function createNoteTool(author: string, writes: string[], isPrivate: boolean, onNote: () => void): AgentTool {
+// A module says a little each cycle; past this the run is stopped (a model that can't end keeps noting).
+const NOTES_PER_CYCLE = 2;
+
+function createNoteTool(author: string, writes: string[], isPrivate: boolean, onLimit: () => void): AgentTool {
+  let notes = 0;
   return {
     name: "note",
     label: "Note",
@@ -133,9 +138,13 @@ function createNoteTool(author: string, writes: string[], isPrivate: boolean, on
       if (!inCategories(p.category, writes)) {
         return { content: [{ type: "text", text: `You can write ${writes.join(", ")}, not ${p.category}.` }], details: {}, isError: true };
       }
+      if (notes >= NOTES_PER_CYCLE) {
+        onLimit();
+        return { content: [{ type: "text", text: "That's enough for this cycle." }], details: {}, isError: true };
+      }
+      notes++;
       await appendStream({ category: p.category, author, text: p.text, private: isPrivate });
-      onNote();
-      return { content: [{ type: "text", text: "Noted." }], details: {} };
+      return { content: [{ type: "text", text: notes >= NOTES_PER_CYCLE ? "Noted. That's all for this cycle." : "Noted." }], details: {} };
     },
   };
 }
@@ -194,12 +203,14 @@ export function createAgentModule(spec: ModuleSpec) {
     // matches radio.*). An empty whitelist disables every tool — modules
     // that want all tools simply omit the filter, but here we honour
     // spec.toolNames literally.
-    let noted = false;
     const writesPrivate = ctx.config.privacy === "private";
     const allowedTools = clearedForMemory
       ? filterToolsByWhitelist(ctx.tools, spec.toolNames)
       : scopeToolsForPublic(filterToolsByWhitelist(ctx.tools, spec.toolNames), ctx.memory.workspacePath);
-    if (spec.writes?.length) allowedTools.push(createNoteTool(spec.name, spec.writes, writesPrivate, () => { noted = true; }));
+    // Distilling modules cross into public only through their final output, after the membrane.
+    if (spec.writes?.length && ctx.config.privacy !== "distill") {
+      allowedTools.push(createNoteTool(spec.name, spec.writes, writesPrivate, () => agent.abort()));
+    }
 
     // Build system prompt: render the module's Handlebars template with standard vars.
     // The md file is responsible for whatever preamble, memory context, and instructions
@@ -320,8 +331,14 @@ export function createAgentModule(spec: ModuleSpec) {
     }
 
     checkError();
+    const noted = toolCalls.some((tc) => tc.name === "note");
     if (spec.writes?.length === 1 && !noted && output.trim()) {
-      await appendStream({ category: spec.writes[0], author: spec.name, text: output.trim(), private: writesPrivate });
+      const held = ctx.config.privacy === "distill" ? await membraneLeak(output, await ctx.memory.peopleNames()) : null;
+      if (held) {
+        ctx.log(`membrane held back ${spec.name}'s output: ${held}`);
+        recordEvent({ type: "membrane_held", module: spec.name, reason: held });
+      }
+      await appendStream({ category: spec.writes[0], author: spec.name, text: output.trim(), private: writesPrivate || Boolean(held) });
     }
     recordEvent({ type: "module_run", module: spec.name, ms: Date.now() - startedAt, tools: toolCalls.length, error: agentError ? String(agentError).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 300) : null });
     ctx.log(`${spec.name} completed (${output.length} chars output, ${allowedTools.length} tools, error: ${agentError || 'none'})`);

@@ -71,6 +71,14 @@ membrane where private experience becomes character and mood rather than
 facts. Keep distilling modules few and their output easy to read
 (`meta.self`, `inner.mood`).
 
+A distilling module has no `note` tool; only its final output crosses, and it
+passes the membrane first (`src/core/membrane.ts`): text that names someone
+known only from private entries, or repeats a phrase from a private
+conversation, is held back as a private entry. Paraphrase can still pass — the
+membrane catches plain leaks, it doesn't understand meaning.
+
+Every module may write at most two notes a cycle; past that its run stops.
+
 Files follow the same clearance. For a public module the mediator scopes the
 file tools: `read`, `ls`, `find` and `grep` refuse private paths and drop them
 from listings and hits, `search` leaves out private files, and the tools that

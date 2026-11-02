@@ -125,6 +125,8 @@ export interface MemoryAccess {
   findPerson(name: string, phone?: string): Promise<{ slug: string; content: string } | null>;
   /** Find a person by a chat identifier (signal-uuid, phone, …) stored in their frontmatter. */
   findPersonById(id: string): Promise<{ slug: string; name: string } | null>;
+  /** Every name and alias in people/, full and first (for checks like the membrane's). */
+  peopleNames(): Promise<string[]>;
   /** Assemble generic context: SOUL + MEMORY + optional person profile. */
   assembleContext(personName?: string, phone?: string): Promise<string>;
   /**
