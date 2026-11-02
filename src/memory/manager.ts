@@ -460,7 +460,7 @@ export class MemoryManager implements MemoryReader, MemoryWriter {
     const hits = await getSearchBackend()
       .query({ searches, collection: symbientName(), limit: limit * 2, maxPerFile: 2 })
       .catch(() => [] as SearchHit[]);
-    return deciderAvailable() ? rerank(searches[0]?.query ?? "", hits, { keep: limit }) : hits.slice(0, limit);
+    return deciderAvailable() ? rerank(searches[0]?.query ?? "", hits, { keep: limit, min: 0.3 }) : hits.slice(0, limit);
   }
 
   // --- Helpers ---

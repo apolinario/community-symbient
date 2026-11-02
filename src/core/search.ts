@@ -148,6 +148,9 @@ function chunkMarkdown(content: string, fileTitle: string): Array<{ title: strin
   return out;
 }
 
+// The symbient's own machinery (module prompts, decisions, prompts, code) isn't memory.
+const NOT_MEMORY = new Set(["node_modules", "logs", "modules", "decisions", "prompts", "extensions", "services"]);
+
 /**
  * Walk a directory tree collecting .md files. Skips dot-dirs and
  * `node_modules`. Returns absolute paths.
@@ -162,7 +165,7 @@ async function findMarkdownFiles(root: string): Promise<string[]> {
       return;
     }
     for (const e of entries) {
-      if (e.name.startsWith(".") || e.name === "node_modules" || e.name === "logs") continue;
+      if (e.name.startsWith(".") || NOT_MEMORY.has(e.name)) continue;
       const full = join(dir, e.name);
       if (e.isDirectory()) {
         await walk(full);
