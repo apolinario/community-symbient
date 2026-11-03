@@ -23,6 +23,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { render, parseSections } from "../core/prompt-template.js";
+import { withToolGuides } from "../core/prompts.js";
 import { standardVars } from "../core/prompt-vars.js";
 import { recordEvent } from "../core/event-log.js";
 import { filterToolsByWhitelist } from "../mcp/bridge.js";
@@ -95,9 +96,8 @@ export function createChatReactor(opts: ChatReactorOpts) {
       memoryContext,
       isGroup: msg.chatType === "group",
     });
-    const systemPrompt = render(spec.template, vars);
-
     const allowedTools = filterToolsByWhitelist(ctx.tools, spec.toolNames);
+    const systemPrompt = withToolGuides(render(spec.template, vars), allowedTools.map((t) => t.name), vars);
 
     const agent = new Agent({
       initialState: { model: ctx.model, systemPrompt },

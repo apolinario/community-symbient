@@ -19,7 +19,7 @@ import { Type } from "@mariozechner/pi-ai";
 import { filterToolsByWhitelist } from "../mcp/bridge.js";
 import { render } from "../core/prompt-template.js";
 import { standardVars } from "../core/prompt-vars.js";
-import { prompt } from "../core/prompts.js";
+import { prompt, withToolGuides } from "../core/prompts.js";
 import { recordEvent } from "../core/event-log.js";
 import { renderContextBlocks, type ContextDecl } from "../core/context-providers.js";
 import { appendStream, inCategories, readStream } from "../core/stream.js";
@@ -220,7 +220,7 @@ export function createAgentModule(spec: ModuleSpec) {
     // the module needs. Core provides the values (currentDateTime, memoryContext, etc.)
     // via the helper registry in src/core/prompt-vars.ts.
     const vars = await standardVars(ctx, { sections: spec.sections, memoryContext });
-    const systemPrompt = render(spec.template, vars);
+    const systemPrompt = withToolGuides(render(spec.template, vars), allowedTools.map((t) => t.name), vars);
 
     // Create Pi Agent
     const agent = new Agent({
