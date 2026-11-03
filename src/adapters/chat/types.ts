@@ -38,6 +38,12 @@ export interface ChatAdapter {
   /** Optional: show a "typing" indicator. No-op if unsupported. */
   sendTyping?(to: string, groupId?: string): Promise<void>;
 
+  /** Optional: clear the "typing" indicator. */
+  stopTyping?(to: string, groupId?: string): Promise<void>;
+
+  /** Optional: mark a received message as read; `timestamp` is the message's own. */
+  sendReadReceipt?(to: string, timestamp: number): Promise<void>;
+
   /**
    * Optional: REST endpoint where attachment binaries can be fetched as
    * `${baseUrl}/v1/attachments/{id}`. Adapters whose transport doesn't

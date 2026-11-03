@@ -120,24 +120,39 @@ export class SignalBridge implements ChatAdapter {
   }
 
   async sendTyping(to: string, groupId?: string): Promise<void> {
+    await this.typingIndicator("PUT", to, groupId);
+  }
+
+  async stopTyping(to: string, groupId?: string): Promise<void> {
+    await this.typingIndicator("DELETE", to, groupId);
+  }
+
+  // Typing indicators and receipts are best-effort, so they never throw.
+  private async typingIndicator(method: "PUT" | "DELETE", to: string, groupId?: string): Promise<void> {
     try {
       const res = await fetch(
         `${this.baseUrl}/v1/typing-indicator/${encodeURIComponent(this.config.account)}`,
         {
-          method: "PUT",
+          method,
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(
             groupId ? { recipient: to, group_id: groupId } : { recipient: to },
           ),
         },
       );
-      if (!res.ok) {
-        // Typing indicators are best-effort, don't throw
-        log.warn(`Typing indicator failed: ${res.status}`);
-      }
-    } catch {
-      // Best-effort
-    }
+      if (!res.ok) log.warn(`Typing indicator failed: ${res.status}`);
+    } catch {}
+  }
+
+  async sendReadReceipt(to: string, timestamp: number): Promise<void> {
+    try {
+      const res = await fetch(`${this.baseUrl}/v1/receipts/${encodeURIComponent(this.config.account)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ receipt_type: "read", recipient: to, timestamp }),
+      });
+      if (!res.ok) log.warn(`Read receipt failed: ${res.status}`);
+    } catch {}
   }
 
   // --- Health Check ---
