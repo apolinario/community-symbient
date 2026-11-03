@@ -56,6 +56,8 @@ export const SymbientConfigSchema = Type.Object({
   mcp_servers: Type.Optional(Type.Array(Type.Object({
     name: Type.String(),
     url: Type.String(),
+    headers: Type.Optional(Type.Record(Type.String(), Type.String())),
+    private: Type.Optional(Type.Boolean()),
   }, { additionalProperties: true }))),
   modules: Type.Optional(Type.Record(Type.String(), ModuleOverride)),
 }, { additionalProperties: true });

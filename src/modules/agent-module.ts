@@ -16,7 +16,7 @@
 import type { ModuleContext } from "../core/types.js";
 import { Agent, type AgentTool } from "@mariozechner/pi-agent-core";
 import { Type } from "@mariozechner/pi-ai";
-import { filterToolsByWhitelist } from "../mcp/bridge.js";
+import { filterToolsByWhitelist, loggableResult } from "../mcp/bridge.js";
 import { render } from "../core/prompt-template.js";
 import { standardVars } from "../core/prompt-vars.js";
 import { prompt, withToolGuides } from "../core/prompts.js";
@@ -272,7 +272,8 @@ export function createAgentModule(spec: ModuleSpec) {
 
         case "tool_execution_end": {
           const resultText = extractResultText(event.result);
-          ctx.log(`Result: ${event.toolName} → ${resultText}`);
+          const shown = loggableResult(event.toolName, resultText);
+          ctx.log(`Result: ${event.toolName} → ${shown}`);
           const matchingCall = correlateToolResult(toolCalls, event.toolName, resultText);
           recordEvent({
             type: "tool_call",
@@ -280,7 +281,7 @@ export function createAgentModule(spec: ModuleSpec) {
             tool: event.toolName,
             args: matchingCall?.args,
             ok: !event.isError,
-            result: resultText.slice(0, 500),
+            result: shown.slice(0, 500),
           });
           return;
         }

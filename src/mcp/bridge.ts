@@ -19,10 +19,15 @@ const log = createLogger("mcp");
 export interface MCPServerConfig {
   name: string;
   url: string;
+  /** Request headers; `${VAR}` placeholders resolve from the environment. */
+  headers?: Record<string, string>;
+  /** Results reach the agent but are left out of logs and the event log. */
+  private?: boolean;
 }
 
 let runtime: Runtime | null = null;
 const serverNames = new Set<string>();
+const privateServers = new Set<string>();
 let _servers: MCPServerConfig[] = [];
 let _onReconnect: ((tools: AgentTool[]) => void) | null = null;
 
@@ -46,7 +51,7 @@ export async function initMCP(servers: MCPServerConfig[]): Promise<AgentTool[]> 
   runtime = await createRuntime({
     servers: servers.map((s) => ({
       name: s.name,
-      command: { kind: "http" as const, url: new URL(s.url) },
+      command: { kind: "http" as const, url: new URL(s.url), headers: s.headers },
     })),
     clientInfo: { name: "symbient", version: "0.1" },
   });
@@ -55,6 +60,7 @@ export async function initMCP(servers: MCPServerConfig[]): Promise<AgentTool[]> 
 
   for (const server of servers) {
     serverNames.add(server.name);
+    if (server.private) privateServers.add(server.name);
     // Retry up to 3 times with 5s delay for remote servers that may be slow to start
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
@@ -81,6 +87,12 @@ export async function initMCP(servers: MCPServerConfig[]): Promise<AgentTool[]> 
 /** Check if a name refers to an MCP server (for tool filtering). */
 export function isMCPServer(name: string): boolean {
   return serverNames.has(name);
+}
+
+/** A tool result as it may be logged: private servers' results are reduced to their length. */
+export function loggableResult(toolName: string, text: string): string {
+  const server = toolName.split(".")[0];
+  return privateServers.has(server) ? `[private, ${text.length} chars]` : text;
 }
 
 /**
