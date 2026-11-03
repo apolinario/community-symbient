@@ -102,19 +102,22 @@ export interface ModuleSpec {
   /** A decision (src/decisions/, workspace/decisions/) asked before each run; below `gateThreshold` (default 0.5) the run is skipped. */
   gate?: string;
   gateThreshold?: number;
+  /** Tools that can act once per cycle; a call that comes back as an error doesn't count. */
+  once?: string[];
   outputHandler: (ctx: ModuleContext, output: string, toolTrace: string[], toolCalls?: Array<{ name: string; args: any; result?: string }>) => Promise<void>;
 }
 
 const stringList = (v: unknown) => (Array.isArray(v) ? v.filter((s): s is string => typeof s === "string") : undefined);
 
 /** Spec fields read from a module's frontmatter. */
-export function specFields(fields: Record<string, unknown>): Pick<ModuleSpec, "wake" | "requires" | "writes" | "gate" | "gateThreshold"> {
+export function specFields(fields: Record<string, unknown>): Pick<ModuleSpec, "wake" | "requires" | "writes" | "gate" | "gateThreshold" | "once"> {
   return {
     wake: fields.wake === "nudge" ? "nudge" : "interval",
     requires: stringList(fields.requires),
     writes: stringList(fields.writes),
     gate: typeof fields.gate === "string" ? fields.gate : undefined,
     gateThreshold: typeof fields.gateThreshold === "number" ? fields.gateThreshold : undefined,
+    once: stringList(fields.once),
   };
 }
 
@@ -157,6 +160,19 @@ function createNoteTool(author: string, writes: string[], onLimit: () => void): 
       return { content: [{ type: "text", text: notes >= NOTES_PER_CYCLE ? "Noted. That's all for this cycle." : "Noted." }], details: {} };
     },
   };
+}
+
+function oncePerCycle(tool: AgentTool): AgentTool {
+  let done = false;
+  return {
+    ...tool,
+    execute: async (...args: Parameters<AgentTool["execute"]>) => {
+      if (done) return { content: [{ type: "text", text: `${tool.name} has already happened this cycle.` }], details: {}, isError: true };
+      const result = await tool.execute(...args);
+      if (!(result as { isError?: boolean }).isError) done = true;
+      return result;
+    },
+  } as AgentTool;
 }
 
 /**
@@ -209,7 +225,7 @@ export function createAgentModule(spec: ModuleSpec) {
     // matches radio.*). An empty whitelist disables every tool — modules
     // that want all tools simply omit the filter, but here we honour
     // spec.toolNames literally.
-    const allowedTools = filterToolsByWhitelist(ctx.tools, spec.toolNames);
+    const allowedTools = filterToolsByWhitelist(ctx.tools, spec.toolNames).map((t) => (spec.once?.includes(t.name) ? oncePerCycle(t) : t));
     // Stops we cause ourselves end the run on purpose; they aren't errors.
     let stoppedBy = "";
     const stop = (reason: string) => { stoppedBy = reason; agent.abort(); };
