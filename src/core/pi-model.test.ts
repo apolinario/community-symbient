@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { createModel, getApiKey } from "./pi-model.js";
+import { createModel, getApiKey, payloadHook } from "./pi-model.js";
 
 describe("createModel", () => {
   it("builds an OpenAI-compatible model for baseUrl endpoints", () => {
@@ -57,5 +57,17 @@ describe("getApiKey", () => {
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.OPENAI_API_KEY;
     expect(getApiKey({ provider: "llamacpp" })).toBe("dummy");
+  });
+});
+
+describe("payloadHook", () => {
+  it("adds llm.params to every request", () => {
+    const hook = payloadHook({ params: { min_p: 0.15, temperature: 2 } })!;
+    expect(hook({ model: "m", temperature: 1, messages: [] })).toEqual({ model: "m", temperature: 2, min_p: 0.15, messages: [] });
+  });
+
+  it("without params there is no hook", () => {
+    expect(payloadHook({})).toBeUndefined();
+    expect(payloadHook({ params: {} })).toBeUndefined();
   });
 });

@@ -242,6 +242,7 @@ export function createAgentModule(spec: ModuleSpec) {
     const agent = new Agent({
       initialState: { model: ctx.model, systemPrompt },
       getApiKey: () => ctx.apiKey,
+      onPayload: ctx.onPayload,
     });
     if (allowedTools.length > 0) {
       agent.setTools(allowedTools);

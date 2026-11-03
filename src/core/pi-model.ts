@@ -22,6 +22,14 @@ export interface LlmEndpointConfig {
   baseUrl?: string;
   contextWindow?: number;
   maxTokens?: number;
+  params?: Record<string, unknown>;
+}
+
+/** The Agent `onPayload` hook that adds `params` to every request, when there are any. */
+export function payloadHook(config: { params?: Record<string, unknown> }): ((payload: unknown) => unknown) | undefined {
+  const params = config.params;
+  if (!params || Object.keys(params).length === 0) return undefined;
+  return (payload) => ({ ...(payload as Record<string, unknown>), ...params });
 }
 
 export function createModel(config: LlmEndpointConfig): Model<Api> {

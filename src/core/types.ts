@@ -37,6 +37,7 @@ export interface ModuleConfig {
     model?: string;
     baseUrl?: string;
     apiKeyEnv?: string;
+    params?: Record<string, unknown>;
   };
   /** If set, this module runs after the named module completes instead of on a timer. */
   follows?: string;
@@ -62,6 +63,8 @@ export interface ModuleContext {
   tools: import("@mariozechner/pi-agent-core").AgentTool[];
   /** API key for LLM provider. */
   apiKey: string;
+  /** Adds `llm.params` to each request an Agent makes; pass it as the Agent's `onPayload`. */
+  onPayload?: (payload: unknown) => unknown;
   /** Default log channel (info level). Surfaces in dashboard SSE + stdout. */
   log: (msg: string) => void;
   /** Verbose channel for full context dumps and prompt bodies. Suppressed
@@ -290,6 +293,8 @@ export interface SymbientConfig {
     baseUrl?: string;
     /** Context window / completion cap for compat endpoints the SDK can't introspect. */
     contextWindow?: number;
+    /** Extra request fields for the symbient's own voice (its agents), e.g. sampling or steering the endpoint supports. */
+    params?: Record<string, unknown>;
     maxTokens?: number;
     /**
      * Optional smaller/faster model for minor tasks (time parsing,

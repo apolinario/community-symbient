@@ -15,7 +15,7 @@ import type {
 } from "./types.js";
 import { MQTTBus } from "./mqtt-bus.js";
 import { createLLMClient } from "./llm.js";
-import { createModel, getApiKey } from "./pi-model.js";
+import { createModel, getApiKey, payloadHook } from "./pi-model.js";
 import { createLogger } from "./logger.js";
 import { Cron } from "croner";
 
@@ -140,6 +140,7 @@ export class Orchestrator {
       model: override ? createModel(override) : this.piModel,
       tools: this.piTools,
       apiKey: override ? getApiKey(override) : this.piApiKey,
+      onPayload: payloadHook(override ?? this.config.llm),
       log: (msg: string) => modLog.info(msg),
       logDebug: (msg: string) => modLog.debug(msg),
       signal,
