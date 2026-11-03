@@ -215,7 +215,7 @@ export class Orchestrator {
         // intervalMs from now.
         await Promise.race([
           sleep(nextSleepMs(mod.config), signal),
-          this.bus.waitForMessage(name),
+          this.bus.waitForMessage(name, true),
         ]);
       }
     }

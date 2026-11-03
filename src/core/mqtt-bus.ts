@@ -155,12 +155,14 @@ export class MQTTBus {
    * Returns a promise that resolves when ANY message arrives for this module.
    * Used by the orchestrator to interrupt sleep and wake modules instantly.
    * Does NOT consume the message — it stays in the queue for receive().
+   * `onlyNew`: wait for a message that arrives from now on, ignoring any the
+   * module has left queued (it chose to leave them; waking on them would spin).
    */
-  waitForMessage(moduleName: string): Promise<void> {
+  waitForMessage(moduleName: string, onlyNew = false): Promise<void> {
     const { queue, waiters } = this.ensureModuleSlots(moduleName);
     return new Promise((resolve) => {
       // If a message is already queued, return immediately.
-      if (queue.length > 0) {
+      if (!onlyNew && queue.length > 0) {
         resolve();
         return;
       }
