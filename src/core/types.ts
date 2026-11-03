@@ -349,5 +349,5 @@ export interface SymbientConfig {
    * External MCP servers to connect at startup. Their tools are auto-
    * discovered and made available to agent modules. Omit for none.
    */
-  mcp_servers?: Array<{ name: string; url: string; headers?: Record<string, string>; private?: boolean }>;
+  mcp_servers?: Array<{ name: string; url: string; headers?: Record<string, string>; tools?: string[]; private?: boolean }>;
 }

@@ -21,6 +21,8 @@ export interface MCPServerConfig {
   url: string;
   /** Request headers; `${VAR}` placeholders resolve from the environment. */
   headers?: Record<string, string>;
+  /** Load only these of the server's tools; omit for all. */
+  tools?: string[];
   /** Results reach the agent but are left out of logs and the event log. */
   private?: boolean;
 }
@@ -66,9 +68,10 @@ export async function initMCP(servers: MCPServerConfig[]): Promise<AgentTool[]> 
       try {
         const mcpTools = await runtime.listTools(server.name, { includeSchema: true });
         for (const tool of mcpTools) {
+          if (server.tools && !server.tools.includes(tool.name)) continue;
           allTools.push(mcpToolToAgentTool(server.name, tool));
         }
-        log.info(`[${server.name}]: ${mcpTools.length} tools discovered`);
+        log.info(`[${server.name}]: ${mcpTools.length} tools discovered${server.tools ? `, loading ${server.tools.join(", ")}` : ""}`);
         break;
       } catch (err) {
         if (attempt < 2) {

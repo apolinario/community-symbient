@@ -57,6 +57,7 @@ export const SymbientConfigSchema = Type.Object({
     name: Type.String(),
     url: Type.String(),
     headers: Type.Optional(Type.Record(Type.String(), Type.String())),
+    tools: Type.Optional(Type.Array(Type.String())),
     private: Type.Optional(Type.Boolean()),
   }, { additionalProperties: true }))),
   modules: Type.Optional(Type.Record(Type.String(), ModuleOverride)),
