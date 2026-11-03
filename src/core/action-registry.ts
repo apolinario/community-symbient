@@ -71,9 +71,10 @@ function resolveChatHandler(action: string, watchId: string): string | null {
 /**
  * DM a person. Nudges the chat-handler module with a `send_dm:` payload —
  * the handler runs as an agent and composes the actual message (using
- * `intent` as the goal), so we don't hardcode wording here.
+ * `intent` as the goal, and the triggering `event` as what it's about), so we
+ * don't hardcode wording here.
  */
-const dmAction: ActionHandler = async ({ params, messages, watchId }) => {
+const dmAction: ActionHandler = async ({ params, messages, event, watchId }) => {
   const to = params.to;
   const intent = params.intent;
   if (!to || !intent) {
@@ -86,13 +87,14 @@ const dmAction: ActionHandler = async ({ params, messages, watchId }) => {
     to,
     intent,
     reasoning: params.reasoning ?? `watch ${watchId} fired`,
+    event,
   })}`;
   await messages.send(target, payload);
   log.info(`dm nudge sent (watch ${watchId} → ${to} via ${target})`);
 };
 
 /** Post to the main group. Nudges the chat-handler with `send_group:`. */
-const groupAction: ActionHandler = async ({ params, messages, watchId }) => {
+const groupAction: ActionHandler = async ({ params, messages, event, watchId }) => {
   if (!params.intent) {
     log.warn(`group action missing intent (watch ${watchId})`);
     return;
@@ -102,6 +104,7 @@ const groupAction: ActionHandler = async ({ params, messages, watchId }) => {
   const payload = `send_group:${JSON.stringify({
     intent: params.intent,
     reasoning: params.reasoning ?? `watch ${watchId} fired`,
+    event,
   })}`;
   await messages.send(target, payload);
   log.info(`group nudge sent (watch ${watchId} via ${target})`);
