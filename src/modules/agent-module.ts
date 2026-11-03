@@ -210,7 +210,10 @@ export function createAgentModule(spec: ModuleSpec) {
     // that want all tools simply omit the filter, but here we honour
     // spec.toolNames literally.
     const allowedTools = filterToolsByWhitelist(ctx.tools, spec.toolNames);
-    if (spec.writes?.length) allowedTools.push(createNoteTool(spec.name, spec.writes, () => agent.abort()));
+    // Stops we cause ourselves end the run on purpose; they aren't errors.
+    let stoppedBy = "";
+    const stop = (reason: string) => { stoppedBy = reason; agent.abort(); };
+    if (spec.writes?.length) allowedTools.push(createNoteTool(spec.name, spec.writes, () => stop("note limit")));
 
     // Build system prompt: render the module's Handlebars template with standard vars.
     // The md file is responsible for whatever preamble, memory context, and instructions
@@ -233,7 +236,7 @@ export function createAgentModule(spec: ModuleSpec) {
     let agentError = "";
     const toolTrace: string[] = [];
     const toolCalls: Array<{ name: string; args: unknown; result?: string }> = [];
-    const detectLoop = createLoopDetector(() => agent.abort(), ctx.log);
+    const detectLoop = createLoopDetector(() => stop("loop detected"), ctx.log);
 
     agent.subscribe((event) => {
       switch (event.type) {
@@ -273,7 +276,11 @@ export function createAgentModule(spec: ModuleSpec) {
 
     // Check state for errors after each cycle
     const checkError = () => {
-      if (agent.state.error) {
+      if (stoppedBy === "note limit") {
+        ctx.log(`${spec.name} stopped at the note limit`);
+      } else if (stoppedBy) {
+        agentError = stoppedBy;
+      } else if (agent.state.error) {
         ctx.log(`Agent state error: ${agent.state.error}`);
         agentError = agent.state.error;
       }
