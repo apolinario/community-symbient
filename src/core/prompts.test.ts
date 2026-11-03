@@ -21,7 +21,7 @@ describe("withToolGuides", () => {
   test("a workspace guide replaces the framework guide of the same name", () => {
     const out = withToolGuides("SYSTEM", ["read"]);
     expect(out).toContain("## My files");
-    expect(out).not.toContain("by name pattern");
+    expect(out).not.toContain("limit: 100");
   });
 
   test("without matching tools the prompt is unchanged", () => {
