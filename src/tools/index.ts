@@ -6,6 +6,7 @@
  * tool execution loop automatically — no text parsing needed.
  */
 
+import { readStream, renderStream } from "../core/stream.js";
 import { Type } from "@mariozechner/pi-ai";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { MemoryManager } from "../memory/manager.js";
@@ -187,6 +188,29 @@ export function createChatHistoryTool(memory: MemoryManager): AgentTool {
 }
 
 // --- Web Search (SearXNG-compatible) ---
+
+export function createReadStreamTool(): AgentTool {
+  return {
+    name: "read_stream",
+    label: "Read Stream",
+    description: "Read further back in your stream than your context shows: the most recent entries in some categories, before a given time.",
+    parameters: Type.Object({
+      categories: Type.Array(Type.String(), { description: "e.g. [\"perception.chat.group\"]" }),
+      before: Type.Optional(Type.String({ description: "HH:MM today, or an ISO time; omit for now" })),
+      limit: Type.Optional(Type.Number({ description: "How many entries (default 30)" })),
+    }),
+    execute: async (_id, params) => {
+      let before: number | undefined;
+      if (params.before) {
+        const hm = params.before.match(/^(\d{1,2}):(\d{2})$/);
+        before = hm ? new Date().setHours(Number(hm[1]), Number(hm[2]), 0, 0) : Date.parse(params.before);
+        if (Number.isNaN(before)) return { content: [{ type: "text", text: `Can't read the time "${params.before}".` }], details: {} };
+      }
+      const entries = await readStream({ categories: params.categories, before, limit: params.limit || 30 });
+      return { content: [{ type: "text", text: entries.length ? renderStream(entries) : "Nothing earlier in those categories." }], details: {} };
+    },
+  };
+}
 
 export function createWebSearchTool(): AgentTool {
   return {

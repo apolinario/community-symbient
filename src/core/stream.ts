@@ -76,6 +76,7 @@ async function readTail(): Promise<StreamEntry[]> {
 export interface StreamQuery {
   categories?: string[];
   since?: number;
+  before?: number;
   /** As seen from one conversation: entries belonging to other conversations are left out. */
   counterpart?: string;
   /** The most recent N matching entries. */
@@ -85,7 +86,7 @@ export interface StreamQuery {
 export async function readStream(q: StreamQuery = {}): Promise<StreamEntry[]> {
   const entries = (await readTail()).filter((e) =>
     (q.counterpart === undefined || e.with === undefined || e.with === q.counterpart) &&
-    (!q.categories || inCategories(e.category, q.categories)) && (!q.since || e.ts >= q.since));
+    (!q.categories || inCategories(e.category, q.categories)) && (!q.since || e.ts >= q.since) && (!q.before || e.ts < q.before));
   return q.limit ? entries.slice(-q.limit) : entries;
 }
 
